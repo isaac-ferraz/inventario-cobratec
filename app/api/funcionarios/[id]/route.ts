@@ -37,13 +37,17 @@ export async function DELETE(req: Request, { params }: Params) {
   }
 
   try {
-    if (computadores > 0 && liberar) {
-      await prisma.computador.updateMany({
-        where: { funcionarioId: params.id },
-        data: { funcionarioId: null },
-      });
-    }
-    await prisma.funcionario.delete({ where: { id: params.id } });
+    // Liberar as máquinas e remover o funcionário de forma atômica (evita
+    // estado intermediário se algo falhar entre os dois passos).
+    await prisma.$transaction(async (tx) => {
+      if (computadores > 0 && liberar) {
+        await tx.computador.updateMany({
+          where: { funcionarioId: params.id },
+          data: { funcionarioId: null },
+        });
+      }
+      await tx.funcionario.delete({ where: { id: params.id } });
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return tratarErroPrisma(e);
