@@ -151,4 +151,47 @@ Use quando aplicável:
 npx prisma migrate dev      # aplicar mudanças no schema
 npx prisma studio           # inspecionar o banco visualmente
 npm run dev                 # rodar em desenvolvimento
+npm run db:seed             # catálogo + dados de exemplo
+npm run db:catalogo         # garante só o catálogo de tipos (idempotente)
+docker compose up -d --build # subir via Docker (porta 3000, banco em volume)
 ```
+
+---
+
+## Estado atual do projeto (evoluções além do spec)
+
+Esta seção reflete o que já está implementado, para manter o CLAUDE.md como
+especificação viva. Resumo completo em [`docs/RESUMO.md`](./docs/RESUMO.md);
+decisões técnicas em [`docs/decisoes.md`](./docs/decisoes.md).
+
+**Implementado:** todo o spec acima (computadores, componentes, funcionários,
+catálogo de tipos, Excel com aba Inventário + Dashboard com data bars).
+
+**Adições por computador:** além de `observacoes` (texto livre, mantido), cada
+computador tem `loginPadrao` (COB-número), `licencaWindows`, `licencaMicrosoft`
+(Microsoft 365/Office) e `contaOutlook` — todos campos diretos do `Computador`
+(decisão 8 em `decisoes.md`).
+
+**Melhorias de UX/dados:** busca na lista de computadores; filtros por
+funcionário e cargo; funcionários inativos fora do seletor de dono; validação de
+e-mail (conta Outlook) na API; limpar campos opcionais via edição (`"" → null`);
+**pendências de licença/conta** no Dashboard e no Excel.
+
+**Infra:**
+- **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
+  `exceljs` não cria gráficos nativos na escrita (decisão 6).
+- **Docker:** imagem enxuta com Next `output: "standalone"`, multi-stage Alpine,
+  usuário não-root; `docker-compose` com volume persistente (`/app/data`);
+  migrations aplicadas no boot pelo `docker-entrypoint.sh`.
+- **Catálogo sempre presente:** `prisma/seed-catalogo.cjs` (lista única em
+  `prisma/catalogo.cjs`) roda a cada boot do container, garantindo o catálogo de
+  tipos sem precisar rodar o seed manualmente.
+- **Segurança/dependências:** ferramenta interna sem autenticação (LAN restrita);
+  Next fixado na linha 14.2.x (14.2.35) — ver decisão 9.
+
+**Repositório:** GitHub privado `isaac-ferraz/inventario-cobratec`. Branches:
+`main` (estável), `develop` (integração), `feat/docker` (Docker + catálogo).
+
+**Observação sobre as skills citadas acima:** `xlsx` e
+`consultor-mini-app-sqlite` não estavam instaladas no ambiente; o projeto foi
+construído sem elas.
