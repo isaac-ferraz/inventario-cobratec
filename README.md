@@ -318,6 +318,40 @@ npm run dev                   # desenvolvimento em http://localhost:3000
 npm run build && npm start    # produção
 ```
 
+### Rodar com Docker
+
+Imagem **enxuta** via build multi-stage + output `standalone` do Next, sobre
+Alpine. O banco SQLite é persistido em um **volume** (`inventario-db`) e as
+migrations são aplicadas automaticamente no start (`prisma migrate deploy`).
+
+```bash
+docker compose up -d --build      # build + sobe em http://localhost:3000
+docker compose logs -f app        # acompanhar logs
+docker compose down               # parar (mantém o volume/banco)
+docker compose down -v            # parar e APAGAR o banco do volume
+```
+
+Detalhes:
+
+- **Persistência:** o `dev.db` fica no volume `inventario-db` montado em
+  `/app/data`; sobrevive a `down`/rebuilds. `DATABASE_URL` aponta para o caminho
+  absoluto `file:/app/data/dev.db`.
+- **Migrations:** aplicadas no boot do container pelo `docker-entrypoint.sh`.
+- **Catálogo de tipos sempre presente:** o entrypoint roda
+  `prisma/seed-catalogo.cjs` (idempotente) a cada boot, garantindo o catálogo
+  padrão de tipos de componente — sem precisar rodar o seed manualmente e sem
+  duplicar/alterar dados existentes. A lista vive em `prisma/catalogo.cjs`
+  (fonte única, usada também pelo seed completo).
+- **Dados de exemplo (opcional):** funcionários/computadores de exemplo **não**
+  são inseridos automaticamente. Para popular localmente: `npm run db:seed`.
+  Para garantir só o catálogo localmente: `npm run db:catalogo`.
+- **Imagem:** ~550 MB (base Alpine + engine do Prisma). Bem menor que uma imagem
+  com `node_modules` completo graças ao `output: "standalone"`.
+
+Arquivos relevantes: [`Dockerfile`](./Dockerfile),
+[`docker-compose.yml`](./docker-compose.yml),
+[`docker-entrypoint.sh`](./docker-entrypoint.sh), [`.dockerignore`](./.dockerignore).
+
 ---
 
 ## Scripts

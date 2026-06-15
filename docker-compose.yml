@@ -1,0 +1,18 @@
+# Sobe a aplicação com o banco SQLite persistido em um volume nomeado.
+# Uso: docker compose up -d --build
+services:
+  app:
+    build: .
+    image: inventario-cobratec
+    container_name: inventario-cobratec
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "file:/app/data/dev.db"
+    volumes:
+      # Persiste o dev.db entre reinícios/rebuilds do container.
+      - inventario-db:/app/data
+    restart: unless-stopped
+
+volumes:
+  inventario-db:
