@@ -110,6 +110,21 @@ a vetores de DoS / cache poisoning relevantes para apps **expostos
 publicamente**. Para uso interno em LAN, optou-se por **não** migrar para o
 Next 16 agora. Reavaliar a migração caso o app passe a ser exposto externamente.
 
+**Endurecimento adicionado (sem mudar o padrão):**
+
+- **Headers de segurança** em todas as respostas (`next.config.mjs`):
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy` e `Permissions-Policy`. Custo zero, mitiga
+  clickjacking/sniffing. CSP estrita ficou para depois (risco de quebrar os
+  estilos inline do Next/Tailwind).
+- **Basic Auth opcional** (`middleware.ts`), **desligada por padrão** para
+  respeitar a premissa de LAN sem login. Ativa-se definindo `BASIC_AUTH_USER` e
+  `BASIC_AUTH_PASS` (ver `.env.example`) — útil se o app sair da rede interna ou
+  se quiserem uma barreira simples sem montar um proxy. Quando ligada, vale para
+  todas as rotas, inclusive `/api/export`.
+- **Limites de tamanho** nas entradas (zod `.max()` e teto de campos em
+  `especificacoes`) — ver os schemas em `lib/validations.ts`.
+
 ## 10. Periféricos como booleans de presença (sem modelo)
 
 **Decisão:** mouse, teclado e headset são três booleans diretos no model
