@@ -337,12 +337,14 @@ Detalhes:
   `/app/data`; sobrevive a `down`/rebuilds. `DATABASE_URL` aponta para o caminho
   absoluto `file:/app/data/dev.db`.
 - **Migrations:** aplicadas no boot do container pelo `docker-entrypoint.sh`.
-- **Seed (opcional):** o seed não roda automaticamente (insere dados de
-  exemplo). Para popular o catálogo/dados de exemplo num container em execução:
-  ```bash
-  docker compose exec app node ./node_modules/prisma/build/index.js db seed
-  ```
-  (ou rode `npm run db:seed` localmente apontando para o mesmo banco).
+- **Catálogo de tipos sempre presente:** o entrypoint roda
+  `prisma/seed-catalogo.cjs` (idempotente) a cada boot, garantindo o catálogo
+  padrão de tipos de componente — sem precisar rodar o seed manualmente e sem
+  duplicar/alterar dados existentes. A lista vive em `prisma/catalogo.cjs`
+  (fonte única, usada também pelo seed completo).
+- **Dados de exemplo (opcional):** funcionários/computadores de exemplo **não**
+  são inseridos automaticamente. Para popular localmente: `npm run db:seed`.
+  Para garantir só o catálogo localmente: `npm run db:catalogo`.
 - **Imagem:** ~550 MB (base Alpine + engine do Prisma). Bem menor que uma imagem
   com `node_modules` completo graças ao `output: "standalone"`.
 
