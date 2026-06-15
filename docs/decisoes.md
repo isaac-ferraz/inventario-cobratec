@@ -109,3 +109,23 @@ Os avisos restantes do `npm audit` só se resolvem migrando para o **Next 16**
 a vetores de DoS / cache poisoning relevantes para apps **expostos
 publicamente**. Para uso interno em LAN, optou-se por **não** migrar para o
 Next 16 agora. Reavaliar a migração caso o app passe a ser exposto externamente.
+
+## 10. Periféricos como booleans de presença (sem modelo)
+
+**Decisão:** mouse, teclado e headset são três booleans diretos no model
+`Computador` (`temMouse`, `temTeclado`, `temHeadset`) — registram **apenas a
+presença** do periférico, não marca/modelo. Defaults: `temMouse`/`temTeclado`
+`true`, `temHeadset` `false`.
+
+**Por quê:** mouse e teclado normalmente acompanham a máquina (daí o default
+`true`); o headset é o item que mais varia entre estações. O TI precisa só saber
+"tem ou não tem", não o modelo — então um boolean é mais simples e rápido de
+preencher do que um `Componente` no catálogo com especificações. Manter como
+campo do `Computador` (e não como tipo de componente) evita poluir o catálogo de
+hardware e deixa a edição num clique no formulário.
+
+**Reflexo no resto do sistema:** os três campos aparecem como botões-toggle no
+formulário de computador, como badges no card da lista, como colunas
+(`Sim`/`Não`) na aba **Inventário** do Excel, e geram a pendência **"Sem
+headset"** no Dashboard (site e Excel). Se um dia for preciso rastrear modelo/nº
+de série de periférico, promover para `Componente` do catálogo.

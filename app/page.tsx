@@ -84,6 +84,10 @@ export default async function DashboardPage() {
       label: "Sem login padrão",
       valor: computadores.filter((c) => !c.loginPadrao).length,
     },
+    {
+      label: "Sem headset",
+      valor: computadores.filter((c) => !c.temHeadset).length,
+    },
   ];
 
   const kpis = [

@@ -48,6 +48,9 @@ export async function POST(req: Request): Promise<NextResponse> {
         licencaWindows: r.data.licencaWindows,
         licencaMicrosoft: r.data.licencaMicrosoft,
         contaOutlook: r.data.contaOutlook,
+        temMouse: r.data.temMouse,
+        temTeclado: r.data.temTeclado,
+        temHeadset: r.data.temHeadset,
         funcionarioId: r.data.funcionarioId || null,
       },
     });

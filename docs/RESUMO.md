@@ -17,8 +17,9 @@ o Excel é só relatório de saída.
 ## Modelo de dados (Prisma)
 - **Funcionario**: nome, cargo (texto livre), matrícula?, ativo, computadores[]
 - **Computador**: identificador (único), apelido?, **observacoes?**, loginPadrao?,
-  licencaWindows?, licencaMicrosoft?, contaOutlook?, funcionarioId? (null =
-  estoque), componentes[]
+  licencaWindows?, licencaMicrosoft?, contaOutlook?, **temMouse/temTeclado/
+  temHeadset** (booleans de presença), funcionarioId? (null = estoque),
+  componentes[]
 - **TipoComponente**: nome (único) — catálogo editável
 - **Componente**: descricao, especificacoes? (JSON livre guardado como texto, pois
   o SQLite não suporta Json no Prisma), tipo, computador (cascade)
@@ -27,13 +28,15 @@ o Excel é só relatório de saída.
 - **Computadores**: listar com **busca** (identificador/apelido/login/conta/dono)
   e filtros (funcionário, cargo); criar, editar, remover (cascade), **mover**
   entre funcionários; campo de **Observações** livre; login padrão, licença
-  Windows, licença Microsoft e conta Outlook por máquina.
+  Windows, licença Microsoft e conta Outlook por máquina; **periféricos**
+  (mouse/teclado/headset — só presença) por máquina.
 - **Componentes**: adicionar/editar/remover por PC, com tipo do catálogo e
   especificações livres (chave/valor).
 - **Funcionários**: CRUD, **inativar** (preserva histórico), regra de liberação
   de máquinas ao remover; inativos não aparecem no seletor de dono.
 - **Tipos de componente**: catálogo editável (não remove tipo em uso).
-- **Dashboard**: KPIs, por cargo, por tipo, e **pendências de licença/conta**.
+- **Dashboard**: KPIs, por cargo, por tipo, e **pendências de licença/conta**
+  (inclui "sem headset").
 - **Excel**: `.xlsx` com aba Inventário + aba Dashboard (com data bars).
 
 ## Histórico do que foi construído
@@ -54,6 +57,9 @@ o Excel é só relatório de saída.
 6. **Catálogo sempre presente**: script idempotente (`prisma/seed-catalogo.cjs`,
    lista única em `prisma/catalogo.cjs`) roda em todo boot do container — não
    precisa rodar o seed manualmente.
+7. **Periféricos por computador**: booleans `temMouse`/`temTeclado`/`temHeadset`
+   (só presença) — toggles no formulário, badges na lista, colunas no Excel e
+   pendência "sem headset" no Dashboard. Branch **`feat/perifericos`**.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)
