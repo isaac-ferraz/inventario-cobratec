@@ -73,6 +73,7 @@ type Computador = {
   funcionarioId: string | null;
   funcionario: Funcionario | null;
   componentes: Componente[];
+  atualizadoEm: string; // usado para concorrência otimista na edição
 };
 
 type Spec = { chave: string; valor: string };
@@ -232,6 +233,8 @@ export default function ComputadoresPage() {
       temTeclado,
       temHeadset,
       funcionarioId: pcFunc === SEM_FUNC ? null : pcFunc,
+      // Concorrência otimista: na edição, informamos a versão que carregamos.
+      ...(pcEdit ? { esperaAtualizadoEm: pcEdit.atualizadoEm } : {}),
     };
     try {
       await apiSend(

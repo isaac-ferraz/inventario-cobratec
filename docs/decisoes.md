@@ -150,3 +150,18 @@ FK. As consultas do app filtram/juntam por essas colunas (lista por dono, lookup
 de componentes por computador, checagem "tipo em uso"). Os `@@index` no schema
 evitam varredura de tabela conforme o inventário cresce. Custo desprezível em
 escrita para o volume de um escritório.
+
+## 12. Concorrência otimista na edição de computador
+
+**Decisão:** o `PATCH /api/computadores/[id]` aceita um campo opcional
+`esperaAtualizadoEm`. O cliente envia o `atualizadoEm` que carregou; se o
+registro tiver sido alterado nesse meio-tempo, a API responde **409** com uma
+mensagem pedindo para recarregar, em vez de sobrescrever silenciosamente.
+
+**Por quê:** a ferramenta é multiusuário (vários do TI mexendo ao mesmo tempo).
+Sem isso, "last write wins" — dois analistas editando a mesma máquina e um apaga
+a alteração do outro sem ninguém perceber. A verificação é **opt-in** (só vale
+quando o campo é enviado), então não quebra clientes/scripts que não o mandam.
+Comparamos a versão por `toISOString()` (mesma forma que o cliente recebeu no
+JSON). Aplicado ao `Computador` por ser a entidade mais editada; os demais
+formulários (funcionário, tipo) são simples e de baixa contenção.
