@@ -1,0 +1,61 @@
+// Schema do Sistema de Inventário de Hardware (Cobratec TI)
+// SQLite é a fonte única de verdade. O Excel é apenas relatório de saída.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Funcionário = a pessoa dona do computador (operadora, gestor, supervisor, etc.)
+model Funcionario {
+  id           String       @id @default(cuid())
+  nome         String
+  cargo        String // texto livre p/ não engessar a lista de cargos
+  matricula    String?      @unique
+  ativo        Boolean      @default(true)
+  computadores Computador[]
+  criadoEm     DateTime     @default(now())
+}
+
+model Computador {
+  id            String       @id @default(cuid())
+  identificador String       @unique // patrimônio, hostname ou etiqueta
+  apelido       String?
+  observacoes   String?
+  // Login/licenças/conta da máquina — opcionais (nem todo PC tem tudo registrado)
+  loginPadrao      String? // login padrão do computador, ex: "COB-1024"
+  licencaWindows   String? // chave/observação da licença do Windows
+  licencaMicrosoft String? // licença Microsoft 365 / Office
+  contaOutlook     String? // conta do Outlook corporativo (e-mail)
+  funcionarioId String?
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id])
+  componentes   Componente[]
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+}
+
+// Catálogo EDITÁVEL de tipos de componente (CPU, RAM, SSD, GPU, Monitor...).
+// Permite adicionar tipos novos sem mexer no código.
+model TipoComponente {
+  id          String       @id @default(cuid())
+  nome        String       @unique
+  componentes Componente[]
+}
+
+model Componente {
+  id             String         @id @default(cuid())
+  computadorId   String
+  computador     Computador     @relation(fields: [computadorId], references: [id], onDelete: Cascade)
+  tipoId         String
+  tipo           TipoComponente @relation(fields: [tipoId], references: [id])
+  descricao      String // ex: "Kingston 8GB DDR4 2666MHz"
+  // Campos livres adicionais (capacidade, modelo...) — mantém flexível.
+  // SQLite não suporta o tipo Json no Prisma; guardamos JSON serializado em
+  // texto e (de)serializamos na camada de API. Ver /docs/decisoes.md.
+  especificacoes String? // JSON serializado
+  criadoEm       DateTime       @default(now())
+}

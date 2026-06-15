@@ -1,0 +1,154 @@
+# CLAUDE.md — Sistema de Inventário de Hardware (Cobratec TI)
+
+## Visão geral
+
+Aplicação web interna para o departamento de TI controlar o **hardware de cada computador** do escritório. Cada **funcionário** (operadora, gestor, supervisor, etc.) possui seu próprio computador. O sistema é gerido pelo analista de TI e precisa ser **flexível**: nada de estrutura rígida. As operações principais são adicionar computadores, gerenciar os componentes de hardware de cada um, e realocar computadores entre funcionários.
+
+Não é um SaaS público nem multi-empresa. É uma ferramenta interna, de uso restrito ao TI, rodando na rede do escritório.
+
+## Princípios do projeto
+
+- **Flexibilidade acima de tudo.** O usuário pode adicionar/remover computadores, adicionar/remover/editar qualquer componente de hardware e mover um computador de um funcionário para outro a qualquer momento. Nenhum campo de hardware é fixo ou obrigatório de forma rígida — o catálogo de tipos de componente deve ser editável.
+- **Interface simples e interativa.** Telas limpas, ações diretas (botões de adicionar/editar/remover), sem fluxos longos. O gestor de TI precisa fazer alterações rápidas no dia a dia.
+- **Dados como fonte única de verdade no banco.** O Excel é um *relatório de saída*, nunca a fonte de dados do site.
+- **Decisões técnicas documentadas.** Registrar o "porquê" das escolhas relevantes em `/docs/decisoes.md` (padrão de documentação técnica do TI).
+
+## Stack tecnológica
+
+
+- **Framework:** Next.js 14+ (App Router) — full-stack, frontend e API no mesmo projeto
+- **UI:** shadcn/ui + Tailwind CSS
+- **ORM:** Prisma
+- **Banco de dados:** SQLite (arquivo local `dev.db`) — simples, zero configuração, um arquivo só
+- **Geração de Excel:** biblioteca `exceljs` (gera planilha + gráficos de dashboard no servidor)
+- **Linguagem:** TypeScript
+
+> Decisão de arquitetura: SQLite é a fonte de verdade do sistema. O Excel é gerado **sob demanda** a partir do banco, com aba de dados e aba de dashboard. Excel não é usado como banco porque um app interativo com escrita concorrente corromperia o arquivo. Documentar esta decisão em `/docs/decisoes.md`.
+
+## Modelo de dados (Prisma)
+
+O modelo deve ser flexível. Estrutura inicial sugerida — ajustar conforme necessário, mas manter a flexibilidade:
+
+```prisma
+// Funcionário = a pessoa dona do computador (operadora, gestor, supervisor, etc.)
+model Funcionario {
+  id           String       @id @default(cuid())
+  nome         String
+  cargo        String       // "Operadora", "Gestor", "Supervisor"... texto livre p/ não engessar
+  matricula    String?      @unique
+  ativo        Boolean      @default(true)
+  computadores Computador[]
+  criadoEm     DateTime     @default(now())
+}
+
+model Computador {
+  id            String       @id @default(cuid())
+  identificador String       @unique   // ex: patrimônio, hostname ou etiqueta
+  apelido       String?
+  observacoes   String?
+  funcionarioId String?
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id])
+  componentes   Componente[]
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+}
+
+// Tipo de componente é um catálogo EDITÁVEL (CPU, RAM, SSD, GPU, Monitor, etc.)
+// Permite adicionar tipos novos sem mexer no código.
+model TipoComponente {
+  id          String       @id @default(cuid())
+  nome        String       @unique   // ex: "Memória RAM", "Armazenamento"
+  componentes Componente[]
+}
+
+model Componente {
+  id             String         @id @default(cuid())
+  computadorId   String
+  computador     Computador     @relation(fields: [computadorId], references: [id], onDelete: Cascade)
+  tipoId         String
+  tipo           TipoComponente @relation(fields: [tipoId], references: [id])
+  descricao      String         // ex: "Kingston 8GB DDR4 2666MHz"
+  especificacoes Json?          // campos livres adicionais (capacidade, modelo, etc.) — mantém flexível
+  criadoEm       DateTime       @default(now())
+}
+```
+
+Pontos de flexibilidade obrigatórios:
+- Tipos de componente vêm da tabela `TipoComponente` (editável pela UI), não de um enum no código.
+- `cargo` é texto livre — não travar em uma lista fixa de cargos.
+- `especificacoes Json?` permite campos livres por componente sem migração de schema.
+- Remover hardware = deletar o registro `Componente` (não some o computador).
+- Mover computador de funcionário = atualizar `funcionarioId`.
+- Computador pode ficar sem funcionário (`funcionarioId` null) — ex: máquina em estoque/manutenção.
+- Relação 1:N (um funcionário pode ter mais de um computador, um computador tem um dono). Normalmente é 1:1, mas o modelo não impede que um gestor tenha mais de uma máquina.
+
+## Requisitos funcionais
+
+1. **Computadores**
+   - Listar todos, com filtro por funcionário e por cargo
+   - Adicionar novo computador
+   - Editar dados (identificador, apelido, observações)
+   - Remover computador (remove os componentes em cascata)
+   - Mover computador de um funcionário para outro
+2. **Hardware / Componentes**
+   - Ver os componentes de um computador
+   - Adicionar componente (escolhendo o tipo do catálogo)
+   - Editar componente
+   - Remover componente
+3. **Funcionários**
+   - Listar, criar, editar e remover funcionários (com cargo)
+   - Marcar funcionário como inativo (ex: desligamento) sem perder o histórico
+   - Ao remover/inativar funcionário com computador, decidir destino: bloquear ou liberar o computador para "sem funcionário"
+4. **Tipos de componente (catálogo)**
+   - CRUD completo dos tipos, para manter o sistema flexível
+5. **Exportação Excel** (ver seção própria)
+
+## Saída Excel formal
+
+Endpoint que gera e baixa um `.xlsx` com **duas abas**, a partir dos dados atuais do banco:
+
+1. **Aba "Inventário"** (planilha normal): uma linha por computador (ou por componente, definir na implementação), com colunas: funcionário, cargo, identificador, apelido, e os componentes de hardware. Formatação limpa: cabeçalho em negrito, colunas com largura ajustada, linhas com bordas leves.
+2. **Aba "Dashboard"**: os principais indicadores que aparecem no site, com gráficos. Indicadores mínimos:
+   - Total de computadores
+   - Computadores por cargo (gráfico de barras)
+   - Distribuição de componentes por tipo (gráfico de pizza ou barras)
+   - Computadores sem funcionário / em estoque
+   - Tipos de componente mais comuns
+
+Usar `exceljs` para criar os gráficos nativos do Excel (não imagem estática). O Excel deve refletir exatamente os dados do site no momento da exportação.
+
+## Estrutura de pastas
+
+```
+/app
+  /api            # rotas de API (computadores, componentes, funcionarios, tipos, export)
+  /(rotas de UI)  # páginas
+/components       # componentes shadcn/ui e próprios
+/lib              # prisma client, helpers, geração de excel
+/prisma           # schema.prisma, migrations, dev.db
+/docs             # decisoes.md e documentação técnica
+```
+
+## Convenções de código
+
+- TypeScript com tipos explícitos nas funções de API
+- Componentes de UI pequenos e reutilizáveis
+- Toda escrita no banco passa por validação (zod) na camada de API
+- Comentários em português, diretos
+- Sem dependências desnecessárias — manter o projeto enxuto
+
+## Skills disponíveis em ~/.claude/skills/
+
+Use quando aplicável:
+- **frontend-design** — direção visual e de UI ao construir as telas
+- **xlsx** — referência para a geração do Excel formal (planilha + dashboard)
+- **consultor-mini-app-sqlite** — padrão de mini-app Next.js + Prisma + SQLite + shadcn/ui
+- **supabase-postgres-best-practices** — boas práticas de modelagem (parte se aplica a Postgres/Supabase; usar só o que faz sentido para SQLite)
+
+## Comandos úteis
+
+```bash
+npx prisma migrate dev      # aplicar mudanças no schema
+npx prisma studio           # inspecionar o banco visualmente
+npm run dev                 # rodar em desenvolvimento
+```

@@ -1,0 +1,27 @@
+import { NextResponse } from "next/server";
+import { gerarWorkbook } from "@/lib/excel";
+
+// Sempre gerar a partir dos dados atuais do banco (nunca cachear).
+export const dynamic = "force-dynamic";
+
+// GET /api/export — gera e baixa o .xlsx com os dados atuais do banco.
+export async function GET(): Promise<NextResponse> {
+  try {
+    const buffer = await gerarWorkbook();
+    const dataStr = new Date().toISOString().slice(0, 10);
+    return new NextResponse(buffer, {
+      status: 200,
+      headers: {
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="inventario-cobratec-${dataStr}.xlsx"`,
+      },
+    });
+  } catch (e) {
+    console.error("Erro ao gerar Excel:", e);
+    return NextResponse.json(
+      { erro: "Falha ao gerar o relatório Excel." },
+      { status: 500 },
+    );
+  }
+}
