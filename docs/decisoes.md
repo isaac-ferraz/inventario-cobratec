@@ -129,3 +129,24 @@ formulário de computador, como badges no card da lista, como colunas
 (`Sim`/`Não`) na aba **Inventário** do Excel, e geram a pendência **"Sem
 headset"** no Dashboard (site e Excel). Se um dia for preciso rastrear modelo/nº
 de série de periférico, promover para `Componente` do catálogo.
+
+## 11. SQLite: modo WAL e índices de chave estrangeira
+
+**Decisão:** habilitar o **modo WAL** do SQLite e criar **índices** nas colunas de
+chave estrangeira (`Computador.funcionarioId`, `Componente.computadorId`,
+`Componente.tipoId`).
+
+**WAL — por quê:** por padrão o SQLite usa journal "rollback", que bloqueia o
+arquivo inteiro durante uma escrita — numa ferramenta multiusuário isso vira
+erro `database is locked`. O WAL deixa leituras acontecerem em paralelo a uma
+escrita. A configuração é gravada no cabeçalho do arquivo do banco (persiste),
+então basta aplicar uma vez: no Docker, o `docker-entrypoint.sh` roda
+`prisma db execute` com `prisma/sqlite-wal.sql` a cada boot (idempotente); no
+local, há o script `npm run db:wal`. Os arquivos auxiliares `dev.db-wal` e
+`dev.db-shm` ficam no `.gitignore`/`.dockerignore`.
+
+**Índices — por quê:** o SQLite **não** cria índice automático para colunas de
+FK. As consultas do app filtram/juntam por essas colunas (lista por dono, lookup
+de componentes por computador, checagem "tipo em uso"). Os `@@index` no schema
+evitam varredura de tabela conforme o inventário cresce. Custo desprezível em
+escrita para o volume de um escritório.
