@@ -31,7 +31,8 @@ export function middleware(req: NextRequest) {
   });
 }
 
-// Aplica a tudo, exceto assets estáticos do Next e o favicon.
+// Aplica a tudo, exceto assets estáticos do Next, o favicon e o /api/health
+// (o healthcheck do container roda sem credenciais).
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health).*)"],
 };
