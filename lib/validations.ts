@@ -32,6 +32,10 @@ export const computadorSchema = z.object({
   licencaWindows: textoOpcional,
   licencaMicrosoft: textoOpcional,
   contaOutlook: emailOpcional,
+  // Periféricos (apenas presença)
+  temMouse: z.boolean().optional(),
+  temTeclado: z.boolean().optional(),
+  temHeadset: z.boolean().optional(),
   // null = sem funcionário (estoque/manutenção)
   funcionarioId: z.string().trim().nullable().optional(),
 });

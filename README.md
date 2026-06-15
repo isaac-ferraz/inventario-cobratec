@@ -93,6 +93,9 @@ Definido em [`prisma/schema.prisma`](./prisma/schema.prisma). O modelo prioriza
 | `licencaWindows`   | String?     | chave/observação da licença do Windows      |
 | `licencaMicrosoft` | String?     | licença Microsoft 365 / Office              |
 | `contaOutlook`     | String?     | conta do Outlook corporativo (e-mail)       |
+| `temMouse`         | Boolean     | periférico presente (default `true`)        |
+| `temTeclado`       | Boolean     | periférico presente (default `true`)        |
+| `temHeadset`       | Boolean     | periférico presente (default `false`)       |
 | `funcionarioId`    | String?     | **null = sem dono** (estoque/manutenção)    |
 | `componentes`      | Componente[] | hardware (cascade ao remover o computador) |
 | `criadoEm`         | DateTime    | default now                                 |
@@ -135,6 +138,8 @@ Definido em [`prisma/schema.prisma`](./prisma/schema.prisma). O modelo prioriza
 - Computador pode ficar **sem funcionário** (estoque/manutenção).
 - Registrar **login padrão, licença Windows, licença Microsoft e conta Outlook**
   por máquina.
+- Marcar os **periféricos** que acompanham a máquina (mouse, teclado, headset) —
+  só presença, sem modelo; mouse/teclado vêm marcados por padrão.
 
 **Hardware / Componentes**
 - Ver, adicionar, editar e remover componentes de cada computador.
@@ -229,7 +234,8 @@ Gerada em [`lib/excel.ts`](./lib/excel.ts) com **exceljs**:
 
 - **Aba "Inventário"** — uma linha por computador: identificador, apelido,
   funcionário, cargo, status, login padrão, conta Outlook, licença Windows,
-  licença Microsoft, qtde de componentes, lista de hardware e observações.
+  licença Microsoft, periféricos (mouse/teclado/headset — Sim/Não), qtde de
+  componentes, lista de hardware e observações.
   Cabeçalho em negrito, colunas ajustadas, bordas leves, cabeçalho congelado.
 - **Aba "Dashboard"** — KPIs + blocos de "Computadores por cargo", "Componentes
   por tipo" e "Pendências de licença/conta", com **barras de dados (data bars)**.
@@ -248,7 +254,8 @@ Indicadores (os mesmos do Excel):
 - Total de computadores, em uso, sem funcionário/estoque, tipos distintos.
 - Computadores por cargo (barras).
 - Componentes por tipo (barras).
-- Pendências: PCs sem licença Windows / sem Microsoft / sem Outlook / sem login.
+- Pendências: PCs sem licença Windows / sem Microsoft / sem Outlook / sem login /
+  sem headset.
 
 ---
 
