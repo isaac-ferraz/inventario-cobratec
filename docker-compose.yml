@@ -14,9 +14,11 @@ services:
       - inventario-db:/app/data
     restart: unless-stopped
     # wget vem do busybox da imagem Alpine. /api/health checa app + banco.
+    # Usar 127.0.0.1 (IPv4) e não "localhost": o busybox resolve localhost para
+    # ::1 (IPv6) e o server standalone do Next escuta em 0.0.0.0 (IPv4) → recusa.
     healthcheck:
       test:
-        ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+        ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
