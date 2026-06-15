@@ -1,22 +1,13 @@
 // Seed inicial: catálogo de tipos de componente comuns + dados de exemplo.
 import { PrismaClient } from "@prisma/client";
+// Lista única do catálogo (também usada pelo seed-catalogo.cjs no boot).
+import catalogo from "./catalogo.cjs";
 
 const prisma = new PrismaClient();
 
 async function main() {
   // Catálogo inicial de tipos (editável depois pela UI)
-  const tiposNomes = [
-    "Processador",
-    "Memória RAM",
-    "Armazenamento",
-    "Placa de Vídeo",
-    "Placa-mãe",
-    "Fonte",
-    "Monitor",
-    "Sistema Operacional",
-  ];
-
-  for (const nome of tiposNomes) {
+  for (const nome of catalogo.TIPOS_PADRAO) {
     await prisma.tipoComponente.upsert({
       where: { nome },
       update: {},
