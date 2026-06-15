@@ -179,17 +179,30 @@ funcionário e cargo; funcionários inativos fora do seletor de dono; validaçã
 e-mail (conta Outlook) na API; limpar campos opcionais via edição (`"" → null`);
 **pendências de licença/conta** no Dashboard e no Excel.
 
+**Robustez e integridade:** carregamento das telas checa `res.ok` (helper
+`lib/fetcher.ts`) e mostra erro com "Tentar novamente" em vez de quebrar; SQLite
+em **modo WAL** + **índices de FK** (decisão 11); **concorrência otimista** na
+edição de computador via `esperaAtualizadoEm` (decisão 12); delete de funcionário
+transacional; **limites de tamanho** (zod) nas entradas.
+
+**Qualidade/processo:** **testes** com vitest (`lib/*.test.ts`, funções puras);
+**ESLint** configurado; **CI** no GitHub Actions (lint + testes + build em
+push/PR para `main` e `develop`).
+
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
   `exceljs` não cria gráficos nativos na escrita (decisão 6).
 - **Docker:** imagem enxuta com Next `output: "standalone"`, multi-stage Alpine,
-  usuário não-root; `docker-compose` com volume persistente (`/app/data`);
-  migrations aplicadas no boot pelo `docker-entrypoint.sh`.
+  usuário não-root; `docker-compose` com volume persistente (`/app/data`) e
+  **healthcheck** (`/api/health`); migrations + WAL aplicados no boot pelo
+  `docker-entrypoint.sh`. Backup com `npm run db:backup` (`VACUUM INTO`).
 - **Catálogo sempre presente:** `prisma/seed-catalogo.cjs` (lista única em
   `prisma/catalogo.cjs`) roda a cada boot do container, garantindo o catálogo de
   tipos sem precisar rodar o seed manualmente.
-- **Segurança/dependências:** ferramenta interna sem autenticação (LAN restrita);
-  Next fixado na linha 14.2.x (14.2.35) — ver decisão 9.
+- **Segurança/dependências:** ferramenta interna sem autenticação por padrão (LAN
+  restrita); **headers de segurança** e **auth Basic opcional** (env
+  `BASIC_AUTH_*`, via `middleware.ts`) disponíveis — ver decisão 9; Next fixado na
+  linha 14.2.x (14.2.35).
 
 **Repositório:** GitHub privado `isaac-ferraz/inventario-cobratec`. Branches:
 `main` (estável), `develop` (integração), `feat/docker` (Docker + catálogo).
