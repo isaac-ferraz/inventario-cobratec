@@ -363,23 +363,32 @@ Arquivos relevantes: [`Dockerfile`](./Dockerfile),
 
 ## Scripts
 
-| Comando              | O que faz                                |
-| -------------------- | ---------------------------------------- |
-| `npm run dev`        | Servidor de desenvolvimento              |
-| `npm run build`      | Build de produção (checa tipos)          |
-| `npm start`          | Sobe o build de produção                 |
-| `npm run lint`       | Lint                                     |
-| `npm run db:migrate` | `prisma migrate dev`                     |
-| `npm run db:studio`  | Prisma Studio (inspeção visual do banco) |
-| `npm run db:seed`    | Popula dados iniciais                    |
+| Comando               | O que faz                                       |
+| --------------------- | ----------------------------------------------- |
+| `npm run dev`         | Servidor de desenvolvimento                     |
+| `npm run build`       | Build de produção (checa tipos)                 |
+| `npm start`           | Sobe o build de produção                        |
+| `npm run lint`        | Lint (ESLint / next lint)                       |
+| `npm test`            | Testes de unidade (vitest)                      |
+| `npm run db:migrate`  | `prisma migrate dev`                            |
+| `npm run db:studio`   | Prisma Studio (inspeção visual do banco)        |
+| `npm run db:seed`     | Popula dados iniciais (catálogo + exemplos)     |
+| `npm run db:catalogo` | Garante só o catálogo de tipos (idempotente)    |
+| `npm run db:wal`      | Ativa o modo WAL do SQLite (idempotente)        |
+| `npm run db:backup`   | Backup consistente do banco (`VACUUM INTO`)     |
 
 ---
 
 ## Variáveis de ambiente
 
-| Variável       | Exemplo            | Descrição                       |
-| -------------- | ------------------ | ------------------------------- |
-| `DATABASE_URL` | `file:./dev.db`    | Caminho do banco SQLite (Prisma) |
+| Variável           | Exemplo         | Descrição                                        |
+| ------------------ | --------------- | ------------------------------------------------ |
+| `DATABASE_URL`     | `file:./dev.db` | Caminho do banco SQLite (Prisma)                 |
+| `BASIC_AUTH_USER`  | `ti`            | (Opcional) liga a auth Basic — usuário           |
+| `BASIC_AUTH_PASS`  | `••••••`        | (Opcional) liga a auth Basic — senha             |
+
+A auth Basic fica **desligada** enquanto as duas variáveis não forem definidas
+(ver [`.env.example`](./.env.example) e `middleware.ts`).
 
 > `.env` e `prisma/dev.db` **não** entram no git (ver `.gitignore`).
 
@@ -392,6 +401,18 @@ Arquivos relevantes: [`Dockerfile`](./Dockerfile),
 - Toda escrita no banco validada com zod na camada de API.
 - Comentários em português, diretos.
 - Sem dependências desnecessárias — projeto enxuto.
+
+---
+
+## Qualidade e CI
+
+- **Testes:** `npm test` (vitest) cobre as funções puras — validações zod e a
+  (de)serialização das especificações. Ficam ao lado do código (`lib/*.test.ts`).
+- **Lint:** `npm run lint` (ESLint `next/core-web-vitals`).
+- **Robustez do front:** o carregamento das telas checa `res.ok` e mostra erro
+  com "Tentar novamente" em vez de quebrar (helper em `lib/fetcher.ts`).
+- **CI:** `.github/workflows/ci.yml` roda lint + testes + build em cada push/PR
+  para `main` e `develop`.
 
 ---
 
@@ -408,6 +429,9 @@ Registradas em [`docs/decisoes.md`](./docs/decisoes.md). Resumo:
 7. shadcn/ui escrito à mão.
 8. Login/licenças/conta como campos do `Computador` (não tabela à parte).
 9. Postura de segurança/acesso e política de dependências (Next.js).
+10. Periféricos como booleans de presença (mouse/teclado/headset).
+11. SQLite em modo WAL + índices de chave estrangeira.
+12. Concorrência otimista na edição de computador (`esperaAtualizadoEm`).
 
 ---
 
@@ -423,6 +447,15 @@ em texto:
 - Sem login, qualquer um com acesso de rede pode editar dados — adequado para
   LAN confiável. Se for exposto além do escritório, **adicionar autenticação
   antes**.
+
+Endurecimento já disponível (sem mudar o padrão de LAN sem login):
+
+- **Headers de segurança** em todas as respostas (X-Frame-Options, nosniff,
+  Referrer-Policy, Permissions-Policy) — `next.config.mjs`.
+- **Auth Basic opcional** (`middleware.ts`): ligue definindo `BASIC_AUTH_USER` e
+  `BASIC_AUTH_PASS`. Cobre todas as rotas, inclusive `/api/export`.
+- **Limites de tamanho** nas entradas (zod) para evitar payloads abusivos.
+- **Backup** com `npm run db:backup` (consistente mesmo com o app no ar).
 
 Sobre dependências: o Next está fixado em **14.2.35** (última correção da linha
 14.2.x). Os avisos restantes do `npm audit` só se resolvem migrando para o

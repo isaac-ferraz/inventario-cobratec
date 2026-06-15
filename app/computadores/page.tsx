@@ -14,6 +14,7 @@ import {
   Keyboard,
   Headphones,
 } from "lucide-react";
+import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,6 +73,7 @@ type Computador = {
   funcionarioId: string | null;
   funcionario: Funcionario | null;
   componentes: Componente[];
+  atualizadoEm: string; // usado para concorrência otimista na edição
 };
 
 type Spec = { chave: string; valor: string };
@@ -81,6 +83,11 @@ export default function ComputadoresPage() {
   const [funcionarios, setFuncionarios] = React.useState<Funcionario[]>([]);
   const [tipos, setTipos] = React.useState<Tipo[]>([]);
   const [carregando, setCarregando] = React.useState(true);
+  const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
+  const [removendoPcId, setRemovendoPcId] = React.useState<string | null>(null);
+  const [removendoCompId, setRemovendoCompId] = React.useState<string | null>(
+    null,
+  );
 
   // filtros
   const [busca, setBusca] = React.useState("");
@@ -116,15 +123,21 @@ export default function ComputadoresPage() {
 
   async function carregarTudo() {
     setCarregando(true);
-    const [c, f, t] = await Promise.all([
-      fetch("/api/computadores").then((r) => r.json()),
-      fetch("/api/funcionarios").then((r) => r.json()),
-      fetch("/api/tipos").then((r) => r.json()),
-    ]);
-    setComputadores(c);
-    setFuncionarios(f);
-    setTipos(t);
-    setCarregando(false);
+    setCarregaErro(null);
+    try {
+      const [c, f, t] = await Promise.all([
+        apiGet<Computador[]>("/api/computadores"),
+        apiGet<Funcionario[]>("/api/funcionarios"),
+        apiGet<Tipo[]>("/api/tipos"),
+      ]);
+      setComputadores(c);
+      setFuncionarios(f);
+      setTipos(t);
+    } catch (e) {
+      setCarregaErro(mensagem(e));
+    } finally {
+      setCarregando(false);
+    }
   }
 
   React.useEffect(() => {
@@ -220,23 +233,22 @@ export default function ComputadoresPage() {
       temTeclado,
       temHeadset,
       funcionarioId: pcFunc === SEM_FUNC ? null : pcFunc,
+      // Concorrência otimista: na edição, informamos a versão que carregamos.
+      ...(pcEdit ? { esperaAtualizadoEm: pcEdit.atualizadoEm } : {}),
     };
-    const res = await fetch(
-      pcEdit ? `/api/computadores/${pcEdit.id}` : "/api/computadores",
-      {
-        method: pcEdit ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
-    setPcSalvando(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setPcErro(j.erro ?? "Erro ao salvar.");
-      return;
+    try {
+      await apiSend(
+        pcEdit ? `/api/computadores/${pcEdit.id}` : "/api/computadores",
+        pcEdit ? "PATCH" : "POST",
+        body,
+      );
+      setPcAberto(false);
+      carregarTudo();
+    } catch (e) {
+      setPcErro(mensagem(e));
+    } finally {
+      setPcSalvando(false);
     }
-    setPcAberto(false);
-    carregarTudo();
   }
 
   async function removerPc(c: Computador) {
@@ -246,13 +258,15 @@ export default function ComputadoresPage() {
       )
     )
       return;
-    const res = await fetch(`/api/computadores/${c.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      alert(j.erro ?? "Erro ao remover.");
-      return;
+    setRemovendoPcId(c.id);
+    try {
+      await apiSend(`/api/computadores/${c.id}`, "DELETE");
+      carregarTudo();
+    } catch (e) {
+      alert(mensagem(e));
+    } finally {
+      setRemovendoPcId(null);
     }
-    carregarTudo();
   }
 
   // ---------- Componente ----------
@@ -304,35 +318,32 @@ export default function ComputadoresPage() {
           descricao: compDescricao,
           especificacoes,
         };
-    const res = await fetch(
-      compEdit ? `/api/componentes/${compEdit.id}` : "/api/componentes",
-      {
-        method: compEdit ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
-    setCompSalvando(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setCompErro(j.erro ?? "Erro ao salvar componente.");
-      return;
+    try {
+      await apiSend(
+        compEdit ? `/api/componentes/${compEdit.id}` : "/api/componentes",
+        compEdit ? "PATCH" : "POST",
+        body,
+      );
+      setCompAberto(false);
+      carregarTudo();
+    } catch (e) {
+      setCompErro(mensagem(e));
+    } finally {
+      setCompSalvando(false);
     }
-    setCompAberto(false);
-    carregarTudo();
   }
 
   async function removerComp(comp: Componente) {
     if (!confirm(`Remover o componente "${comp.descricao}"?`)) return;
-    const res = await fetch(`/api/componentes/${comp.id}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      alert(j.erro ?? "Erro ao remover.");
-      return;
+    setRemovendoCompId(comp.id);
+    try {
+      await apiSend(`/api/componentes/${comp.id}`, "DELETE");
+      carregarTudo();
+    } catch (e) {
+      alert(mensagem(e));
+    } finally {
+      setRemovendoCompId(null);
     }
-    carregarTudo();
   }
 
   return (
@@ -424,6 +435,13 @@ export default function ComputadoresPage() {
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
         </div>
+      ) : carregaErro ? (
+        <div className="space-y-2">
+          <p className="text-sm text-destructive">{carregaErro}</p>
+          <Button variant="outline" size="sm" onClick={carregarTudo}>
+            Tentar novamente
+          </Button>
+        </div>
       ) : filtrados.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Nenhum computador encontrado.
@@ -450,6 +468,7 @@ export default function ComputadoresPage() {
                       variant="ghost"
                       size="icon"
                       title="Editar / mover"
+                      aria-label={`Editar ${c.identificador}`}
                       onClick={() => abrirEdicaoPc(c)}
                     >
                       <Pencil />
@@ -458,9 +477,15 @@ export default function ComputadoresPage() {
                       variant="ghost"
                       size="icon"
                       title="Remover"
+                      aria-label={`Remover ${c.identificador}`}
+                      disabled={removendoPcId === c.id}
                       onClick={() => removerPc(c)}
                     >
-                      <Trash2 className="text-destructive" />
+                      {removendoPcId === c.id ? (
+                        <Loader2 className="animate-spin" />
+                      ) : (
+                        <Trash2 className="text-destructive" />
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -587,6 +612,8 @@ export default function ComputadoresPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
+                              aria-label={`Editar componente ${comp.tipo.nome}`}
+                              title="Editar componente"
                               onClick={() => abrirEdicaoComp(c.id, comp)}
                             >
                               <Pencil className="h-3.5 w-3.5" />
@@ -595,9 +622,16 @@ export default function ComputadoresPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
+                              aria-label={`Remover componente ${comp.tipo.nome}`}
+                              title="Remover componente"
+                              disabled={removendoCompId === comp.id}
                               onClick={() => removerComp(comp)}
                             >
-                              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              {removendoCompId === comp.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              )}
                             </Button>
                           </div>
                         </li>
@@ -715,6 +749,7 @@ export default function ComputadoresPage() {
                   type="button"
                   variant={temMouse ? "default" : "outline"}
                   size="sm"
+                  aria-pressed={temMouse}
                   onClick={() => setTemMouse((v) => !v)}
                 >
                   <Mouse /> Mouse
@@ -723,6 +758,7 @@ export default function ComputadoresPage() {
                   type="button"
                   variant={temTeclado ? "default" : "outline"}
                   size="sm"
+                  aria-pressed={temTeclado}
                   onClick={() => setTemTeclado((v) => !v)}
                 >
                   <Keyboard /> Teclado
@@ -731,6 +767,7 @@ export default function ComputadoresPage() {
                   type="button"
                   variant={temHeadset ? "default" : "outline"}
                   size="sm"
+                  aria-pressed={temHeadset}
                   onClick={() => setTemHeadset((v) => !v)}
                 >
                   <Headphones /> Headset

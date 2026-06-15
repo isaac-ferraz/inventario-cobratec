@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,12 +44,18 @@ export default function TiposPage() {
   const [nome, setNome] = React.useState("");
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
+  const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
 
   async function carregar() {
     setCarregando(true);
-    const res = await fetch("/api/tipos");
-    setLista(await res.json());
-    setCarregando(false);
+    setCarregaErro(null);
+    try {
+      setLista(await apiGet<Tipo[]>("/api/tipos"));
+    } catch (e) {
+      setCarregaErro(mensagem(e));
+    } finally {
+      setCarregando(false);
+    }
   }
 
   React.useEffect(() => {
@@ -72,33 +79,29 @@ export default function TiposPage() {
   async function salvar() {
     setSalvando(true);
     setErro(null);
-    const res = await fetch(
-      editando ? `/api/tipos/${editando.id}` : "/api/tipos",
-      {
-        method: editando ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome }),
-      },
-    );
-    setSalvando(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setErro(j.erro ?? "Erro ao salvar.");
-      return;
+    try {
+      await apiSend(
+        editando ? `/api/tipos/${editando.id}` : "/api/tipos",
+        editando ? "PATCH" : "POST",
+        { nome },
+      );
+      setAberto(false);
+      carregar();
+    } catch (e) {
+      setErro(mensagem(e));
+    } finally {
+      setSalvando(false);
     }
-    setAberto(false);
-    carregar();
   }
 
   async function remover(t: Tipo) {
     if (!confirm(`Remover o tipo "${t.nome}"?`)) return;
-    const res = await fetch(`/api/tipos/${t.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      alert(j.erro ?? "Erro ao remover.");
-      return;
+    try {
+      await apiSend(`/api/tipos/${t.id}`, "DELETE");
+      carregar();
+    } catch (e) {
+      alert(mensagem(e));
     }
-    carregar();
   }
 
   return (
@@ -126,6 +129,13 @@ export default function TiposPage() {
           {carregando ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
+            </div>
+          ) : carregaErro ? (
+            <div className="space-y-2">
+              <p className="text-sm text-destructive">{carregaErro}</p>
+              <Button variant="outline" size="sm" onClick={carregar}>
+                Tentar novamente
+              </Button>
             </div>
           ) : lista.length === 0 ? (
             <p className="text-sm text-muted-foreground">

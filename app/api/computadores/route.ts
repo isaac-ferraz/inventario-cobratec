@@ -16,7 +16,9 @@ export async function GET(req: Request): Promise<NextResponse> {
   } else if (funcionarioId) {
     where.funcionarioId = funcionarioId;
   }
-  if (cargo) {
+  // Filtrar por cargo só faz sentido quando há funcionário; com "sem" a
+  // máquina não tem dono (nem cargo), então o filtro de cargo é ignorado.
+  if (cargo && funcionarioId !== "sem") {
     where.funcionario = { cargo };
   }
 
