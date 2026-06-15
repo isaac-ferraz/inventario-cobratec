@@ -67,6 +67,9 @@ o Excel é só relatório de saída.
    edição de computador; headers de segurança + auth Basic opcional; ESLint
    configurado; testes (vitest); CI no GitHub Actions; healthcheck no Docker e
    script de backup (`VACUUM INTO`). Decisões 11 e 12 em `decisoes.md`.
+   Também refatorou a tela de Computadores (page de 911 → 225 linhas) em
+   componentes (`components/computadores/`: tipos, filtros, card e os dois
+   diálogos com estado próprio), sem mudança de comportamento.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)
