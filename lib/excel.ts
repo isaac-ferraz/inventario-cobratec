@@ -59,6 +59,9 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     { header: "Conta Outlook", key: "contaOutlook", width: 26 },
     { header: "Licença Windows", key: "licencaWindows", width: 22 },
     { header: "Licença Microsoft", key: "licencaMicrosoft", width: 22 },
+    { header: "Mouse", key: "temMouse", width: 8 },
+    { header: "Teclado", key: "temTeclado", width: 9 },
+    { header: "Headset", key: "temHeadset", width: 9 },
     { header: "Qtde componentes", key: "qtde", width: 16 },
     { header: "Componentes (hardware)", key: "componentes", width: 60 },
     { header: "Observações", key: "observacoes", width: 30 },
@@ -79,6 +82,9 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       contaOutlook: c.contaOutlook ?? "",
       licencaWindows: c.licencaWindows ?? "",
       licencaMicrosoft: c.licencaMicrosoft ?? "",
+      temMouse: c.temMouse ? "Sim" : "Não",
+      temTeclado: c.temTeclado ? "Sim" : "Não",
+      temHeadset: c.temHeadset ? "Sim" : "Não",
       qtde: c.componentes.length,
       componentes: componentesTxt,
       observacoes: c.observacoes ?? "",
@@ -113,6 +119,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     ],
     ["Sem conta Outlook", computadores.filter((c) => !c.contaOutlook).length],
     ["Sem login padrão", computadores.filter((c) => !c.loginPadrao).length],
+    ["Sem headset", computadores.filter((c) => !c.temHeadset).length],
   ];
 
   // ----- Aba "Dashboard" -----

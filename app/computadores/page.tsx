@@ -10,6 +10,9 @@ import {
   ArrowRightLeft,
   PackageOpen,
   Search,
+  Mouse,
+  Keyboard,
+  Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +66,9 @@ type Computador = {
   licencaWindows: string | null;
   licencaMicrosoft: string | null;
   contaOutlook: string | null;
+  temMouse: boolean;
+  temTeclado: boolean;
+  temHeadset: boolean;
   funcionarioId: string | null;
   funcionario: Funcionario | null;
   componentes: Componente[];
@@ -91,6 +97,9 @@ export default function ComputadoresPage() {
   const [licencaWindows, setLicencaWindows] = React.useState("");
   const [licencaMicrosoft, setLicencaMicrosoft] = React.useState("");
   const [contaOutlook, setContaOutlook] = React.useState("");
+  const [temMouse, setTemMouse] = React.useState(true);
+  const [temTeclado, setTemTeclado] = React.useState(true);
+  const [temHeadset, setTemHeadset] = React.useState(false);
   const [pcFunc, setPcFunc] = React.useState<string>(SEM_FUNC);
   const [pcSalvando, setPcSalvando] = React.useState(false);
   const [pcErro, setPcErro] = React.useState<string | null>(null);
@@ -171,6 +180,9 @@ export default function ComputadoresPage() {
     setLicencaWindows("");
     setLicencaMicrosoft("");
     setContaOutlook("");
+    setTemMouse(true);
+    setTemTeclado(true);
+    setTemHeadset(false);
     setPcFunc(SEM_FUNC);
     setPcErro(null);
     setPcAberto(true);
@@ -185,6 +197,9 @@ export default function ComputadoresPage() {
     setLicencaWindows(c.licencaWindows ?? "");
     setLicencaMicrosoft(c.licencaMicrosoft ?? "");
     setContaOutlook(c.contaOutlook ?? "");
+    setTemMouse(c.temMouse);
+    setTemTeclado(c.temTeclado);
+    setTemHeadset(c.temHeadset);
     setPcFunc(c.funcionarioId ?? SEM_FUNC);
     setPcErro(null);
     setPcAberto(true);
@@ -201,6 +216,9 @@ export default function ComputadoresPage() {
       licencaWindows,
       licencaMicrosoft,
       contaOutlook,
+      temMouse,
+      temTeclado,
+      temHeadset,
       funcionarioId: pcFunc === SEM_FUNC ? null : pcFunc,
     };
     const res = await fetch(
@@ -497,6 +515,20 @@ export default function ComputadoresPage() {
                     )}
                   </dl>
                 )}
+                <div className="flex flex-wrap gap-1">
+                  <Badge variant={c.temMouse ? "secondary" : "outline"}>
+                    <Mouse className="mr-1 h-3 w-3" /> Mouse
+                    {c.temMouse ? "" : " ✕"}
+                  </Badge>
+                  <Badge variant={c.temTeclado ? "secondary" : "outline"}>
+                    <Keyboard className="mr-1 h-3 w-3" /> Teclado
+                    {c.temTeclado ? "" : " ✕"}
+                  </Badge>
+                  <Badge variant={c.temHeadset ? "secondary" : "outline"}>
+                    <Headphones className="mr-1 h-3 w-3" /> Headset
+                    {c.temHeadset ? "" : " ✕"}
+                  </Badge>
+                </div>
                 {c.observacoes && (
                   <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
                     {c.observacoes}
@@ -671,6 +703,38 @@ export default function ComputadoresPage() {
                     placeholder="Microsoft 365 / Office"
                   />
                 </div>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Periféricos</Label>
+              <p className="text-xs text-muted-foreground">
+                Marque os periféricos que acompanham a máquina.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={temMouse ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setTemMouse((v) => !v)}
+                >
+                  <Mouse /> Mouse
+                </Button>
+                <Button
+                  type="button"
+                  variant={temTeclado ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setTemTeclado((v) => !v)}
+                >
+                  <Keyboard /> Teclado
+                </Button>
+                <Button
+                  type="button"
+                  variant={temHeadset ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setTemHeadset((v) => !v)}
+                >
+                  <Headphones /> Headset
+                </Button>
               </div>
             </div>
             <div className="space-y-1.5">

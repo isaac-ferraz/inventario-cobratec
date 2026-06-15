@@ -170,7 +170,9 @@ catálogo de tipos, Excel com aba Inventário + Dashboard com data bars).
 **Adições por computador:** além de `observacoes` (texto livre, mantido), cada
 computador tem `loginPadrao` (COB-número), `licencaWindows`, `licencaMicrosoft`
 (Microsoft 365/Office) e `contaOutlook` — todos campos diretos do `Computador`
-(decisão 8 em `decisoes.md`).
+(decisão 8 em `decisoes.md`). Há também os **periféricos** `temMouse`,
+`temTeclado` e `temHeadset` — booleans de presença (sem modelo); mouse e teclado
+com default `true`, headset `false` (decisão 10 em `decisoes.md`).
 
 **Melhorias de UX/dados:** busca na lista de computadores; filtros por
 funcionário e cargo; funcionários inativos fora do seletor de dono; validação de

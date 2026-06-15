@@ -33,6 +33,11 @@ model Computador {
   licencaWindows   String? // chave/observação da licença do Windows
   licencaMicrosoft String? // licença Microsoft 365 / Office
   contaOutlook     String? // conta do Outlook corporativo (e-mail)
+  // Periféricos: apenas presença (sem modelo). Mouse/teclado normalmente vêm
+  // com a máquina; headset é o que mais varia.
+  temMouse   Boolean @default(true)
+  temTeclado Boolean @default(true)
+  temHeadset Boolean @default(false)
   funcionarioId String?
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id])
   componentes   Componente[]
