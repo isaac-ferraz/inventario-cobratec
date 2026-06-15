@@ -1,0 +1,15 @@
+# Não enviar para o contexto de build (imagem mais leve e build mais rápido)
+node_modules
+.next
+.git
+.gitignore
+npm-debug.log*
+Dockerfile
+docker-compose.yml
+.dockerignore
+.env
+prisma/dev.db
+prisma/dev.db-journal
+*.md
+docs
+.DS_Store

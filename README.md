@@ -318,6 +318,38 @@ npm run dev                   # desenvolvimento em http://localhost:3000
 npm run build && npm start    # produção
 ```
 
+### Rodar com Docker
+
+Imagem **enxuta** via build multi-stage + output `standalone` do Next, sobre
+Alpine. O banco SQLite é persistido em um **volume** (`inventario-db`) e as
+migrations são aplicadas automaticamente no start (`prisma migrate deploy`).
+
+```bash
+docker compose up -d --build      # build + sobe em http://localhost:3000
+docker compose logs -f app        # acompanhar logs
+docker compose down               # parar (mantém o volume/banco)
+docker compose down -v            # parar e APAGAR o banco do volume
+```
+
+Detalhes:
+
+- **Persistência:** o `dev.db` fica no volume `inventario-db` montado em
+  `/app/data`; sobrevive a `down`/rebuilds. `DATABASE_URL` aponta para o caminho
+  absoluto `file:/app/data/dev.db`.
+- **Migrations:** aplicadas no boot do container pelo `docker-entrypoint.sh`.
+- **Seed (opcional):** o seed não roda automaticamente (insere dados de
+  exemplo). Para popular o catálogo/dados de exemplo num container em execução:
+  ```bash
+  docker compose exec app node ./node_modules/prisma/build/index.js db seed
+  ```
+  (ou rode `npm run db:seed` localmente apontando para o mesmo banco).
+- **Imagem:** ~550 MB (base Alpine + engine do Prisma). Bem menor que uma imagem
+  com `node_modules` completo graças ao `output: "standalone"`.
+
+Arquivos relevantes: [`Dockerfile`](./Dockerfile),
+[`docker-compose.yml`](./docker-compose.yml),
+[`docker-entrypoint.sh`](./docker-entrypoint.sh), [`.dockerignore`](./.dockerignore).
+
 ---
 
 ## Scripts
