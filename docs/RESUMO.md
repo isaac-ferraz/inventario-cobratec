@@ -60,6 +60,13 @@ o Excel é só relatório de saída.
 7. **Periféricos por computador**: booleans `temMouse`/`temTeclado`/`temHeadset`
    (só presença) — toggles no formulário, badges na lista, colunas no Excel e
    pendência "sem headset" no Dashboard. Branch **`feat/perifericos`**.
+8. **Robustez, segurança e processo** (branch **`feat/robustez-e-melhorias`**):
+   índices de FK + modo WAL do SQLite; helper de fetch que checa `res.ok` (fim do
+   "tela branca" em erro de API) + UX/a11y das ações; limites de tamanho na API,
+   delete de funcionário transacional e filtro coerente; concorrência otimista na
+   edição de computador; headers de segurança + auth Basic opcional; ESLint
+   configurado; testes (vitest); CI no GitHub Actions; healthcheck no Docker e
+   script de backup (`VACUUM INTO`). Decisões 11 e 12 em `decisoes.md`.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)

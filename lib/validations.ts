@@ -8,6 +8,7 @@ import { z } from "zod";
 const textoOpcional = z
   .string()
   .trim()
+  .max(2000, "Texto excede o limite de 2000 caracteres")
   .optional()
   .transform((v) => (v === "" ? null : v));
 
@@ -18,14 +19,18 @@ const emailOpcional = textoOpcional.refine(
 );
 
 export const funcionarioSchema = z.object({
-  nome: z.string().trim().min(1, "Nome é obrigatório"),
-  cargo: z.string().trim().min(1, "Cargo é obrigatório"),
+  nome: z.string().trim().min(1, "Nome é obrigatório").max(200, "Nome muito longo"),
+  cargo: z.string().trim().min(1, "Cargo é obrigatório").max(120, "Cargo muito longo"),
   matricula: textoOpcional,
   ativo: z.boolean().optional(),
 });
 
 export const computadorSchema = z.object({
-  identificador: z.string().trim().min(1, "Identificador é obrigatório"),
+  identificador: z
+    .string()
+    .trim()
+    .min(1, "Identificador é obrigatório")
+    .max(200, "Identificador muito longo"),
   apelido: textoOpcional,
   observacoes: textoOpcional,
   loginPadrao: textoOpcional,
@@ -41,15 +46,31 @@ export const computadorSchema = z.object({
 });
 
 export const tipoComponenteSchema = z.object({
-  nome: z.string().trim().min(1, "Nome do tipo é obrigatório"),
+  nome: z
+    .string()
+    .trim()
+    .min(1, "Nome do tipo é obrigatório")
+    .max(120, "Nome do tipo muito longo"),
 });
 
 export const componenteSchema = z.object({
   computadorId: z.string().trim().min(1, "Computador é obrigatório"),
   tipoId: z.string().trim().min(1, "Tipo é obrigatório"),
-  descricao: z.string().trim().min(1, "Descrição é obrigatória"),
-  // campos livres adicionais; aceita objeto JSON qualquer
-  especificacoes: z.record(z.any()).nullable().optional(),
+  descricao: z
+    .string()
+    .trim()
+    .min(1, "Descrição é obrigatória")
+    .max(500, "Descrição muito longa"),
+  // Campos livres adicionais; aceita objeto JSON qualquer, mas limitado para
+  // não virar vetor de abuso (até 50 campos).
+  especificacoes: z
+    .record(z.any())
+    .refine(
+      (obj) => Object.keys(obj).length <= 50,
+      "Especificações: no máximo 50 campos",
+    )
+    .nullable()
+    .optional(),
 });
 
 // Para edição de componente o computador não muda

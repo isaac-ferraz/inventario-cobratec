@@ -1,0 +1,35 @@
+name: CI
+
+# Roda em cada push e PR para as branches de integração. Pega regressão antes
+# do merge (o projeto trabalha com PRs feat → develop → main).
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    env:
+      # Necessário para o prisma generate (postinstall) e o build.
+      DATABASE_URL: "file:./ci.db"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # npm ci já dispara o postinstall (prisma generate).
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes
+        run: npm test
+
+      - name: Build
+        run: npm run build

@@ -110,6 +110,21 @@ a vetores de DoS / cache poisoning relevantes para apps **expostos
 publicamente**. Para uso interno em LAN, optou-se por **não** migrar para o
 Next 16 agora. Reavaliar a migração caso o app passe a ser exposto externamente.
 
+**Endurecimento adicionado (sem mudar o padrão):**
+
+- **Headers de segurança** em todas as respostas (`next.config.mjs`):
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy` e `Permissions-Policy`. Custo zero, mitiga
+  clickjacking/sniffing. CSP estrita ficou para depois (risco de quebrar os
+  estilos inline do Next/Tailwind).
+- **Basic Auth opcional** (`middleware.ts`), **desligada por padrão** para
+  respeitar a premissa de LAN sem login. Ativa-se definindo `BASIC_AUTH_USER` e
+  `BASIC_AUTH_PASS` (ver `.env.example`) — útil se o app sair da rede interna ou
+  se quiserem uma barreira simples sem montar um proxy. Quando ligada, vale para
+  todas as rotas, inclusive `/api/export`.
+- **Limites de tamanho** nas entradas (zod `.max()` e teto de campos em
+  `especificacoes`) — ver os schemas em `lib/validations.ts`.
+
 ## 10. Periféricos como booleans de presença (sem modelo)
 
 **Decisão:** mouse, teclado e headset são três booleans diretos no model
@@ -129,3 +144,39 @@ formulário de computador, como badges no card da lista, como colunas
 (`Sim`/`Não`) na aba **Inventário** do Excel, e geram a pendência **"Sem
 headset"** no Dashboard (site e Excel). Se um dia for preciso rastrear modelo/nº
 de série de periférico, promover para `Componente` do catálogo.
+
+## 11. SQLite: modo WAL e índices de chave estrangeira
+
+**Decisão:** habilitar o **modo WAL** do SQLite e criar **índices** nas colunas de
+chave estrangeira (`Computador.funcionarioId`, `Componente.computadorId`,
+`Componente.tipoId`).
+
+**WAL — por quê:** por padrão o SQLite usa journal "rollback", que bloqueia o
+arquivo inteiro durante uma escrita — numa ferramenta multiusuário isso vira
+erro `database is locked`. O WAL deixa leituras acontecerem em paralelo a uma
+escrita. A configuração é gravada no cabeçalho do arquivo do banco (persiste),
+então basta aplicar uma vez: no Docker, o `docker-entrypoint.sh` roda
+`prisma db execute` com `prisma/sqlite-wal.sql` a cada boot (idempotente); no
+local, há o script `npm run db:wal`. Os arquivos auxiliares `dev.db-wal` e
+`dev.db-shm` ficam no `.gitignore`/`.dockerignore`.
+
+**Índices — por quê:** o SQLite **não** cria índice automático para colunas de
+FK. As consultas do app filtram/juntam por essas colunas (lista por dono, lookup
+de componentes por computador, checagem "tipo em uso"). Os `@@index` no schema
+evitam varredura de tabela conforme o inventário cresce. Custo desprezível em
+escrita para o volume de um escritório.
+
+## 12. Concorrência otimista na edição de computador
+
+**Decisão:** o `PATCH /api/computadores/[id]` aceita um campo opcional
+`esperaAtualizadoEm`. O cliente envia o `atualizadoEm` que carregou; se o
+registro tiver sido alterado nesse meio-tempo, a API responde **409** com uma
+mensagem pedindo para recarregar, em vez de sobrescrever silenciosamente.
+
+**Por quê:** a ferramenta é multiusuário (vários do TI mexendo ao mesmo tempo).
+Sem isso, "last write wins" — dois analistas editando a mesma máquina e um apaga
+a alteração do outro sem ninguém perceber. A verificação é **opt-in** (só vale
+quando o campo é enviado), então não quebra clientes/scripts que não o mandam.
+Comparamos a versão por `toISOString()` (mesma forma que o cliente recebeu no
+JSON). Aplicado ao `Computador` por ser a entidade mais editada; os demais
+formulários (funcionário, tipo) são simples e de baixa contenção.

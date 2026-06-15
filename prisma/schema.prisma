@@ -43,6 +43,9 @@ model Computador {
   componentes   Componente[]
   criadoEm      DateTime     @default(now())
   atualizadoEm  DateTime     @updatedAt
+
+  // SQLite não cria índice de FK automaticamente; ajuda os filtros por dono.
+  @@index([funcionarioId])
 }
 
 // Catálogo EDITÁVEL de tipos de componente (CPU, RAM, SSD, GPU, Monitor...).
@@ -65,4 +68,8 @@ model Componente {
   // texto e (de)serializamos na camada de API. Ver /docs/decisoes.md.
   especificacoes String? // JSON serializado
   criadoEm       DateTime       @default(now())
+
+  // Índices das FKs (lookups por computador e por tipo, e checagem "tipo em uso").
+  @@index([computadorId])
+  @@index([tipoId])
 }
