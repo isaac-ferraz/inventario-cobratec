@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,12 +51,19 @@ export default function FuncionariosPage() {
   const [ativo, setAtivo] = React.useState(true);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
+  const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
+  const [removendoId, setRemovendoId] = React.useState<string | null>(null);
 
   async function carregar() {
     setCarregando(true);
-    const res = await fetch("/api/funcionarios");
-    setLista(await res.json());
-    setCarregando(false);
+    setCarregaErro(null);
+    try {
+      setLista(await apiGet<Funcionario[]>("/api/funcionarios"));
+    } catch (e) {
+      setCarregaErro(mensagem(e));
+    } finally {
+      setCarregando(false);
+    }
   }
 
   React.useEffect(() => {
@@ -85,23 +93,19 @@ export default function FuncionariosPage() {
   async function salvar() {
     setSalvando(true);
     setErro(null);
-    const body = { nome, cargo, matricula, ativo };
-    const res = await fetch(
-      editando ? `/api/funcionarios/${editando.id}` : "/api/funcionarios",
-      {
-        method: editando ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
-    setSalvando(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setErro(j.erro ?? "Erro ao salvar.");
-      return;
+    try {
+      await apiSend(
+        editando ? `/api/funcionarios/${editando.id}` : "/api/funcionarios",
+        editando ? "PATCH" : "POST",
+        { nome, cargo, matricula, ativo },
+      );
+      setAberto(false);
+      carregar();
+    } catch (e) {
+      setErro(mensagem(e));
+    } finally {
+      setSalvando(false);
     }
-    setAberto(false);
-    carregar();
   }
 
   async function remover(f: Funcionario) {
@@ -110,16 +114,18 @@ export default function FuncionariosPage() {
       ? `${f.nome} possui ${f._count.computadores} computador(es). Eles ficarão SEM funcionário (estoque). Remover assim mesmo?`
       : `Remover ${f.nome}?`;
     if (!confirm(msg)) return;
-    const res = await fetch(
-      `/api/funcionarios/${f.id}${temPc ? "?liberar=1" : ""}`,
-      { method: "DELETE" },
-    );
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      alert(j.erro ?? "Erro ao remover.");
-      return;
+    setRemovendoId(f.id);
+    try {
+      await apiSend(
+        `/api/funcionarios/${f.id}${temPc ? "?liberar=1" : ""}`,
+        "DELETE",
+      );
+      carregar();
+    } catch (e) {
+      alert(mensagem(e));
+    } finally {
+      setRemovendoId(null);
     }
-    carregar();
   }
 
   return (
@@ -144,6 +150,13 @@ export default function FuncionariosPage() {
           {carregando ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
+            </div>
+          ) : carregaErro ? (
+            <div className="space-y-2">
+              <p className="text-sm text-destructive">{carregaErro}</p>
+              <Button variant="outline" size="sm" onClick={carregar}>
+                Tentar novamente
+              </Button>
             </div>
           ) : lista.length === 0 ? (
             <p className="text-sm text-muted-foreground">
@@ -179,6 +192,8 @@ export default function FuncionariosPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label={`Editar ${f.nome}`}
+                        title="Editar"
                         onClick={() => abrirEdicao(f)}
                       >
                         <Pencil />
@@ -186,9 +201,16 @@ export default function FuncionariosPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label={`Remover ${f.nome}`}
+                        title="Remover"
+                        disabled={removendoId === f.id}
                         onClick={() => remover(f)}
                       >
-                        <Trash2 className="text-destructive" />
+                        {removendoId === f.id ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <Trash2 className="text-destructive" />
+                        )}
                       </Button>
                     </TableCell>
                   </TableRow>
