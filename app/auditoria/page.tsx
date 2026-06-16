@@ -73,7 +73,10 @@ export default function AuditoriaPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Auditoria</h1>
+        <div className="eyebrow">histórico</div>
+        <h1 className="font-display text-2xl font-bold tracking-tight">
+          Auditoria
+        </h1>
         <p className="text-sm text-muted-foreground">
           Histórico das alterações feitas no inventário (mais recentes primeiro).
         </p>
@@ -81,7 +84,7 @@ export default function AuditoriaPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-          <CardTitle>Eventos</CardTitle>
+          <CardTitle className="font-display text-base">Eventos</CardTitle>
           <div className="flex items-center gap-2">
             <Label className="text-xs text-muted-foreground">Entidade</Label>
             <Select value={filtro} onValueChange={setFiltro}>

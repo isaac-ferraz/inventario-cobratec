@@ -74,7 +74,13 @@ o Excel é só relatório de saída.
    append-only registra criar/editar/remover/mover das quatro entidades, com
    ator (quando a auth Basic está ligada, via `x-usuario` no middleware), API
    `GET /api/auditoria` e tela `/auditoria` com filtro. Registro best-effort
-   (fora da transação). Decisão 13 em `decisoes.md`.
+   (fora da transação). Decisão 13 em `decisoes.md`. O "mover" registra
+   origem → destino (de quem era / para quem foi).
+10. **Redesign** (branch **`feat/redesign`**): sistema de design "etiqueta de
+    patrimônio / painel técnico" — paleta lab + acento teal, tipografia Space
+    Grotesk + IBM Plex Sans + IBM Plex Mono (self-hosted), nav lateral, cards de
+    PC como etiqueta de ativo e Dashboard como leituras de instrumento.
+    Decisão 14 em `decisoes.md`.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)

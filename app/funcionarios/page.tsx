@@ -132,7 +132,10 @@ export default function FuncionariosPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Funcionários</h1>
+          <div className="eyebrow">cadastro</div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">
+            Funcionários
+          </h1>
           <p className="text-sm text-muted-foreground">
             Donos dos computadores. Cargo é texto livre.
           </p>
@@ -144,7 +147,7 @@ export default function FuncionariosPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Lista</CardTitle>
+          <CardTitle className="font-display text-base">Lista</CardTitle>
         </CardHeader>
         <CardContent>
           {carregando ? (
