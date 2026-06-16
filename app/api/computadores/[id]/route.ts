@@ -59,14 +59,31 @@ export async function PATCH(req: Request, { params }: Params) {
     }
   }
 
-  // Para auditoria: se o funcionário mudou, a ação é "mover", senão "editar".
+  // Para auditoria: se o funcionário mudou, a ação é "mover" e montamos a
+  // descrição com origem → destino (nome do dono anterior e do novo).
   let acao: AcaoAuditoria = "editar";
+  let trechoMover: string | null = null;
   if ("funcionarioId" in data) {
+    const novoId = (data.funcionarioId as string | null) ?? null;
     const antes = await prisma.computador.findUnique({
       where: { id: params.id },
-      select: { funcionarioId: true },
+      select: { funcionarioId: true, funcionario: { select: { nome: true } } },
     });
-    if (antes && antes.funcionarioId !== data.funcionarioId) acao = "mover";
+    if (antes && antes.funcionarioId !== novoId) {
+      acao = "mover";
+      const origem = antes.funcionario?.nome
+        ? `"${antes.funcionario.nome}"`
+        : "estoque";
+      let destino = "estoque";
+      if (novoId) {
+        const novo = await prisma.funcionario.findUnique({
+          where: { id: novoId },
+          select: { nome: true },
+        });
+        destino = novo?.nome ? `"${novo.nome}"` : "estoque";
+      }
+      trechoMover = `movido de ${origem} para ${destino}`;
+    }
   }
 
   try {
@@ -79,7 +96,7 @@ export async function PATCH(req: Request, { params }: Params) {
       entidade: "Computador",
       entidadeId: atualizado.id,
       descricao: `Computador "${atualizado.identificador}" ${
-        acao === "mover" ? "movido de funcionário" : "atualizado"
+        trechoMover ?? "atualizado"
       }`,
     });
     return NextResponse.json(atualizado);
