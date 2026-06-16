@@ -34,7 +34,10 @@ type Funcionario = {
   id: string;
   nome: string;
   cargo: string;
-  matricula: string | null;
+  loginSiscobra: string | null;
+  senhaSiscobra: string | null;
+  loginVonix: string | null;
+  senhaVonix: string | null;
   ativo: boolean;
   _count: { computadores: number };
 };
@@ -47,7 +50,10 @@ export default function FuncionariosPage() {
 
   const [nome, setNome] = React.useState("");
   const [cargo, setCargo] = React.useState("");
-  const [matricula, setMatricula] = React.useState("");
+  const [loginSiscobra, setLoginSiscobra] = React.useState("");
+  const [senhaSiscobra, setSenhaSiscobra] = React.useState("");
+  const [loginVonix, setLoginVonix] = React.useState("");
+  const [senhaVonix, setSenhaVonix] = React.useState("");
   const [ativo, setAtivo] = React.useState(true);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
@@ -74,7 +80,10 @@ export default function FuncionariosPage() {
     setEditando(null);
     setNome("");
     setCargo("");
-    setMatricula("");
+    setLoginSiscobra("");
+    setSenhaSiscobra("");
+    setLoginVonix("");
+    setSenhaVonix("");
     setAtivo(true);
     setErro(null);
     setAberto(true);
@@ -84,7 +93,10 @@ export default function FuncionariosPage() {
     setEditando(f);
     setNome(f.nome);
     setCargo(f.cargo);
-    setMatricula(f.matricula ?? "");
+    setLoginSiscobra(f.loginSiscobra ?? "");
+    setSenhaSiscobra(f.senhaSiscobra ?? "");
+    setLoginVonix(f.loginVonix ?? "");
+    setSenhaVonix(f.senhaVonix ?? "");
     setAtivo(f.ativo);
     setErro(null);
     setAberto(true);
@@ -97,7 +109,15 @@ export default function FuncionariosPage() {
       await apiSend(
         editando ? `/api/funcionarios/${editando.id}` : "/api/funcionarios",
         editando ? "PATCH" : "POST",
-        { nome, cargo, matricula, ativo },
+        {
+          nome,
+          cargo,
+          loginSiscobra,
+          senhaSiscobra,
+          loginVonix,
+          senhaVonix,
+          ativo,
+        },
       );
       setAberto(false);
       carregar();
@@ -171,7 +191,8 @@ export default function FuncionariosPage() {
                 <TableRow>
                   <TableHead>Nome</TableHead>
                   <TableHead>Cargo</TableHead>
-                  <TableHead>Matrícula</TableHead>
+                  <TableHead>Siscobra</TableHead>
+                  <TableHead>Vonix</TableHead>
                   <TableHead>Computadores</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
@@ -182,7 +203,12 @@ export default function FuncionariosPage() {
                   <TableRow key={f.id}>
                     <TableCell className="font-medium">{f.nome}</TableCell>
                     <TableCell>{f.cargo}</TableCell>
-                    <TableCell>{f.matricula ?? "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {f.loginSiscobra ?? "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {f.loginVonix ?? "—"}
+                    </TableCell>
                     <TableCell>{f._count.computadores}</TableCell>
                     <TableCell>
                       {f.ativo ? (
@@ -253,14 +279,48 @@ export default function FuncionariosPage() {
                 placeholder="Ex: Operadora, Gestor, Supervisor..."
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="matricula">Matrícula (opcional)</Label>
-              <Input
-                id="matricula"
-                value={matricula}
-                onChange={(e) => setMatricula(e.target.value)}
-                placeholder="Ex: OP-001"
-              />
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p className="mb-3 text-xs font-medium text-muted-foreground">
+                Credenciais dos sistemas (opcionais)
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="loginSiscobra">Login Siscobra</Label>
+                  <Input
+                    id="loginSiscobra"
+                    value={loginSiscobra}
+                    onChange={(e) => setLoginSiscobra(e.target.value)}
+                    placeholder="Login do Siscobra"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="senhaSiscobra">Senha Siscobra</Label>
+                  <Input
+                    id="senhaSiscobra"
+                    value={senhaSiscobra}
+                    onChange={(e) => setSenhaSiscobra(e.target.value)}
+                    placeholder="Senha do Siscobra"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="loginVonix">Login Vonix</Label>
+                  <Input
+                    id="loginVonix"
+                    value={loginVonix}
+                    onChange={(e) => setLoginVonix(e.target.value)}
+                    placeholder="Login do Vonix"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="senhaVonix">Senha Vonix</Label>
+                  <Input
+                    id="senhaVonix"
+                    value={senhaVonix}
+                    onChange={(e) => setSenhaVonix(e.target.value)}
+                    placeholder="Senha do Vonix"
+                  />
+                </div>
+              </div>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input

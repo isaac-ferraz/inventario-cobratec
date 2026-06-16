@@ -24,6 +24,7 @@ export type Computador = {
   apelido: string | null;
   observacoes: string | null;
   loginPadrao: string | null;
+  senha: string | null;
   licencaWindows: string | null;
   licencaMicrosoft: string | null;
   contaOutlook: string | null;

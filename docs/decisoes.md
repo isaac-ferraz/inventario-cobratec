@@ -60,9 +60,14 @@ Se gráficos nativos virarem requisito firme, reavaliar uma lib específica.
 
 ## 8. Login/licenças/conta como campos do Computador (não tabela à parte)
 
-**Decisão:** `loginPadrao` (COB-número), `licencaWindows`, `licencaMicrosoft`
-(Microsoft 365 / Office) e `contaOutlook` foram adicionados como campos
-opcionais (`String?`) diretamente no model `Computador`.
+**Decisão:** `loginPadrao` (COB-número), `senha` (senha de acesso da máquina),
+`licencaWindows`, `licencaMicrosoft` (Microsoft 365 / Office) e `contaOutlook`
+foram adicionados como campos opcionais (`String?`) diretamente no model
+`Computador`. No `Funcionario`, as credenciais `loginSiscobra`/`senhaSiscobra` e
+`loginVonix`/`senhaVonix` seguem o mesmo padrão e substituíram a antiga
+`matricula`. Senhas ficam em texto puro: é um cofre interno de TI em LAN
+restrita, cujo propósito é justamente recuperar a credencial — não há login de
+usuário final para comparar hash.
 
 **Por quê:** são atributos 1:1 da máquina, sempre presentes no mesmo registro.
 Uma tabela relacionada só se justificaria se essas licenças/contas circulassem
@@ -186,7 +191,9 @@ formulários (funcionário, tipo) são simples e de baixa contenção.
 **Decisão:** um model `LogAuditoria` append-only registra as mutações da API
 (criar/editar/remover/mover) das quatro entidades (Computador, Componente,
 Funcionário, TipoComponente), com descrição legível, timestamp e o ator. Há a
-API `GET /api/auditoria` e a tela `/auditoria` para consulta.
+API `GET /api/auditoria` e a tela `/auditoria` para consulta. Eventos podem ser
+**removidos manualmente** pelo TI via `DELETE /api/auditoria/:id` (botão na tela);
+essa remoção em si não é registrada, para não gerar um log recursivo.
 
 **Por quê:** é uma ferramenta de TI multiusuário onde "quem mexeu no quê" importa
 (responsabilização e histórico, sobretudo em realocações e remoções). O log é

@@ -71,7 +71,11 @@ export function ComputadorCard({
 }: Props) {
   const emUso = !!c.funcionario;
   const temDados =
-    c.loginPadrao || c.contaOutlook || c.licencaWindows || c.licencaMicrosoft;
+    c.loginPadrao ||
+    c.senha ||
+    c.contaOutlook ||
+    c.licencaWindows ||
+    c.licencaMicrosoft;
 
   return (
     <article className="relative overflow-hidden rounded-md border bg-card shadow-sm transition-shadow hover:shadow-md">
@@ -149,6 +153,7 @@ export function ComputadorCard({
         {temDados && (
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-md border border-dashed bg-muted/30 p-2.5">
             {c.loginPadrao && <Dado rotulo="login" valor={c.loginPadrao} />}
+            {c.senha && <Dado rotulo="senha" valor={c.senha} />}
             {c.contaOutlook && <Dado rotulo="outlook" valor={c.contaOutlook} />}
             {c.licencaWindows && (
               <Dado rotulo="windows" valor={c.licencaWindows} />

@@ -17,10 +17,20 @@ async function main() {
 
   // Funcionários de exemplo
   const ana = await prisma.funcionario.create({
-    data: { nome: "Ana Souza", cargo: "Operadora", matricula: "OP-001" },
+    data: {
+      nome: "Ana Souza",
+      cargo: "Operadora",
+      loginSiscobra: "ana.souza",
+      loginVonix: "ana.souza",
+    },
   });
   const carlos = await prisma.funcionario.create({
-    data: { nome: "Carlos Lima", cargo: "Gestor", matricula: "GE-010" },
+    data: {
+      nome: "Carlos Lima",
+      cargo: "Gestor",
+      loginSiscobra: "carlos.lima",
+      loginVonix: "carlos.lima",
+    },
   });
 
   const tipoProc = await prisma.tipoComponente.findUniqueOrThrow({
