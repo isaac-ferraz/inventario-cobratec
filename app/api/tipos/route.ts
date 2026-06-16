@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { tipoComponenteSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
+import { registrarAuditoria } from "@/lib/auditoria";
 
 export async function GET(): Promise<NextResponse> {
   const tipos = await prisma.tipoComponente.findMany({
@@ -16,6 +17,12 @@ export async function POST(req: Request): Promise<NextResponse> {
   if ("resposta" in r) return r.resposta;
   try {
     const criado = await prisma.tipoComponente.create({ data: r.data });
+    await registrarAuditoria(req, {
+      acao: "criar",
+      entidade: "TipoComponente",
+      entidadeId: criado.id,
+      descricao: `Tipo "${criado.nome}" criado`,
+    });
     return NextResponse.json(criado, { status: 201 });
   } catch (e) {
     return tratarErroPrisma(e);

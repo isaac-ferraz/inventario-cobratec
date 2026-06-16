@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { computadorSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { expandirComponentes } from "@/lib/especificacoes";
+import { registrarAuditoria } from "@/lib/auditoria";
 
 // GET /api/computadores?funcionarioId=...&cargo=...
 export async function GET(req: Request): Promise<NextResponse> {
@@ -55,6 +56,12 @@ export async function POST(req: Request): Promise<NextResponse> {
         temHeadset: r.data.temHeadset,
         funcionarioId: r.data.funcionarioId || null,
       },
+    });
+    await registrarAuditoria(req, {
+      acao: "criar",
+      entidade: "Computador",
+      entidadeId: criado.id,
+      descricao: `Computador "${criado.identificador}" criado`,
     });
     return NextResponse.json(criado, { status: 201 });
   } catch (e) {
