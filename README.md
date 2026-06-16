@@ -76,7 +76,10 @@ Definido em [`prisma/schema.prisma`](./prisma/schema.prisma). O modelo prioriza
 | `id`           | String     | cuid, PK                                         |
 | `nome`         | String     | obrigatório                                      |
 | `cargo`        | String     | **texto livre** (Operadora, Gestor, Supervisor…) |
-| `matricula`    | String?    | opcional, único                                  |
+| `loginSiscobra`| String?    | login do funcionário no sistema Siscobra         |
+| `senhaSiscobra`| String?    | senha do funcionário no Siscobra                 |
+| `loginVonix`   | String?    | login do funcionário no Vonix                    |
+| `senhaVonix`   | String?    | senha do funcionário no Vonix                    |
 | `ativo`        | Boolean    | default `true`; inativar preserva histórico      |
 | `computadores` | Computador[] | relação 1:N                                    |
 | `criadoEm`     | DateTime   | default now                                      |
@@ -90,6 +93,7 @@ Definido em [`prisma/schema.prisma`](./prisma/schema.prisma). O modelo prioriza
 | `apelido`          | String?     | opcional                                    |
 | `observacoes`      | String?     | opcional                                    |
 | `loginPadrao`      | String?     | login padrão da máquina, ex: `COB-1024`     |
+| `senha`            | String?     | senha de acesso da máquina                  |
 | `licencaWindows`   | String?     | chave/observação da licença do Windows      |
 | `licencaMicrosoft` | String?     | licença Microsoft 365 / Office              |
 | `contaOutlook`     | String?     | conta do Outlook corporativo (e-mail)       |
@@ -136,8 +140,8 @@ Definido em [`prisma/schema.prisma`](./prisma/schema.prisma). O modelo prioriza
   componentes em cascata).
 - **Mover** computador entre funcionários (trocar o dono no formulário).
 - Computador pode ficar **sem funcionário** (estoque/manutenção).
-- Registrar **login padrão, licença Windows, licença Microsoft e conta Outlook**
-  por máquina.
+- Registrar **login padrão, senha de acesso, licença Windows, licença Microsoft
+  e conta Outlook** por máquina.
 - Marcar os **periféricos** que acompanham a máquina (mouse, teclado, headset) —
   só presença, sem modelo; mouse/teclado vêm marcados por padrão.
 
@@ -148,6 +152,8 @@ Definido em [`prisma/schema.prisma`](./prisma/schema.prisma). O modelo prioriza
 
 **Funcionários**
 - CRUD completo, cargo como texto livre.
+- Registrar as **credenciais dos sistemas** do funcionário — login/senha do
+  **Siscobra** e do **Vonix** (substituíram a antiga matrícula).
 - **Inativar** (ex: desligamento) preservando o histórico.
 - Ao remover funcionário com computador: a API bloqueia por padrão e exige
   confirmação para **liberar** as máquinas para "sem funcionário".
@@ -161,6 +167,8 @@ Definido em [`prisma/schema.prisma`](./prisma/schema.prisma). O modelo prioriza
 - Trilha append-only das alterações (criar/editar/remover/mover) com data,
   descrição e responsável (quando a auth Basic está ligada). Tela `/auditoria`
   com filtro por entidade.
+- Eventos podem ser **removidos manualmente** pelo TI (a remoção em si não é
+  registrada, para não gerar log recursivo).
 
 **Dashboard**
 - KPIs, distribuição por cargo e por tipo, e **pendências de licença/conta**.
@@ -213,9 +221,10 @@ Todas as rotas ficam em `app/api`. Respostas e erros em JSON
 
 ### Auditoria
 
-| Método | Rota             | Descrição                                                       |
-| ------ | ---------------- | --------------------------------------------------------------- |
-| GET    | `/api/auditoria` | Lista eventos (recentes 1º); filtros `?entidade=` e `?limite=`  |
+| Método | Rota                  | Descrição                                                       |
+| ------ | --------------------- | --------------------------------------------------------------- |
+| GET    | `/api/auditoria`      | Lista eventos (recentes 1º); filtros `?entidade=` e `?limite=`  |
+| DELETE | `/api/auditoria/{id}` | Remove um evento manualmente (a remoção não é registrada)       |
 
 ### Exportação
 
@@ -235,8 +244,10 @@ opcionais:
 - **string vazia (`""`)** → grava `null` (permite **limpar** pela edição);
 - **texto** → o próprio valor.
 
-`contaOutlook` é validada como e-mail quando preenchida. `identificador`,
-`nome`, `cargo`, `descricao` e nome de tipo são obrigatórios.
+`contaOutlook` é validada como e-mail quando preenchida. As senhas
+(`senha` da máquina, `senhaSiscobra`/`senhaVonix` do funcionário) e demais logins
+seguem a regra de texto opcional acima. `identificador`, `nome`, `cargo`,
+`descricao` e nome de tipo são obrigatórios.
 
 ---
 
@@ -439,27 +450,31 @@ Registradas em [`docs/decisoes.md`](./docs/decisoes.md). Resumo:
 5. Regra de remoção/inativação de funcionário com computador.
 6. Dashboard do Excel com data bars (limitação do exceljs com charts).
 7. shadcn/ui escrito à mão.
-8. Login/licenças/conta como campos do `Computador` (não tabela à parte).
+8. Login/senha/licenças/conta como campos do `Computador` e credenciais
+   Siscobra/Vonix no `Funcionario` (não tabela à parte); senhas em texto puro.
 9. Postura de segurança/acesso e política de dependências (Next.js).
 10. Periféricos como booleans de presença (mouse/teclado/headset).
 11. SQLite em modo WAL + índices de chave estrangeira.
 12. Concorrência otimista na edição de computador (`esperaAtualizadoEm`).
-13. Trilha de auditoria (append-only, best-effort, ator via auth Basic).
+13. Trilha de auditoria (append-only, best-effort, ator via auth Basic; eventos
+    removíveis manualmente sem registrar a própria remoção).
 
 ---
 
 ## Segurança e acesso
 
 Ferramenta **interna**, **sem autenticação**, para rodar em **rede restrita** do
-escritório. O banco `prisma/dev.db` guarda chaves de licença e contas de e-mail
-em texto:
+escritório. O banco `prisma/dev.db` funciona como um **cofre interno de TI**:
+guarda chaves de licença, contas de e-mail e **senhas em texto puro** (senha de
+acesso da máquina e credenciais Siscobra/Vonix dos funcionários). É intencional —
+o objetivo é justamente recuperar a credencial, não há login de usuário final
+para comparar hash (ver decisão 8):
 
-- Trate o `dev.db` como arquivo sensível: **restrinja acesso ao servidor e aos
-  backups** (os backups também contêm os dados).
-- **Não** armazene senhas no sistema.
-- Sem login, qualquer um com acesso de rede pode editar dados — adequado para
-  LAN confiável. Se for exposto além do escritório, **adicionar autenticação
-  antes**.
+- Trate o `dev.db` como arquivo **altamente sensível**: **restrinja acesso ao
+  servidor e aos backups** (os backups também contêm as senhas).
+- Sem login, qualquer um com acesso de rede pode ler/editar os dados — adequado
+  apenas para LAN confiável. Se for exposto além do escritório, **adicionar
+  autenticação antes** (e considerar criptografia em repouso).
 
 Endurecimento já disponível (sem mudar o padrão de LAN sem login):
 

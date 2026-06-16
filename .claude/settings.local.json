@@ -29,7 +29,14 @@
       "Bash(gh auth *)",
       "Bash(git config *)",
       "Bash(git init *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(docker compose *)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"=== EXIT $? ===\")",
+      "Bash(ip -4 addr show)",
+      "Bash(npm test *)"
     ]
   }
 }

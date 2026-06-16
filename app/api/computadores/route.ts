@@ -48,6 +48,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         apelido: r.data.apelido,
         observacoes: r.data.observacoes,
         loginPadrao: r.data.loginPadrao,
+        senha: r.data.senha,
         licencaWindows: r.data.licencaWindows,
         licencaMicrosoft: r.data.licencaMicrosoft,
         contaOutlook: r.data.contaOutlook,

@@ -14,13 +14,17 @@ datasource db {
 
 // Funcionário = a pessoa dona do computador (operadora, gestor, supervisor, etc.)
 model Funcionario {
-  id           String       @id @default(cuid())
-  nome         String
-  cargo        String // texto livre p/ não engessar a lista de cargos
-  matricula    String?      @unique
-  ativo        Boolean      @default(true)
-  computadores Computador[]
-  criadoEm     DateTime     @default(now())
+  id            String       @id @default(cuid())
+  nome          String
+  cargo         String // texto livre p/ não engessar a lista de cargos
+  ativo         Boolean      @default(true)
+  // Credenciais dos sistemas usados pelo funcionário (substituem a matrícula).
+  loginSiscobra String? // login do funcionário no sistema Siscobra
+  senhaSiscobra String? // senha do funcionário no Siscobra
+  loginVonix    String? // login do funcionário no Vonix
+  senhaVonix    String? // senha do funcionário no Vonix
+  computadores  Computador[]
+  criadoEm      DateTime     @default(now())
 }
 
 model Computador {
@@ -30,6 +34,7 @@ model Computador {
   observacoes   String?
   // Login/licenças/conta da máquina — opcionais (nem todo PC tem tudo registrado)
   loginPadrao      String? // login padrão do computador, ex: "COB-1024"
+  senha            String? // senha de acesso do computador
   licencaWindows   String? // chave/observação da licença do Windows
   licencaMicrosoft String? // licença Microsoft 365 / Office
   contaOutlook     String? // conta do Outlook corporativo (e-mail)

@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Loader2 } from "lucide-react";
-import { apiGet, mensagem } from "@/lib/fetcher";
+import { Loader2, Trash2 } from "lucide-react";
+import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +52,7 @@ export default function AuditoriaPage() {
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState<string | null>(null);
   const [filtro, setFiltro] = React.useState<string>("todas");
+  const [removendoId, setRemovendoId] = React.useState<string | null>(null);
 
   const carregar = React.useCallback(async () => {
     setCarregando(true);
@@ -69,6 +70,21 @@ export default function AuditoriaPage() {
   React.useEffect(() => {
     carregar();
   }, [carregar]);
+
+  async function remover(l: Log) {
+    if (!confirm("Apagar este evento de auditoria? Esta ação é definitiva.")) {
+      return;
+    }
+    setRemovendoId(l.id);
+    try {
+      await apiSend(`/api/auditoria/${l.id}`, "DELETE");
+      setLogs((atual) => atual.filter((x) => x.id !== l.id));
+    } catch (e) {
+      alert(mensagem(e));
+    } finally {
+      setRemovendoId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -126,6 +142,7 @@ export default function AuditoriaPage() {
                   <TableHead className="w-24">Ação</TableHead>
                   <TableHead>Descrição</TableHead>
                   <TableHead className="w-32">Responsável</TableHead>
+                  <TableHead className="w-16 text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -140,6 +157,22 @@ export default function AuditoriaPage() {
                     <TableCell className="text-sm">{l.descricao}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {l.ator ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Apagar evento"
+                        title="Apagar evento"
+                        disabled={removendoId === l.id}
+                        onClick={() => remover(l)}
+                      >
+                        {removendoId === l.id ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <Trash2 className="text-destructive" />
+                        )}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}

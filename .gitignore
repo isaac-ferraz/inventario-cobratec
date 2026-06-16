@@ -9,4 +9,5 @@ prisma/dev.db-wal
 prisma/dev.db-shm
 backups
 next-env.d.ts
+*.tsbuildinfo
 .DS_Store

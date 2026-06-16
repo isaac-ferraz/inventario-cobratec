@@ -21,7 +21,10 @@ const emailOpcional = textoOpcional.refine(
 export const funcionarioSchema = z.object({
   nome: z.string().trim().min(1, "Nome é obrigatório").max(200, "Nome muito longo"),
   cargo: z.string().trim().min(1, "Cargo é obrigatório").max(120, "Cargo muito longo"),
-  matricula: textoOpcional,
+  loginSiscobra: textoOpcional,
+  senhaSiscobra: textoOpcional,
+  loginVonix: textoOpcional,
+  senhaVonix: textoOpcional,
   ativo: z.boolean().optional(),
 });
 
@@ -34,6 +37,7 @@ export const computadorSchema = z.object({
   apelido: textoOpcional,
   observacoes: textoOpcional,
   loginPadrao: textoOpcional,
+  senha: textoOpcional,
   licencaWindows: textoOpcional,
   licencaMicrosoft: textoOpcional,
   contaOutlook: emailOpcional,

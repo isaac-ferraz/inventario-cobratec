@@ -15,10 +15,12 @@ o Excel é só relatório de saída.
 - **zod** (validação na API), **exceljs** (Excel), **lucide-react** (ícones)
 
 ## Modelo de dados (Prisma)
-- **Funcionario**: nome, cargo (texto livre), matrícula?, ativo, computadores[]
+- **Funcionario**: nome, cargo (texto livre), ativo, **loginSiscobra?/
+  senhaSiscobra?/loginVonix?/senhaVonix?** (credenciais dos sistemas, substituem a
+  antiga matrícula), computadores[]
 - **Computador**: identificador (único), apelido?, **observacoes?**, loginPadrao?,
-  licencaWindows?, licencaMicrosoft?, contaOutlook?, **temMouse/temTeclado/
-  temHeadset** (booleans de presença), funcionarioId? (null = estoque),
+  **senha?**, licencaWindows?, licencaMicrosoft?, contaOutlook?, **temMouse/
+  temTeclado/temHeadset** (booleans de presença), funcionarioId? (null = estoque),
   componentes[]
 - **TipoComponente**: nome (único) — catálogo editável
 - **Componente**: descricao, especificacoes? (JSON livre guardado como texto, pois

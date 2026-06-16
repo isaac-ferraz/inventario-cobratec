@@ -45,6 +45,7 @@ export function ComputadorDialog({
   const [apelido, setApelido] = React.useState("");
   const [observacoes, setObservacoes] = React.useState("");
   const [loginPadrao, setLoginPadrao] = React.useState("");
+  const [senha, setSenha] = React.useState("");
   const [licencaWindows, setLicencaWindows] = React.useState("");
   const [licencaMicrosoft, setLicencaMicrosoft] = React.useState("");
   const [contaOutlook, setContaOutlook] = React.useState("");
@@ -63,6 +64,7 @@ export function ComputadorDialog({
     setApelido(computador?.apelido ?? "");
     setObservacoes(computador?.observacoes ?? "");
     setLoginPadrao(computador?.loginPadrao ?? "");
+    setSenha(computador?.senha ?? "");
     setLicencaWindows(computador?.licencaWindows ?? "");
     setLicencaMicrosoft(computador?.licencaMicrosoft ?? "");
     setContaOutlook(computador?.contaOutlook ?? "");
@@ -91,6 +93,7 @@ export function ComputadorDialog({
       apelido,
       observacoes,
       loginPadrao,
+      senha,
       licencaWindows,
       licencaMicrosoft,
       contaOutlook,
@@ -177,6 +180,15 @@ export function ComputadorDialog({
                   value={loginPadrao}
                   onChange={(e) => setLoginPadrao(e.target.value)}
                   placeholder="Ex: COB-1024"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="senha">Senha do computador</Label>
+                <Input
+                  id="senha"
+                  value={senha}
+                  onChange={(e) => setSenha(e.target.value)}
+                  placeholder="Senha de acesso da máquina"
                 />
               </div>
               <div className="space-y-1.5">

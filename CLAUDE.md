@@ -168,9 +168,13 @@ decisões técnicas em [`docs/decisoes.md`](./docs/decisoes.md).
 catálogo de tipos, Excel com aba Inventário + Dashboard com data bars).
 
 **Adições por computador:** além de `observacoes` (texto livre, mantido), cada
-computador tem `loginPadrao` (COB-número), `licencaWindows`, `licencaMicrosoft`
-(Microsoft 365/Office) e `contaOutlook` — todos campos diretos do `Computador`
-(decisão 8 em `decisoes.md`). Há também os **periféricos** `temMouse`,
+computador tem `loginPadrao` (COB-número), `senha` (senha de acesso da máquina),
+`licencaWindows`, `licencaMicrosoft` (Microsoft 365/Office) e `contaOutlook` —
+todos campos diretos do `Computador` (decisão 8 em `decisoes.md`).
+
+**Credenciais do funcionário:** a antiga `matricula` foi substituída por
+`loginSiscobra`/`senhaSiscobra` e `loginVonix`/`senhaVonix` (campos diretos do
+`Funcionario`, opcionais). Senhas em texto puro (cofre interno de TI; decisão 8). Há também os **periféricos** `temMouse`,
 `temTeclado` e `temHeadset` — booleans de presença (sem modelo); mouse e teclado
 com default `true`, headset `false` (decisão 10 em `decisoes.md`).
 
@@ -188,7 +192,8 @@ transacional; **limites de tamanho** (zod) nas entradas.
 **Auditoria:** trilha append-only (`LogAuditoria`) das mutações (criar/editar/
 remover/mover) das quatro entidades, com ator (via auth Basic), API
 `GET /api/auditoria` e tela `/auditoria`; registro best-effort, fora da transação
-(decisão 13).
+(decisão 13). Eventos podem ser apagados manualmente pelo TI
+(`DELETE /api/auditoria/:id`, botão na tela).
 
 **Qualidade/processo:** **testes** com vitest (`lib/*.test.ts`, funções puras);
 **ESLint** configurado; **CI** no GitHub Actions (lint + testes + build em
