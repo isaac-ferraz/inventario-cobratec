@@ -2,28 +2,54 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Sistema de design "etiqueta de patrimônio / painel técnico".
+  Paleta lab (papel frio) + acento teal de diagnóstico; dados em monospace.
+*/
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 160 14% 95%; /* papel frio (bancada/anti-estático) */
+    --foreground: 205 18% 11%; /* tinta: slate quase-preto */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 205 18% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --popover-foreground: 205 18% 11%;
+    --primary: 174 80% 25%; /* teal de diagnóstico (sinal) */
+    --primary-foreground: 160 30% 97%;
+    --secondary: 190 14% 90%;
+    --secondary-foreground: 205 18% 18%;
+    --muted: 180 12% 92%;
+    --muted-foreground: 200 8% 40%; /* grafite */
+    --accent: 175 32% 90%; /* hover com leve tinta teal */
+    --accent-foreground: 174 80% 18%;
+    --destructive: 5 74% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 185 13% 86%; /* fio (hairline) */
+    --input: 185 13% 86%;
+    --ring: 174 80% 30%;
+    --radius: 0.35rem; /* cantos precisos, técnicos */
+  }
+
+  .dark {
+    --background: 200 22% 8%; /* rack/terminal */
+    --foreground: 170 12% 92%;
+    --card: 200 20% 11%;
+    --card-foreground: 170 12% 92%;
+    --popover: 200 20% 11%;
+    --popover-foreground: 170 12% 92%;
+    --primary: 173 65% 45%;
+    --primary-foreground: 200 30% 8%;
+    --secondary: 200 16% 18%;
+    --secondary-foreground: 170 12% 92%;
+    --muted: 200 16% 16%;
+    --muted-foreground: 195 10% 60%;
+    --accent: 192 30% 20%;
+    --accent-foreground: 173 65% 70%;
+    --destructive: 5 65% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 16% 20%;
+    --input: 200 16% 22%;
+    --ring: 173 65% 45%;
   }
 }
 
@@ -32,6 +58,26 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv05", "ss01";
+  }
+  /* Números sempre alinhados (tabelas, contadores, dados). */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.18);
+  }
+}
+
+@layer components {
+  /* Sobrescrita "etiqueta": eyebrow técnico em monospace. */
+  .eyebrow {
+    @apply font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground;
+  }
+  /* LED de status. */
+  .led {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+    box-shadow: 0 0 0 2px hsl(var(--card)), 0 0 6px 0 currentColor;
   }
 }

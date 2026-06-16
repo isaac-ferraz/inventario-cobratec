@@ -131,7 +131,10 @@ export default function ComputadoresPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Computadores</h1>
+          <div className="eyebrow">inventário</div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">
+            Computadores
+          </h1>
           <p className="text-sm text-muted-foreground">
             Gerencie máquinas, hardware e a quem cada uma pertence.
           </p>

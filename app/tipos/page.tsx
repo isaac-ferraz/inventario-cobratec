@@ -108,7 +108,8 @@ export default function TiposPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <div className="eyebrow">catálogo</div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">
             Tipos de componente
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -123,7 +124,7 @@ export default function TiposPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Catálogo</CardTitle>
+          <CardTitle className="font-display text-base">Catálogo</CardTitle>
         </CardHeader>
         <CardContent>
           {carregando ? (
