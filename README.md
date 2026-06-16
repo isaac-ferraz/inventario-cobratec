@@ -157,6 +157,11 @@ Definido em [`prisma/schema.prisma`](./prisma/schema.prisma). O modelo prioriza
 **Tipos de componente**
 - CRUD completo do catálogo. Não deixa remover tipo que está em uso.
 
+**Auditoria**
+- Trilha append-only das alterações (criar/editar/remover/mover) com data,
+  descrição e responsável (quando a auth Basic está ligada). Tela `/auditoria`
+  com filtro por entidade.
+
 **Dashboard**
 - KPIs, distribuição por cargo e por tipo, e **pendências de licença/conta**.
 
@@ -206,11 +211,18 @@ Todas as rotas ficam em `app/api`. Respostas e erros em JSON
 | PATCH  | `/api/componentes/{id}`  | Edita                      |
 | DELETE | `/api/componentes/{id}`  | Remove                     |
 
+### Auditoria
+
+| Método | Rota             | Descrição                                                       |
+| ------ | ---------------- | --------------------------------------------------------------- |
+| GET    | `/api/auditoria` | Lista eventos (recentes 1º); filtros `?entidade=` e `?limite=`  |
+
 ### Exportação
 
 | Método | Rota          | Descrição                                          |
 | ------ | ------------- | -------------------------------------------------- |
 | GET    | `/api/export` | Baixa o `.xlsx` (dynamic, sempre dados atuais)     |
+| GET    | `/api/health` | Health check (app + banco) — usado pelo Docker     |
 
 ---
 
@@ -432,6 +444,7 @@ Registradas em [`docs/decisoes.md`](./docs/decisoes.md). Resumo:
 10. Periféricos como booleans de presença (mouse/teclado/headset).
 11. SQLite em modo WAL + índices de chave estrangeira.
 12. Concorrência otimista na edição de computador (`esperaAtualizadoEm`).
+13. Trilha de auditoria (append-only, best-effort, ator via auth Basic).
 
 ---
 

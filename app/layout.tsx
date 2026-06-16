@@ -13,6 +13,7 @@ const navItems = [
   { href: "/computadores", label: "Computadores" },
   { href: "/funcionarios", label: "Funcionários" },
   { href: "/tipos", label: "Tipos de componente" },
+  { href: "/auditoria", label: "Auditoria" },
 ];
 
 export default function RootLayout({

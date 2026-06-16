@@ -73,3 +73,19 @@ model Componente {
   @@index([computadorId])
   @@index([tipoId])
 }
+
+// Trilha de auditoria: registra as alterações (quem/o quê/quando) feitas pela
+// API. É um log append-only e independente das entidades (sem FK), para o
+// histórico sobreviver mesmo que o registro de origem seja removido.
+model LogAuditoria {
+  id         String   @id @default(cuid())
+  criadoEm   DateTime @default(now())
+  acao       String // "criar" | "editar" | "remover" | "mover"
+  entidade   String // "Computador" | "Componente" | "Funcionario" | "TipoComponente"
+  entidadeId String? // id do registro afetado (null se já não existir)
+  descricao  String // texto legível, ex: 'Computador "PAT-1001" criado'
+  ator       String? // usuário responsável quando a auth Basic está ligada; senão null
+
+  @@index([criadoEm])
+  @@index([entidade])
+}

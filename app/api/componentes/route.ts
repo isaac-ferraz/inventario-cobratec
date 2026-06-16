@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { componenteSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { serializar, expandirComponente } from "@/lib/especificacoes";
+import { registrarAuditoria } from "@/lib/auditoria";
 
 export async function POST(req: Request): Promise<NextResponse> {
   const r = await validarCorpo(req, componenteSchema);
@@ -16,6 +17,12 @@ export async function POST(req: Request): Promise<NextResponse> {
         especificacoes: serializar(r.data.especificacoes),
       },
       include: { tipo: true },
+    });
+    await registrarAuditoria(req, {
+      acao: "criar",
+      entidade: "Componente",
+      entidadeId: criado.id,
+      descricao: `Componente "${criado.tipo.nome}: ${criado.descricao}" adicionado`,
     });
     return NextResponse.json(expandirComponente(criado), { status: 201 });
   } catch (e) {

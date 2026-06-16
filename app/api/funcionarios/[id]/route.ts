@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { funcionarioSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
+import { registrarAuditoria } from "@/lib/auditoria";
 
 type Params = { params: { id: string } };
 
@@ -12,6 +13,14 @@ export async function PATCH(req: Request, { params }: Params) {
     const atualizado = await prisma.funcionario.update({
       where: { id: params.id },
       data: r.data,
+    });
+    await registrarAuditoria(req, {
+      acao: "editar",
+      entidade: "Funcionario",
+      entidadeId: atualizado.id,
+      descricao: `Funcionário "${atualizado.nome}" editado${
+        r.data.ativo === false ? " (inativado)" : ""
+      }`,
     });
     return NextResponse.json(atualizado);
   } catch (e) {
@@ -39,14 +48,22 @@ export async function DELETE(req: Request, { params }: Params) {
   try {
     // Liberar as máquinas e remover o funcionário de forma atômica (evita
     // estado intermediário se algo falhar entre os dois passos).
-    await prisma.$transaction(async (tx) => {
+    const removido = await prisma.$transaction(async (tx) => {
       if (computadores > 0 && liberar) {
         await tx.computador.updateMany({
           where: { funcionarioId: params.id },
           data: { funcionarioId: null },
         });
       }
-      await tx.funcionario.delete({ where: { id: params.id } });
+      return tx.funcionario.delete({ where: { id: params.id } });
+    });
+    await registrarAuditoria(req, {
+      acao: "remover",
+      entidade: "Funcionario",
+      entidadeId: removido.id,
+      descricao: `Funcionário "${removido.nome}" removido${
+        computadores > 0 ? ` (${computadores} computador(es) liberado(s))` : ""
+      }`,
     });
     return NextResponse.json({ ok: true });
   } catch (e) {
