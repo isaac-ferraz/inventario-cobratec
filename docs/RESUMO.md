@@ -70,6 +70,11 @@ o Excel é só relatório de saída.
    Também refatorou a tela de Computadores (page de 911 → 225 linhas) em
    componentes (`components/computadores/`: tipos, filtros, card e os dois
    diálogos com estado próprio), sem mudança de comportamento.
+9. **Trilha de auditoria** (branch **`feat/auditoria`**): model `LogAuditoria`
+   append-only registra criar/editar/remover/mover das quatro entidades, com
+   ator (quando a auth Basic está ligada, via `x-usuario` no middleware), API
+   `GET /api/auditoria` e tela `/auditoria` com filtro. Registro best-effort
+   (fora da transação). Decisão 13 em `decisoes.md`.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)

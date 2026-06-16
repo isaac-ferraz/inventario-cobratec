@@ -4,6 +4,7 @@ import { z } from "zod";
 import { computadorSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { expandirComponentes } from "@/lib/especificacoes";
+import { registrarAuditoria, type AcaoAuditoria } from "@/lib/auditoria";
 
 type Params = { params: { id: string } };
 
@@ -58,10 +59,28 @@ export async function PATCH(req: Request, { params }: Params) {
     }
   }
 
+  // Para auditoria: se o funcionário mudou, a ação é "mover", senão "editar".
+  let acao: AcaoAuditoria = "editar";
+  if ("funcionarioId" in data) {
+    const antes = await prisma.computador.findUnique({
+      where: { id: params.id },
+      select: { funcionarioId: true },
+    });
+    if (antes && antes.funcionarioId !== data.funcionarioId) acao = "mover";
+  }
+
   try {
     const atualizado = await prisma.computador.update({
       where: { id: params.id },
       data,
+    });
+    await registrarAuditoria(req, {
+      acao,
+      entidade: "Computador",
+      entidadeId: atualizado.id,
+      descricao: `Computador "${atualizado.identificador}" ${
+        acao === "mover" ? "movido de funcionário" : "atualizado"
+      }`,
     });
     return NextResponse.json(atualizado);
   } catch (e) {
@@ -70,9 +89,17 @@ export async function PATCH(req: Request, { params }: Params) {
 }
 
 // Remove o computador (componentes vão em cascata pela relação).
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(req: Request, { params }: Params) {
   try {
-    await prisma.computador.delete({ where: { id: params.id } });
+    const removido = await prisma.computador.delete({
+      where: { id: params.id },
+    });
+    await registrarAuditoria(req, {
+      acao: "remover",
+      entidade: "Computador",
+      entidadeId: removido.id,
+      descricao: `Computador "${removido.identificador}" removido`,
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return tratarErroPrisma(e);

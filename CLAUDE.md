@@ -185,6 +185,11 @@ em **modo WAL** + **índices de FK** (decisão 11); **concorrência otimista** n
 edição de computador via `esperaAtualizadoEm` (decisão 12); delete de funcionário
 transacional; **limites de tamanho** (zod) nas entradas.
 
+**Auditoria:** trilha append-only (`LogAuditoria`) das mutações (criar/editar/
+remover/mover) das quatro entidades, com ator (via auth Basic), API
+`GET /api/auditoria` e tela `/auditoria`; registro best-effort, fora da transação
+(decisão 13).
+
 **Qualidade/processo:** **testes** com vitest (`lib/*.test.ts`, funções puras);
 **ESLint** configurado; **CI** no GitHub Actions (lint + testes + build em
 push/PR para `main` e `develop`).

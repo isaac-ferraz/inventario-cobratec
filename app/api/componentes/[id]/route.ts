@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { componenteUpdateSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { serializar, expandirComponente } from "@/lib/especificacoes";
+import { registrarAuditoria } from "@/lib/auditoria";
 
 type Params = { params: { id: string } };
 
@@ -23,15 +24,30 @@ export async function PATCH(req: Request, { params }: Params) {
       data,
       include: { tipo: true },
     });
+    await registrarAuditoria(req, {
+      acao: "editar",
+      entidade: "Componente",
+      entidadeId: atualizado.id,
+      descricao: `Componente "${atualizado.tipo.nome}: ${atualizado.descricao}" editado`,
+    });
     return NextResponse.json(expandirComponente(atualizado));
   } catch (e) {
     return tratarErroPrisma(e);
   }
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(req: Request, { params }: Params) {
   try {
-    await prisma.componente.delete({ where: { id: params.id } });
+    const removido = await prisma.componente.delete({
+      where: { id: params.id },
+      include: { tipo: true },
+    });
+    await registrarAuditoria(req, {
+      acao: "remover",
+      entidade: "Componente",
+      entidadeId: removido.id,
+      descricao: `Componente "${removido.tipo.nome}: ${removido.descricao}" removido`,
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return tratarErroPrisma(e);

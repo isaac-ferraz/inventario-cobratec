@@ -180,3 +180,31 @@ quando o campo é enviado), então não quebra clientes/scripts que não o manda
 Comparamos a versão por `toISOString()` (mesma forma que o cliente recebeu no
 JSON). Aplicado ao `Computador` por ser a entidade mais editada; os demais
 formulários (funcionário, tipo) são simples e de baixa contenção.
+
+## 13. Trilha de auditoria
+
+**Decisão:** um model `LogAuditoria` append-only registra as mutações da API
+(criar/editar/remover/mover) das quatro entidades (Computador, Componente,
+Funcionário, TipoComponente), com descrição legível, timestamp e o ator. Há a
+API `GET /api/auditoria` e a tela `/auditoria` para consulta.
+
+**Por quê:** é uma ferramenta de TI multiusuário onde "quem mexeu no quê" importa
+(responsabilização e histórico, sobretudo em realocações e remoções). O log é
+**independente** das entidades (sem FK), para o histórico sobreviver à remoção do
+registro de origem — por isso guarda `entidadeId` solto + uma `descricao` já
+montada.
+
+**Best-effort:** a gravação do log fica **fora** da transação da mutação e é
+envolvida em try/catch — se o log falhar, a operação principal não é afetada
+(só registra erro no servidor). Trade-off consciente: preferimos não perder uma
+escrita real por causa de uma falha de auditoria.
+
+**Ator (quem):** sem login, normalmente é `null`. Quando a **auth Basic
+opcional** (decisão 9) está ligada, o `middleware.ts` injeta o cabeçalho
+`x-usuario` com o usuário autenticado e o helper o lê. O middleware **sempre
+remove** um `x-usuario` vindo do cliente antes (anti-spoofing), então esse campo
+só é preenchido a partir de uma autenticação real.
+
+**Retenção:** sem expurgo automático por ora (volume baixo num escritório). Se
+crescer, adicionar uma rotina de limpeza/arquivamento por data (há `@@index` em
+`criadoEm`).

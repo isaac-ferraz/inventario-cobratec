@@ -12,8 +12,15 @@ export function middleware(req: NextRequest) {
   const user = process.env.BASIC_AUTH_USER;
   const pass = process.env.BASIC_AUTH_PASS;
 
-  // Sem credenciais configuradas → auth desligada (comportamento atual).
-  if (!user || !pass) return NextResponse.next();
+  // Sempre descarta um `x-usuario` vindo do cliente: esse cabeçalho identifica
+  // o ator na trilha de auditoria e só pode ser definido aqui (anti-spoofing).
+  const headers = new Headers(req.headers);
+  headers.delete("x-usuario");
+
+  // Sem credenciais configuradas → auth desligada (comportamento padrão).
+  if (!user || !pass) {
+    return NextResponse.next({ request: { headers } });
+  }
 
   const header = req.headers.get("authorization");
   if (header?.startsWith("Basic ")) {
@@ -22,7 +29,11 @@ export function middleware(req: NextRequest) {
     const sep = decoded.indexOf(":");
     const u = decoded.slice(0, sep);
     const p = decoded.slice(sep + 1);
-    if (u === user && p === pass) return NextResponse.next();
+    if (u === user && p === pass) {
+      // Propaga o usuário autenticado para a trilha de auditoria.
+      headers.set("x-usuario", u);
+      return NextResponse.next({ request: { headers } });
+    }
   }
 
   return new NextResponse("Autenticação necessária.", {
