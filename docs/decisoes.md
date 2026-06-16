@@ -208,3 +208,28 @@ só é preenchido a partir de uma autenticação real.
 **Retenção:** sem expurgo automático por ora (volume baixo num escritório). Se
 crescer, adicionar uma rotina de limpeza/arquivamento por data (há `@@index` em
 `criadoEm`).
+
+**Descrição do "mover":** o log de movimentação registra **origem → destino**
+(nome do dono anterior e do novo, ou "estoque" quando não há dono), ex.:
+`Computador "PAT-1001" movido de "Ana Souza" para "Carlos Lima"`.
+
+## 14. Sistema de design "etiqueta de patrimônio / painel técnico"
+
+**Decisão:** a UI tem uma identidade própria, derivada do mundo do assunto
+(gestão de ativos de TI), em vez do visual padrão de admin dashboard.
+
+- **Paleta:** papel frio de bancada (`--background`) + **teal de diagnóstico**
+  como acento (`--primary`); status em verde (em uso) / âmbar (estoque/
+  pendência). Tokens em `app/globals.css` (shadcn HSL), com bloco `.dark` pronto.
+- **Tipografia:** Space Grotesk (display) + IBM Plex Sans (corpo) + **IBM Plex
+  Mono** para dados (identificador, login, licenças — que são códigos). Via
+  `next/font` (**self-hosted**: funciona offline na LAN, sem CDN externo).
+- **Navegação:** rail lateral no desktop, barra no mobile (`components/shell/nav`).
+- **Assinatura:** o card de computador é uma **etiqueta de ativo** — faixa de
+  status na lateral, LED, "patrimônio" em mono, ficha de dados monospace; o
+  Dashboard usa KPIs e barras como leituras de instrumento.
+
+**Por quê:** o cliente rejeitou o visual templated; a linguagem de etiqueta de
+patrimônio/painel técnico é distinta e fiel ao uso (inventário de hardware). O
+modo escuro ("rack/terminal") já está nos tokens; falta só um botão de
+alternância se for desejado.

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Cpu,
   Headphones,
   Keyboard,
   Loader2,
@@ -13,7 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import type { Componente, Computador } from "./types";
 
 type Props = {
@@ -27,6 +26,39 @@ type Props = {
   onRemoverComp: (comp: Componente) => void;
 };
 
+// Uma linha do "data sheet" (rótulo + valor em monospace).
+function Dado({ rotulo, valor }: { rotulo: string; valor: string }) {
+  return (
+    <>
+      <dt className="eyebrow self-center">{rotulo}</dt>
+      <dd className="break-all font-mono text-xs text-foreground">{valor}</dd>
+    </>
+  );
+}
+
+function PerifChip({
+  on,
+  icon: Icon,
+  label,
+}: {
+  on: boolean;
+  icon: typeof Mouse;
+  label: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]",
+        on
+          ? "border-border bg-secondary text-secondary-foreground"
+          : "border-dashed text-muted-foreground line-through opacity-70",
+      )}
+    >
+      <Icon className="h-3 w-3" /> {label}
+    </span>
+  );
+}
+
 export function ComputadorCard({
   computador: c,
   removendoPcId,
@@ -37,23 +69,43 @@ export function ComputadorCard({
   onEditarComp,
   onRemoverComp,
 }: Props) {
+  const emUso = !!c.funcionario;
   const temDados =
     c.loginPadrao || c.contaOutlook || c.licencaWindows || c.licencaMicrosoft;
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <article className="relative overflow-hidden rounded-md border bg-card shadow-sm transition-shadow hover:shadow-md">
+      {/* Spine de status (etiqueta de ativo) */}
+      <span
+        aria-hidden
+        className={cn(
+          "absolute inset-y-0 left-0 w-1",
+          emUso ? "bg-emerald-500" : "bg-amber-500",
+        )}
+      />
+      <div className="space-y-3 p-4 pl-5">
+        {/* Cabeçalho: patrimônio + LED + ações */}
         <div className="flex items-start justify-between gap-2">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Cpu className="h-4 w-4" />
-              {c.identificador}
-            </CardTitle>
+          <div className="min-w-0">
+            <div className="eyebrow">patrimônio</div>
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "led",
+                  emUso ? "text-emerald-500" : "text-amber-500",
+                )}
+              />
+              <h3 className="truncate font-display text-lg font-semibold tracking-tight">
+                {c.identificador}
+              </h3>
+            </div>
             {c.apelido && (
-              <p className="mt-1 text-sm text-muted-foreground">{c.apelido}</p>
+              <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                {c.apelido}
+              </p>
             )}
           </div>
-          <div className="flex gap-1">
+          <div className="flex shrink-0 gap-1">
             <Button
               variant="ghost"
               size="icon"
@@ -79,7 +131,9 @@ export function ComputadorCard({
             </Button>
           </div>
         </div>
-        <div className="mt-1">
+
+        {/* Dono / estoque */}
+        <div>
           {c.funcionario ? (
             <Badge variant="secondary">
               {c.funcionario.nome} · {c.funcionario.cargo}
@@ -90,60 +144,38 @@ export function ComputadorCard({
             </Badge>
           )}
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+
+        {/* Data sheet (em monospace) */}
         {temDados && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-muted/30 p-2 text-xs">
-            {c.loginPadrao && (
-              <>
-                <dt className="text-muted-foreground">Login</dt>
-                <dd className="font-medium">{c.loginPadrao}</dd>
-              </>
-            )}
-            {c.contaOutlook && (
-              <>
-                <dt className="text-muted-foreground">Outlook</dt>
-                <dd className="break-all font-medium">{c.contaOutlook}</dd>
-              </>
-            )}
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-md border border-dashed bg-muted/30 p-2.5">
+            {c.loginPadrao && <Dado rotulo="login" valor={c.loginPadrao} />}
+            {c.contaOutlook && <Dado rotulo="outlook" valor={c.contaOutlook} />}
             {c.licencaWindows && (
-              <>
-                <dt className="text-muted-foreground">Windows</dt>
-                <dd className="break-all font-medium">{c.licencaWindows}</dd>
-              </>
+              <Dado rotulo="windows" valor={c.licencaWindows} />
             )}
             {c.licencaMicrosoft && (
-              <>
-                <dt className="text-muted-foreground">Microsoft</dt>
-                <dd className="break-all font-medium">{c.licencaMicrosoft}</dd>
-              </>
+              <Dado rotulo="microsoft" valor={c.licencaMicrosoft} />
             )}
           </dl>
         )}
-        <div className="flex flex-wrap gap-1">
-          <Badge variant={c.temMouse ? "secondary" : "outline"}>
-            <Mouse className="mr-1 h-3 w-3" /> Mouse
-            {c.temMouse ? "" : " ✕"}
-          </Badge>
-          <Badge variant={c.temTeclado ? "secondary" : "outline"}>
-            <Keyboard className="mr-1 h-3 w-3" /> Teclado
-            {c.temTeclado ? "" : " ✕"}
-          </Badge>
-          <Badge variant={c.temHeadset ? "secondary" : "outline"}>
-            <Headphones className="mr-1 h-3 w-3" /> Headset
-            {c.temHeadset ? "" : " ✕"}
-          </Badge>
+
+        {/* Periféricos */}
+        <div className="flex flex-wrap gap-1.5">
+          <PerifChip on={c.temMouse} icon={Mouse} label="Mouse" />
+          <PerifChip on={c.temTeclado} icon={Keyboard} label="Teclado" />
+          <PerifChip on={c.temHeadset} icon={Headphones} label="Headset" />
         </div>
+
         {c.observacoes && (
           <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
             {c.observacoes}
           </p>
         )}
-        <div className="space-y-2">
+
+        {/* Ficha de hardware */}
+        <div className="space-y-2 border-t pt-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">
-              Hardware ({c.componentes.length})
-            </span>
+            <span className="eyebrow">hardware · {c.componentes.length}</span>
             <Button variant="outline" size="sm" onClick={() => onNovoComp(c.id)}>
               <Plus /> Componente
             </Button>
@@ -161,20 +193,21 @@ export function ComputadorCard({
                 >
                   <div className="min-w-0">
                     <div className="text-sm">
-                      <span className="font-medium">{comp.tipo.nome}:</span>{" "}
-                      {comp.descricao}
+                      <span className="font-mono text-xs font-medium uppercase tracking-wide text-primary">
+                        {comp.tipo.nome}
+                      </span>{" "}
+                      <span className="text-foreground">{comp.descricao}</span>
                     </div>
                     {comp.especificacoes &&
                       Object.keys(comp.especificacoes).length > 0 && (
-                        <div className="mt-0.5 flex flex-wrap gap-1">
+                        <div className="mt-1 flex flex-wrap gap-1">
                           {Object.entries(comp.especificacoes).map(([k, v]) => (
-                            <Badge
+                            <span
                               key={k}
-                              variant="outline"
-                              className="text-[10px]"
+                              className="rounded border bg-muted/50 px-1 py-px font-mono text-[10px] text-muted-foreground"
                             >
                               {k}: {String(v)}
-                            </Badge>
+                            </span>
                           ))}
                         </div>
                       )}
@@ -211,7 +244,7 @@ export function ComputadorCard({
             </ul>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </article>
   );
 }

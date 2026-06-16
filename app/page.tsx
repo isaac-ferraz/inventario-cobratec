@@ -3,6 +3,7 @@ import { Monitor, Users, PackageOpen, Layers } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButton } from "@/components/export-button";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -18,17 +19,19 @@ function BarList({
     return <p className="text-sm text-muted-foreground">Sem dados ainda.</p>;
   }
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {dados.map((d) => (
         <div key={d.label} className="space-y-1">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-foreground">{d.label}</span>
-            <span className="font-medium tabular-nums">{d.valor}</span>
+          <div className="flex items-center justify-between gap-2 text-sm">
+            <span className="truncate text-foreground">{d.label}</span>
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              {d.valor}
+            </span>
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div
-              className={cor}
-              style={{ width: `${(d.valor / max) * 100}%`, height: "100%" }}
+              className={cn("h-full rounded-full", cor)}
+              style={{ width: `${(d.valor / max) * 100}%` }}
             />
           </div>
         </div>
@@ -99,9 +102,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <div className="eyebrow">painel</div>
+          <h1 className="font-display text-2xl font-bold tracking-tight">
+            Dashboard
+          </h1>
           <p className="text-sm text-muted-foreground">
             Visão geral do parque de hardware. O Excel reflete exatamente estes
             dados.
@@ -110,17 +116,23 @@ export default async function DashboardPage() {
         <ExportButton />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((k) => (
-          <Card key={k.titulo}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {k.titulo}
-              </CardTitle>
-              <k.icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold tabular-nums">{k.valor}</div>
+          <Card key={k.titulo} className="relative overflow-hidden">
+            <span
+              aria-hidden
+              className="absolute inset-x-0 top-0 h-0.5 bg-primary"
+            />
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {k.titulo}
+                </span>
+                <k.icon className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="mt-2 font-display text-3xl font-bold tabular-nums">
+                {k.valor}
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -129,51 +141,73 @@ export default async function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Computadores por cargo</CardTitle>
+            <CardTitle className="font-display text-base">
+              Computadores por cargo
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <BarList dados={cargoData} cor="bg-blue-600" />
+            <BarList dados={cargoData} cor="bg-primary" />
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Componentes por tipo</CardTitle>
+            <CardTitle className="font-display text-base">
+              Componentes por tipo
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <BarList dados={tipoData} cor="bg-emerald-600" />
+            <BarList dados={tipoData} cor="bg-emerald-500" />
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Pendências de licença / conta</CardTitle>
+          <CardTitle className="font-display text-base">
+            Pendências de licença / conta
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {pendencias.map((p) => (
-              <div
-                key={p.label}
-                className="rounded-lg border p-3"
-                data-ok={p.valor === 0}
-              >
-                <div className="text-sm text-muted-foreground">{p.label}</div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {pendencias.map((p) => {
+              const ok = p.valor === 0;
+              return (
                 <div
-                  className={`mt-1 text-2xl font-bold tabular-nums ${
-                    p.valor === 0 ? "text-emerald-600" : "text-amber-600"
-                  }`}
+                  key={p.label}
+                  className={cn(
+                    "rounded-md border p-3",
+                    ok ? "border-border" : "border-amber-300 bg-amber-50/50",
+                  )}
                 >
-                  {p.valor}
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "led",
+                        ok ? "text-emerald-500" : "text-amber-500",
+                      )}
+                    />
+                    <div className="text-xs text-muted-foreground">
+                      {p.label}
+                    </div>
+                  </div>
+                  <div
+                    className={cn(
+                      "mt-1 font-display text-2xl font-bold tabular-nums",
+                      ok ? "text-emerald-600" : "text-amber-600",
+                    )}
+                  >
+                    {p.valor}
+                  </div>
+                  <div className="eyebrow">
+                    {total === 0
+                      ? "—"
+                      : ok
+                        ? "tudo registrado"
+                        : `de ${total} PCs`}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {total === 0
-                    ? "—"
-                    : p.valor === 0
-                      ? "tudo registrado"
-                      : `de ${total} computador(es)`}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
