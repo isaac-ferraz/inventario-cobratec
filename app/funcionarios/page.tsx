@@ -39,7 +39,7 @@ type Funcionario = {
   loginVonix: string | null;
   senhaVonix: string | null;
   ativo: boolean;
-  _count: { computadores: number };
+  _count: { computadores: number; celulares: number };
 };
 
 export default function FuncionariosPage() {
@@ -129,15 +129,17 @@ export default function FuncionariosPage() {
   }
 
   async function remover(f: Funcionario) {
-    const temPc = f._count.computadores > 0;
-    const msg = temPc
-      ? `${f.nome} possui ${f._count.computadores} computador(es). Eles ficarão SEM funcionário (estoque). Remover assim mesmo?`
+    const pcs = f._count.computadores;
+    const cels = f._count.celulares;
+    const temVinculo = pcs + cels > 0;
+    const msg = temVinculo
+      ? `${f.nome} possui ${pcs} computador(es) e ${cels} celular(es). Eles ficarão SEM funcionário (estoque). Remover assim mesmo?`
       : `Remover ${f.nome}?`;
     if (!confirm(msg)) return;
     setRemovendoId(f.id);
     try {
       await apiSend(
-        `/api/funcionarios/${f.id}${temPc ? "?liberar=1" : ""}`,
+        `/api/funcionarios/${f.id}${temVinculo ? "?liberar=1" : ""}`,
         "DELETE",
       );
       carregar();
@@ -194,6 +196,7 @@ export default function FuncionariosPage() {
                   <TableHead>Siscobra</TableHead>
                   <TableHead>Vonix</TableHead>
                   <TableHead>Computadores</TableHead>
+                  <TableHead>Celulares</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
@@ -210,6 +213,7 @@ export default function FuncionariosPage() {
                       {f.loginVonix ?? "—"}
                     </TableCell>
                     <TableCell>{f._count.computadores}</TableCell>
+                    <TableCell>{f._count.celulares}</TableCell>
                     <TableCell>
                       {f.ativo ? (
                         <Badge variant="success">Ativo</Badge>

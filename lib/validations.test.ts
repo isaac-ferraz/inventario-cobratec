@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   computadorSchema,
+  celularSchema,
+  itemDepositoSchema,
   funcionarioSchema,
   componenteSchema,
 } from "@/lib/validations";
@@ -53,6 +55,63 @@ describe("computadorSchema", () => {
     });
     expect(r.temMouse).toBe(false);
     expect(r.temHeadset).toBe(true);
+  });
+});
+
+describe("celularSchema", () => {
+  it("aceita o mínimo (só identificador) e normaliza opcional vazio para null", () => {
+    const r = celularSchema.parse({ identificador: "CEL-1", numero: "" });
+    expect(r.identificador).toBe("CEL-1");
+    expect(r.numero).toBeNull();
+  });
+
+  it("faz trim e exige identificador não-vazio", () => {
+    expect(() => celularSchema.parse({ identificador: "   " })).toThrow();
+  });
+
+  it("preserva os campos de telefonia quando preenchidos", () => {
+    const r = celularSchema.parse({
+      identificador: "CEL-1",
+      operadora: "Vivo",
+      imei: "356938035643809",
+    });
+    expect(r.operadora).toBe("Vivo");
+    expect(r.imei).toBe("356938035643809");
+  });
+
+  it("rejeita identificador acima do limite de tamanho", () => {
+    expect(() =>
+      celularSchema.parse({ identificador: "x".repeat(201) }),
+    ).toThrow();
+  });
+});
+
+describe("itemDepositoSchema", () => {
+  it("exige nome e aceita o mínimo", () => {
+    expect(() => itemDepositoSchema.parse({ nome: "" })).toThrow();
+    const r = itemDepositoSchema.parse({ nome: "Cabo HDMI" });
+    expect(r.nome).toBe("Cabo HDMI");
+  });
+
+  it("aceita quantidade como número ou string numérica (coerção)", () => {
+    const a = itemDepositoSchema.parse({ nome: "Mouse", quantidade: 5 });
+    expect(a.quantidade).toBe(5);
+    const b = itemDepositoSchema.parse({ nome: "Mouse", quantidade: "5" });
+    expect(b.quantidade).toBe(5);
+  });
+
+  it("rejeita quantidade negativa e não-inteira", () => {
+    expect(() =>
+      itemDepositoSchema.parse({ nome: "Cabo", quantidade: -1 }),
+    ).toThrow();
+    expect(() =>
+      itemDepositoSchema.parse({ nome: "Cabo", quantidade: 1.5 }),
+    ).toThrow();
+  });
+
+  it("categoria vazia vira null (permite limpar pela edição)", () => {
+    const r = itemDepositoSchema.parse({ nome: "Cabo", categoria: "" });
+    expect(r.categoria).toBeNull();
   });
 });
 

@@ -167,6 +167,14 @@ decisões técnicas em [`docs/decisoes.md`](./docs/decisoes.md).
 **Implementado:** todo o spec acima (computadores, componentes, funcionários,
 catálogo de tipos, Excel com aba Inventário + Dashboard com data bars).
 
+**Celulares:** entidade `Celular` própria, espelhando o computador — CRUD em
+`/celulares` + `/api/celulares`, pertence a um funcionário (ou estoque) e pode
+ser movido entre eles. Campos: `identificador` (único), `apelido` (modelo),
+`numero` (linha), `operadora`, `imei`, `observacoes` — sem componentes. Tem
+auditoria, concorrência otimista e busca/filtros, igual ao computador. O delete
+de funcionário libera computadores **e** celulares; Dashboard e Excel (aba
+"Celulares") refletem os aparelhos (decisão 15 em `decisoes.md`).
+
 **Adições por computador:** além de `observacoes` (texto livre, mantido), cada
 computador tem `loginPadrao` (COB-número), `senha` (senha de acesso da máquina),
 `licencaWindows`, `licencaMicrosoft` (Microsoft 365/Office) e `contaOutlook` —
@@ -177,6 +185,14 @@ todos campos diretos do `Computador` (decisão 8 em `decisoes.md`).
 `Funcionario`, opcionais). Senhas em texto puro (cofre interno de TI; decisão 8). Há também os **periféricos** `temMouse`,
 `temTeclado` e `temHeadset` — booleans de presença (sem modelo); mouse e teclado
 com default `true`, headset `false` (decisão 10 em `decisoes.md`).
+
+**Depósito (estoque de suprimentos):** aba `/deposito` + `/api/deposito` com o
+modelo `ItemDeposito` (nome, `categoria` texto livre, `quantidade`,
+`quantidadeMinima`, `localizacao`, `observacoes`). Controle de estoque por
+quantidade para itens avulsos em caixas (cabos, mouses...): KPIs de tipos/
+unidades/em falta/estoque baixo, contagem rápida com botões **±** (`PATCH
+{ delta }`, atômico, piso em 0, sem auditoria) e situação derivada (falta/baixo/
+ok). Decisão 17 em `decisoes.md`.
 
 **Melhorias de UX/dados:** busca na lista de computadores; filtros por
 funcionário e cargo; funcionários inativos fora do seletor de dono; validação de

@@ -28,29 +28,35 @@ export async function PATCH(req: Request, { params }: Params) {
   }
 }
 
-// DELETE: por padrão bloqueia se houver computador. Use ?liberar=1 para
-// soltar os computadores (funcionarioId = null) antes de remover.
+// DELETE: por padrão bloqueia se houver computador ou celular vinculado. Use
+// ?liberar=1 para soltar os aparelhos (funcionarioId = null) antes de remover.
 export async function DELETE(req: Request, { params }: Params) {
   const url = new URL(req.url);
   const liberar = url.searchParams.get("liberar") === "1";
 
-  const computadores = await prisma.computador.count({
-    where: { funcionarioId: params.id },
-  });
+  const [computadores, celulares] = await Promise.all([
+    prisma.computador.count({ where: { funcionarioId: params.id } }),
+    prisma.celular.count({ where: { funcionarioId: params.id } }),
+  ]);
+  const vinculados = computadores + celulares;
 
-  if (computadores > 0 && !liberar) {
+  if (vinculados > 0 && !liberar) {
     return erro(
-      `Funcionário possui ${computadores} computador(es). Confirme a liberação para "sem funcionário" antes de remover.`,
+      `Funcionário possui ${computadores} computador(es) e ${celulares} celular(es). Confirme a liberação para "sem funcionário" antes de remover.`,
       409,
     );
   }
 
   try {
-    // Liberar as máquinas e remover o funcionário de forma atômica (evita
-    // estado intermediário se algo falhar entre os dois passos).
+    // Liberar os aparelhos e remover o funcionário de forma atômica (evita
+    // estado intermediário se algo falhar entre os passos).
     const removido = await prisma.$transaction(async (tx) => {
-      if (computadores > 0 && liberar) {
+      if (vinculados > 0 && liberar) {
         await tx.computador.updateMany({
+          where: { funcionarioId: params.id },
+          data: { funcionarioId: null },
+        });
+        await tx.celular.updateMany({
           where: { funcionarioId: params.id },
           data: { funcionarioId: null },
         });
@@ -62,7 +68,9 @@ export async function DELETE(req: Request, { params }: Params) {
       entidade: "Funcionario",
       entidadeId: removido.id,
       descricao: `Funcionário "${removido.nome}" removido${
-        computadores > 0 ? ` (${computadores} computador(es) liberado(s))` : ""
+        vinculados > 0
+          ? ` (${computadores} computador(es) e ${celulares} celular(es) liberado(s))`
+          : ""
       }`,
     });
     return NextResponse.json({ ok: true });

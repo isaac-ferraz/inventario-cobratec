@@ -33,13 +33,19 @@ function estilizarCabecalho(row: ExcelJS.Row) {
 }
 
 export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
-  const computadores = await prisma.computador.findMany({
-    include: {
-      funcionario: true,
-      componentes: { include: { tipo: true } },
-    },
-    orderBy: { identificador: "asc" },
-  });
+  const [computadores, celulares] = await Promise.all([
+    prisma.computador.findMany({
+      include: {
+        funcionario: true,
+        componentes: { include: { tipo: true } },
+      },
+      orderBy: { identificador: "asc" },
+    }),
+    prisma.celular.findMany({
+      include: { funcionario: true },
+      orderBy: { identificador: "asc" },
+    }),
+  ]);
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "Cobratec TI — Inventário de Hardware";
@@ -93,9 +99,44 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     row.eachCell((cell) => (cell.border = BORDA_LEVE));
   }
 
+  // ----- Aba "Celulares" -----
+  const cel = wb.addWorksheet("Celulares", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+  cel.columns = [
+    { header: "Identificador", key: "identificador", width: 18 },
+    { header: "Modelo / apelido", key: "apelido", width: 24 },
+    { header: "Funcionário", key: "funcionario", width: 24 },
+    { header: "Cargo", key: "cargo", width: 18 },
+    { header: "Status", key: "status", width: 14 },
+    { header: "Número", key: "numero", width: 18 },
+    { header: "Operadora", key: "operadora", width: 14 },
+    { header: "IMEI", key: "imei", width: 20 },
+    { header: "Observações", key: "observacoes", width: 30 },
+  ];
+  estilizarCabecalho(cel.getRow(1));
+
+  for (const c of celulares) {
+    const row = cel.addRow({
+      identificador: c.identificador,
+      apelido: c.apelido ?? "",
+      funcionario: c.funcionario?.nome ?? "— sem funcionário —",
+      cargo: c.funcionario?.cargo ?? "",
+      status: c.funcionario ? "Em uso" : "Estoque",
+      numero: c.numero ?? "",
+      operadora: c.operadora ?? "",
+      imei: c.imei ?? "",
+      observacoes: c.observacoes ?? "",
+    });
+    row.alignment = { vertical: "top", wrapText: true };
+    row.eachCell((cell) => (cell.border = BORDA_LEVE));
+  }
+
   // ----- Cálculo dos indicadores -----
   const total = computadores.length;
   const semFuncionario = computadores.filter((c) => !c.funcionario).length;
+  const totalCelulares = celulares.length;
+  const celularesSemFunc = celulares.filter((c) => !c.funcionario).length;
 
   const porCargo = new Map<string, number>();
   for (const c of computadores) {
@@ -145,8 +186,11 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
   const kpis: [string, number][] = [
     ["Total de computadores", total],
     ["Computadores em uso", total - semFuncionario],
-    ["Sem funcionário / em estoque", semFuncionario],
+    ["Computadores sem funcionário / em estoque", semFuncionario],
     ["Tipos de componente distintos", porTipo.size],
+    ["Total de celulares", totalCelulares],
+    ["Celulares em uso", totalCelulares - celularesSemFunc],
+    ["Celulares sem funcionário / em estoque", celularesSemFunc],
   ];
   for (const [label, valor] of kpis) {
     dash.getCell(`A${r}`).value = label;

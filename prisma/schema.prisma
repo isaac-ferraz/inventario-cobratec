@@ -24,7 +24,28 @@ model Funcionario {
   loginVonix    String? // login do funcionário no Vonix
   senhaVonix    String? // senha do funcionário no Vonix
   computadores  Computador[]
+  celulares     Celular[]
   criadoEm      DateTime     @default(now())
+}
+
+// Celular = aparelho corporativo. Igual ao Computador, pertence a um funcionário
+// (ou fica em estoque com funcionarioId null) e pode ser movido entre eles.
+// Não tem componentes/hardware — campos próprios de telefonia.
+model Celular {
+  id            String       @id @default(cuid())
+  identificador String       @unique // patrimônio, etiqueta ou IMEI
+  apelido       String? // modelo, ex: "Samsung Galaxy A14"
+  numero        String? // número da linha, ex: "(11) 99999-0000"
+  operadora     String? // Vivo, Claro, Tim... texto livre
+  imei          String? // IMEI do aparelho
+  observacoes   String?
+  funcionarioId String?
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id])
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+
+  // SQLite não cria índice de FK automaticamente; ajuda os filtros por dono.
+  @@index([funcionarioId])
 }
 
 model Computador {
@@ -51,6 +72,23 @@ model Computador {
 
   // SQLite não cria índice de FK automaticamente; ajuda os filtros por dono.
   @@index([funcionarioId])
+}
+
+// Item do depósito = suprimento avulso guardado em caixas (cabos, mouses,
+// adaptadores, pilhas, etc.). É um controle de ESTOQUE por quantidade — quanto
+// se tem de cada item e o que está em falta. Independente de computador/celular.
+model ItemDeposito {
+  id               String   @id @default(cuid())
+  nome             String // ex: "Cabo HDMI 2m", "Mouse USB"
+  categoria        String? // texto livre p/ não engessar: "Cabos", "Periféricos"...
+  quantidade       Int      @default(0) // quantas unidades existem
+  quantidadeMinima Int      @default(0) // alerta de estoque baixo (0 = sem alerta)
+  localizacao      String? // onde está guardado, ex: "Caixa 3", "Prateleira A"
+  observacoes      String?
+  criadoEm         DateTime @default(now())
+  atualizadoEm     DateTime @updatedAt
+
+  @@index([categoria])
 }
 
 // Catálogo EDITÁVEL de tipos de componente (CPU, RAM, SSD, GPU, Monitor...).

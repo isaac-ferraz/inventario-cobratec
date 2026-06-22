@@ -49,6 +49,42 @@ export const computadorSchema = z.object({
   funcionarioId: z.string().trim().nullable().optional(),
 });
 
+export const celularSchema = z.object({
+  identificador: z
+    .string()
+    .trim()
+    .min(1, "Identificador é obrigatório")
+    .max(200, "Identificador muito longo"),
+  apelido: textoOpcional,
+  numero: textoOpcional,
+  operadora: textoOpcional,
+  imei: textoOpcional,
+  observacoes: textoOpcional,
+  // null = sem funcionário (estoque/manutenção)
+  funcionarioId: z.string().trim().nullable().optional(),
+});
+
+// Quantidade inteira, não-negativa e com teto (evita entrada absurda/abuso).
+const quantidadeOpcional = z.coerce
+  .number({ invalid_type_error: "Quantidade deve ser um número" })
+  .int("Quantidade deve ser um número inteiro")
+  .min(0, "Quantidade não pode ser negativa")
+  .max(1_000_000, "Quantidade muito alta")
+  .optional();
+
+export const itemDepositoSchema = z.object({
+  nome: z
+    .string()
+    .trim()
+    .min(1, "Nome é obrigatório")
+    .max(200, "Nome muito longo"),
+  categoria: textoOpcional,
+  quantidade: quantidadeOpcional,
+  quantidadeMinima: quantidadeOpcional,
+  localizacao: textoOpcional,
+  observacoes: textoOpcional,
+});
+
 export const tipoComponenteSchema = z.object({
   nome: z
     .string()
@@ -84,5 +120,7 @@ export const componenteUpdateSchema = componenteSchema.partial({
 
 export type FuncionarioInput = z.infer<typeof funcionarioSchema>;
 export type ComputadorInput = z.infer<typeof computadorSchema>;
+export type CelularInput = z.infer<typeof celularSchema>;
+export type ItemDepositoInput = z.infer<typeof itemDepositoSchema>;
 export type TipoComponenteInput = z.infer<typeof tipoComponenteSchema>;
 export type ComponenteInput = z.infer<typeof componenteSchema>;

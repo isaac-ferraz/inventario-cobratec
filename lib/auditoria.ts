@@ -9,7 +9,13 @@ export type AcaoAuditoria = "criar" | "editar" | "remover" | "mover";
 
 type Entrada = {
   acao: AcaoAuditoria;
-  entidade: "Computador" | "Componente" | "Funcionario" | "TipoComponente";
+  entidade:
+    | "Computador"
+    | "Celular"
+    | "Componente"
+    | "Funcionario"
+    | "TipoComponente"
+    | "ItemDeposito";
   entidadeId?: string | null;
   descricao: string;
 };

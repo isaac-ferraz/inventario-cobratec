@@ -1,5 +1,12 @@
 # Sobe a aplicação com o banco SQLite persistido em um volume nomeado.
 # Uso: docker compose up -d --build
+#
+# `name` fixa o nome do projeto. Sem isso, o Compose deriva o nome do projeto da
+# pasta atual ("InventárioHardware[2]" → normaliza p/ "inventriohardware2"), o
+# que muda o volume usado conforme a pasta e pode subir com banco VAZIO. Fixar o
+# nome torna o ambiente estável e independente do nome da pasta.
+name: inventario-cobratec
+
 services:
   app:
     build: .
@@ -9,6 +16,8 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: "file:/app/data/dev.db"
+      # Porta usada pelo server standalone do Next (casa com o healthcheck).
+      PORT: "3000"
     volumes:
       # Persiste o dev.db entre reinícios/rebuilds do container.
       - inventario-db:/app/data
@@ -25,4 +34,11 @@ services:
       start_period: 20s
 
 volumes:
+  # Reaproveita o volume que já contém os dados de produção (criado quando o
+  # projeto chamava "2_computador"). `external` evita que o Compose crie um
+  # volume novo/vazio e impede que ele apague este por engano. Os dados ficam
+  # preservados; o app só roda `migrate deploy` no boot para criar tabelas novas
+  # (ex.: Celular). Para começar do zero, troque por um volume gerenciado.
   inventario-db:
+    external: true
+    name: 2_computador_inventario-db

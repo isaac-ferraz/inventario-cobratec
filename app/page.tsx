@@ -1,5 +1,5 @@
 // Dashboard — indicadores principais do inventário (mesma base do Excel).
-import { Monitor, Users, PackageOpen, Layers } from "lucide-react";
+import { Monitor, Users, PackageOpen, Smartphone } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButton } from "@/components/export-button";
@@ -41,13 +41,19 @@ function BarList({
 }
 
 export default async function DashboardPage() {
-  const computadores = await prisma.computador.findMany({
-    include: { funcionario: true, componentes: { include: { tipo: true } } },
-  });
+  const [computadores, celulares] = await Promise.all([
+    prisma.computador.findMany({
+      include: { funcionario: true, componentes: { include: { tipo: true } } },
+    }),
+    prisma.celular.findMany({ include: { funcionario: true } }),
+  ]);
 
   const total = computadores.length;
   const semFuncionario = computadores.filter((c) => !c.funcionario).length;
   const emUso = total - semFuncionario;
+
+  const totalCelulares = celulares.length;
+  const celularesSemFunc = celulares.filter((c) => !c.funcionario).length;
 
   const porCargo = new Map<string, number>();
   for (const c of computadores) {
@@ -95,9 +101,13 @@ export default async function DashboardPage() {
 
   const kpis = [
     { titulo: "Total de computadores", valor: total, icon: Monitor },
-    { titulo: "Em uso", valor: emUso, icon: Users },
-    { titulo: "Sem funcionário / estoque", valor: semFuncionario, icon: PackageOpen },
-    { titulo: "Tipos de componente", valor: porTipo.size, icon: Layers },
+    { titulo: "Computadores em uso", valor: emUso, icon: Users },
+    { titulo: "Total de celulares", valor: totalCelulares, icon: Smartphone },
+    {
+      titulo: "Em estoque (PCs + celulares)",
+      valor: semFuncionario + celularesSemFunc,
+      icon: PackageOpen,
+    },
   ];
 
   return (

@@ -35,7 +35,14 @@ type Log = {
   ator: string | null;
 };
 
-const ENTIDADES = ["Computador", "Componente", "Funcionario", "TipoComponente"];
+const ENTIDADES = [
+  "Computador",
+  "Celular",
+  "Componente",
+  "Funcionario",
+  "TipoComponente",
+  "ItemDeposito",
+];
 
 const VARIANTE_ACAO: Record<
   Acao,

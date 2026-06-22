@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Boxes,
   Cpu,
   Gauge,
   Monitor,
+  Smartphone,
   Users,
   Tags,
   ScrollText,
@@ -15,6 +17,8 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/", label: "Dashboard", icon: Gauge },
   { href: "/computadores", label: "Computadores", icon: Monitor },
+  { href: "/celulares", label: "Celulares", icon: Smartphone },
+  { href: "/deposito", label: "Depósito", icon: Boxes },
   { href: "/funcionarios", label: "Funcionários", icon: Users },
   { href: "/tipos", label: "Tipos", icon: Tags },
   { href: "/auditoria", label: "Auditoria", icon: ScrollText },

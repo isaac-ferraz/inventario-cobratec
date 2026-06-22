@@ -240,3 +240,57 @@ crescer, adicionar uma rotina de limpeza/arquivamento por data (há `@@index` em
 patrimônio/painel técnico é distinta e fiel ao uso (inventário de hardware). O
 modo escuro ("rack/terminal") já está nos tokens; falta só um botão de
 alternância se for desejado.
+
+## 15. Celular como entidade própria (espelha o Computador)
+
+**Decisão:** o celular corporativo é um modelo `Celular` independente, no mesmo
+padrão do `Computador`: pertence a um `Funcionario` (ou fica em estoque com
+`funcionarioId` null), pode ser **movido** entre funcionários e tem CRUD próprio
+(`/celulares`, `/api/celulares`).
+
+- **Campos próprios de telefonia** (todos opcionais, exceto `identificador`
+  único): `numero` (linha), `operadora`, `imei`, além de `apelido` (modelo) e
+  `observacoes`. **Sem componentes/hardware** — não se aplica a celular.
+- **Mesmas garantias do computador:** validação zod, concorrência otimista
+  (`esperaAtualizadoEm`), auditoria das mutações (entidade `"Celular"`) e busca/
+  filtros por funcionário e cargo na tela.
+- **Integridade no delete de funcionário:** o `DELETE /api/funcionarios/:id`
+  passou a contar e liberar **computadores E celulares** (antes só computadores).
+  Sem isso, a FK do celular bloquearia a remoção do dono.
+- **Dashboard e Excel:** ganharam KPIs de celulares e o Excel uma aba
+  **"Celulares"**, mantendo o princípio de que o relatório reflete o site.
+
+**Por quê:** o TI também controla os aparelhos do escritório; reaproveitar o
+padrão do computador mantém a UI consistente e a curva de aprendizado zero.
+
+## 16. Docker Compose: nome de projeto fixo
+
+**Decisão:** o `docker-compose.yml` declara `name: inventario-cobratec` no topo.
+
+**Por quê:** sem `name`, o Compose deriva o nome do projeto do diretório atual —
+que aqui é `InventárioHardware[2]`, com acento e colchetes. Isso viola a regra
+`[a-z0-9][a-z0-9_-]*` e faz o `docker compose up` falhar com "invalid project
+name". O `name` explícito torna o boot independente do nome da pasta.
+
+## 17. Depósito: controle de estoque por quantidade
+
+**Decisão:** uma aba **Depósito** (`/deposito`, `/api/deposito`) controla os
+suprimentos avulsos guardados em caixas (cabos, mouses, adaptadores...) como um
+**estoque por quantidade**, separado de computador/celular.
+
+- **Modelo `ItemDeposito`** (flexível, no espírito do projeto): `nome`,
+  `categoria` (texto livre, com sugestões na UI via `<datalist>`), `quantidade`,
+  `quantidadeMinima` (alerta de estoque baixo; 0 = sem alerta), `localizacao`
+  (qual caixa/prateleira) e `observacoes`. Sem catálogo rígido.
+- **"O que tem e o que não tem":** a situação é derivada — `falta` (quantidade
+  0), `baixo` (≤ mínimo, com mínimo > 0) ou `ok`. A tela mostra KPIs (tipos,
+  unidades totais, em falta, estoque baixo) e destaca cada card por cor.
+- **Contagem rápida:** botões **± por item** ajustam a quantidade via
+  `PATCH { delta }` — increment atômico no servidor com **piso em 0** e
+  **atualização otimista** na UI. Esses ajustes **não** geram auditoria (a
+  contagem do dia a dia emitiria eventos demais); criar/editar/remover, sim.
+- **Validação:** `quantidade`/`quantidadeMinima` são inteiros ≥ 0 com teto
+  (`z.coerce.number().int().min(0).max(1_000_000)`), aceitando número ou string.
+
+**Por quê:** o TI precisa saber rapidamente quanto há de cada insumo e o que
+falta repor, sem o peso de modelar cada item como ativo individual.

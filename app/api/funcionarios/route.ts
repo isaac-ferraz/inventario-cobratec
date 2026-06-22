@@ -7,7 +7,7 @@ import { registrarAuditoria } from "@/lib/auditoria";
 export async function GET(): Promise<NextResponse> {
   const funcionarios = await prisma.funcionario.findMany({
     orderBy: { nome: "asc" },
-    include: { _count: { select: { computadores: true } } },
+    include: { _count: { select: { computadores: true, celulares: true } } },
   });
   return NextResponse.json(funcionarios);
 }
