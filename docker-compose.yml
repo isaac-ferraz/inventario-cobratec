@@ -18,6 +18,11 @@ services:
       DATABASE_URL: "file:/app/data/dev.db"
       # Porta usada pelo server standalone do Next (casa com o healthcheck).
       PORT: "3000"
+      # Autenticação Basic (OPCIONAL). Fica desligada se vazio. Para ligar,
+      # defina BASIC_AUTH_USER e BASIC_AUTH_PASS no arquivo .env do servidor.
+      # Recomendado em qualquer host exposto além da LAN (ver docs/deploy.md).
+      BASIC_AUTH_USER: "${BASIC_AUTH_USER:-}"
+      BASIC_AUTH_PASS: "${BASIC_AUTH_PASS:-}"
     volumes:
       # Persiste o dev.db entre reinícios/rebuilds do container.
       - inventario-db:/app/data
@@ -34,11 +39,9 @@ services:
       start_period: 20s
 
 volumes:
-  # Reaproveita o volume que já contém os dados de produção (criado quando o
-  # projeto chamava "2_computador"). `external` evita que o Compose crie um
-  # volume novo/vazio e impede que ele apague este por engano. Os dados ficam
-  # preservados; o app só roda `migrate deploy` no boot para criar tabelas novas
-  # (ex.: Celular). Para começar do zero, troque por um volume gerenciado.
+  # Volume gerenciado pelo Compose (criado automaticamente no primeiro `up`).
+  # Portável: funciona em qualquer host — sua máquina, a VM da Oracle, etc. Os
+  # dados do SQLite ficam aqui e sobrevivem a rebuilds/updates. Para mover de
+  # máquina, restaure um backup do dev.db dentro deste volume antes de subir
+  # (passo a passo em docs/deploy.md).
   inventario-db:
-    external: true
-    name: 2_computador_inventario-db
