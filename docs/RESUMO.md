@@ -17,6 +17,8 @@ o Excel é só relatório de saída.
 ## Modelo de dados (Prisma)
 - **Sala**: nome (único), predio?, piso?, ordem, ativa, observacoes? — catálogo
   editável da divisão física do escritório
+- **Usuario**: login (único), nome, senhaHash (scrypt), papel (ADMIN|OPERADOR),
+  ativo, senhaProvisoria, funcionarioId? — quem ENTRA no sistema
 - **Funcionario**: nome, cargo (texto livre), ativo, **loginSiscobra?/
   senhaSiscobra?/loginVonix?/senhaVonix?** (credenciais dos sistemas, substituem a
   antiga matrícula), **salaId?** (onde senta), computadores[]
@@ -45,6 +47,9 @@ o Excel é só relatório de saída.
   (pessoa + computadores + celulares) e as máquinas sem posto, com movimentação
   entre salas item a item ou em lote.
 - **Tipos de componente**: catálogo editável (não remove tipo em uso).
+- **Usuários e acesso**: login obrigatório; **administrador** faz tudo,
+  **operador** só abre/acompanha chamados. CRUD em `/usuarios` (só admin),
+  troca da própria senha, senha provisória cobrada no primeiro acesso.
 - **Dashboard**: KPIs, por cargo, por tipo, e **pendências de licença/conta**
   (inclui "sem headset").
 - **Excel**: `.xlsx` com aba Inventário + aba Dashboard (com data bars).
@@ -101,18 +106,25 @@ o Excel é só relatório de saída.
     Em seguida ganhou **página por sala** (`/salas/[id]`) com postos de trabalho
     e movimentação em lote (`POST /api/salas/mover`). Decisões 18 e 18.1 em
     `decisoes.md`.
+13. **Autenticação com papéis** (branch **`feat/auth-usuarios`**): model
+    `Usuario`, login/logout, sessão assinada, troca de senha, CRUD de usuários,
+    menu filtrado por papel, guardas em todas as rotas de API e travas
+    anti-tranca de administrador. Remove a Basic Auth. Decisão 19 em
+    `decisoes.md`.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)
 - **Branches**: `main` (estável), `develop` (integração),
-  `feat/celulares-e-deposito` e `feat/salas` (últimas features)
+  `feat/celulares-e-deposito`, `feat/salas` e `feat/auth-usuarios` (últimas)
 
 ## Como rodar
 **Local:**
 ```bash
 npm install
+cp .env.example .env   # defina AUTH_SECRET (obrigatório)
 npx prisma migrate dev
 npm run db:seed        # opcional: catálogo + dados de exemplo
+npm run db:admin       # cria o administrador inicial
 npm run dev            # http://localhost:3000
 ```
 **Docker:**
@@ -120,7 +132,8 @@ npm run dev            # http://localhost:3000
 docker compose up -d --build
 # acesso: http://localhost:3000  (ou http://<IP-da-máquina>:3000 na LAN)
 ```
-Scripts úteis: `db:migrate`, `db:studio`, `db:seed`, `db:catalogo`.
+Scripts úteis: `db:migrate`, `db:studio`, `db:seed`, `db:catalogo`, `db:salas`,
+`db:admin`.
 
 ## Decisões técnicas
 Registradas em [`docs/decisoes.md`](./decisoes.md): SQLite como fonte de verdade;
@@ -131,14 +144,19 @@ campos do Computador; postura de segurança e política de dependências (ficar 
 Next 14.2.x para uso interno em LAN).
 
 ## Segurança
-Ferramenta interna **sem autenticação**, para LAN restrita. `dev.db` guarda
-licenças/contas em texto → restringir acesso ao servidor e backups; **não**
-armazenar senhas. Se for exposta fora do escritório, adicionar autenticação antes.
+**Login obrigatório com papéis** (decisão 19): administrador faz tudo, operador
+só abre/acompanha chamados. Senha de login em hash scrypt; sessão em cookie
+httpOnly assinado, revogável (papel e `ativo` reconferidos no banco a cada
+requisição). `AUTH_SECRET` é obrigatório para o app subir.
+
+O `dev.db` continua guardando o **cofre** de credenciais (Siscobra/Vonix, senha
+do PC, licenças) em texto — é o propósito dele, e agora está atrás de login.
+Ainda assim: restringir acesso ao servidor e proteger os **backups**.
 
 ## Roadmap
 Plano de continuação em 5 fases (aprovado): **1. Salas** (feito — branch
-`feat/salas`), **2. Login com papéis** (tabela `Usuario`, sessão assinada,
-operador × administrador), **3. Chamados** (helpdesk completo, único acesso do
+`feat/salas`), **2. Login com papéis** (feito — branch `feat/auth-usuarios`),
+**3. Chamados** (helpdesk completo, único acesso do
 operador), **4. Ciclo de vida do ativo** (situação, aquisição, garantia,
 manutenção), **5. Polimento** (toast/confirm próprios, testes de API/autorização,
 paginação, dark mode, backup agendado).

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { salaSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 type Params = { params: { id: string } };
 
@@ -10,7 +11,9 @@ type Params = { params: { id: string } };
 // Devolve as duas listas cruas (computadores da sala e funcionários da sala); a
 // tela compõe os "postos de trabalho" a partir delas, porque um computador pode
 // estar nesta sala com o dono sentado em outra (e vice-versa).
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const sala = await prisma.sala.findUnique({ where: { id: params.id } });
   if (!sala) {
     return NextResponse.json({ erro: "Sala não encontrada" }, { status: 404 });
@@ -39,6 +42,8 @@ export async function GET(_req: Request, { params }: Params) {
 }
 
 export async function PATCH(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, salaSchema.partial());
   if ("resposta" in r) return r.resposta;
   try {
@@ -64,6 +69,8 @@ export async function PATCH(req: Request, { params }: Params) {
 // removê-la silenciosamente apagaria a localização de todos eles. Para tirar a
 // sala de circulação sem perder o histórico, use "desativar" (ativa = false).
 export async function DELETE(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const [computadores, funcionarios] = await Promise.all([
     prisma.computador.count({ where: { salaId: params.id } }),
     prisma.funcionario.count({ where: { salaId: params.id } }),

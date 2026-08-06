@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { gerarWorkbook } from "@/lib/excel";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 // Sempre gerar a partir dos dados atuais do banco (nunca cachear).
 export const dynamic = "force-dynamic";
 
 // GET /api/export — gera e baixa o .xlsx com os dados atuais do banco.
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   try {
     const buffer = await gerarWorkbook();
     const dataStr = new Date().toISOString().slice(0, 10);

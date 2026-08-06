@@ -18,11 +18,14 @@ services:
       DATABASE_URL: "file:/app/data/dev.db"
       # Porta usada pelo server standalone do Next (casa com o healthcheck).
       PORT: "3000"
-      # Autenticação Basic (OPCIONAL). Fica desligada se vazio. Para ligar,
-      # defina BASIC_AUTH_USER e BASIC_AUTH_PASS no arquivo .env do servidor.
-      # Recomendado em qualquer host exposto além da LAN (ver docs/deploy.md).
-      BASIC_AUTH_USER: "${BASIC_AUTH_USER:-}"
-      BASIC_AUTH_PASS: "${BASIC_AUTH_PASS:-}"
+      # Segredo que assina o cookie de sessão. OBRIGATÓRIO: o entrypoint recusa
+      # subir sem ele (ver .env.example para gerar um valor).
+      AUTH_SECRET: "${AUTH_SECRET:?defina AUTH_SECRET no .env do servidor}"
+      # Administrador inicial — criado no boot só se não houver nenhum admin
+      # ativo. Senha em branco = sorteada e impressa uma vez em `docker compose
+      # logs`. Em ambos os casos nasce provisória.
+      ADMIN_INICIAL_LOGIN: "${ADMIN_INICIAL_LOGIN:-admin}"
+      ADMIN_INICIAL_SENHA: "${ADMIN_INICIAL_SENHA:-}"
     volumes:
       # Persiste o dev.db entre reinícios/rebuilds do container.
       - inventario-db:/app/data

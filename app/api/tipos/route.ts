@@ -3,8 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { tipoComponenteSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin } from "@/lib/autorizacao";
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const tipos = await prisma.tipoComponente.findMany({
     orderBy: { nome: "asc" },
     include: { _count: { select: { componentes: true } } },
@@ -13,6 +16,8 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, tipoComponenteSchema);
   if ("resposta" in r) return r.resposta;
   try {

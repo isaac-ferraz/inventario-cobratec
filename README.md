@@ -404,14 +404,25 @@ Arquivos relevantes: [`Dockerfile`](./Dockerfile),
 
 ## Variáveis de ambiente
 
-| Variável           | Exemplo         | Descrição                                        |
-| ------------------ | --------------- | ------------------------------------------------ |
-| `DATABASE_URL`     | `file:./dev.db` | Caminho do banco SQLite (Prisma)                 |
-| `BASIC_AUTH_USER`  | `ti`            | (Opcional) liga a auth Basic — usuário           |
-| `BASIC_AUTH_PASS`  | `••••••`        | (Opcional) liga a auth Basic — senha             |
+| Variável              | Exemplo             | Descrição                                                     |
+| --------------------- | ------------------- | ------------------------------------------------------------- |
+| `DATABASE_URL`        | `file:./dev.db`     | Caminho do banco SQLite (Prisma)                              |
+| `AUTH_SECRET`         | `(aleatório, 32+)`  | **Obrigatório.** Assina o cookie de sessão — o app não sobe sem |
+| `ADMIN_INICIAL_LOGIN` | `admin`             | Login do admin criado no boot, se não houver nenhum            |
+| `ADMIN_INICIAL_SENHA` | `(em branco)`       | Senha desse admin; vazio = sorteada e impressa no log do boot  |
 
-A auth Basic fica **desligada** enquanto as duas variáveis não forem definidas
-(ver [`.env.example`](./.env.example) e `middleware.ts`).
+Gere o segredo com `openssl rand -base64 32`. Trocá-lo invalida todas as sessões
+abertas. Ver [`.env.example`](./.env.example), `middleware.ts` e a decisão 19 em
+[`docs/decisoes.md`](./docs/decisoes.md).
+
+### Primeiro acesso
+
+1. Suba o app (o boot cria o administrador inicial se ainda não existir).
+2. Entre com `ADMIN_INICIAL_LOGIN` e a senha correspondente — se ela foi
+   sorteada, está em `docker compose logs app`.
+3. O sistema **exige a troca da senha** no primeiro acesso.
+4. Cadastre os demais em **Usuários**: `Administrador` faz tudo; `Operador` só
+   abre e acompanha chamados.
 
 > `.env` e `prisma/dev.db` **não** entram no git (ver `.gitignore`).
 

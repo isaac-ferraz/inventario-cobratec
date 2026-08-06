@@ -48,9 +48,9 @@ sudo tailscale up
 Depois acesse por `http://IP-DO-TAILSCALE:3000`. **Não** precisa abrir firewall
 nem HTTPS. Instale o Tailscale também nos PCs/celulares do time.
 
-### Opção B — URL pública com HTTPS + Basic Auth
-Só se realmente precisar de URL aberta. Exige:
-- **Ligar a Basic Auth** (passo 5).
+### Opção B — URL pública com HTTPS
+Só se realmente precisar de URL aberta. O sistema já exige login próprio
+(decisão 19), mas exposição pública ainda pede:
 - **Abrir a porta** nos DOIS firewalls da Oracle:
   - VCN → *Security List* → Ingress 0.0.0.0/0 na porta 443 (e 80).
   - Na VM: `sudo iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT` (as imagens
@@ -68,15 +68,21 @@ git clone https://github.com/isaac-ferraz/inventario-cobratec.git
 cd inventario-cobratec
 ```
 
-## 5. (Opcional) Ligar a Basic Auth
+## 5. Configurar a autenticação (obrigatório)
 
 ```bash
-cat > .env <<'EOF'
-BASIC_AUTH_USER=ti
-BASIC_AUTH_PASS=troque-esta-senha-forte
+cat > .env <<EOF
+AUTH_SECRET=$(openssl rand -base64 32)
+ADMIN_INICIAL_LOGIN=admin
+ADMIN_INICIAL_SENHA=
 EOF
 ```
-O `.env` não vai pro git. Sem essas variáveis, a auth fica desligada.
+O `.env` não vai pro git. **Sem `AUTH_SECRET` o container recusa subir** — é
+proposital: sem segredo não há sessão confiável.
+
+Com `ADMIN_INICIAL_SENHA` em branco, o boot sorteia uma senha e a imprime **uma
+única vez** em `docker compose logs app`. Anote-a: o sistema pede a troca no
+primeiro acesso. O admin inicial só é criado se não houver nenhum admin ativo.
 
 ## 6. Levar os dados existentes (opcional, mas é o que você quer)
 

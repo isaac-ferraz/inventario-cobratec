@@ -94,6 +94,12 @@ controle total sobre o código dos componentes.
 
 ## 9. Postura de segurança e acesso
 
+> ⚠️ **SUPERADA PELA DECISÃO 19.** A premissa "sem autenticação, LAN confiável"
+> caiu quando o sistema passou a atender também as operadoras (papéis
+> administrador × operador). A **Basic Auth opcional descrita abaixo foi
+> removida** e substituída por login próprio. O restante (headers de segurança,
+> limites de tamanho, política de dependências) continua valendo.
+
 **Contexto:** ferramenta interna, sem autenticação, para rodar em rede restrita
 do escritório (não é exposta na internet).
 
@@ -358,3 +364,97 @@ de sala espalhados pelo sistema levam para essa página.
   conteúdo pelo spinner de tela cheia (só o indicador da ação aparece) — trocar
   tudo faria a tela piscar e perder a posição do scroll no meio de uma
   movimentação em lote.
+
+## 19. Autenticação com papéis (administrador × operador)
+
+**Decisão:** o sistema passou a exigir **login**, com dois papéis: **ADMIN**
+(acesso total ao inventário) e **OPERADOR** (só abre e acompanha chamados).
+Isso **revoga a premissa da decisão 9** ("LAN confiável, sem login") e **remove a
+Basic Auth opcional** — que era uma barreira única para todo mundo e não sabia
+distinguir quem é quem.
+
+**Por quê agora:** o sistema deixou de ser usado só pelo TI. As operadoras
+precisam abrir chamados, mas não podem ver o cofre de credenciais
+(senhas do Siscobra/Vonix, senha do PC, licenças) nem mexer no inventário.
+Sem papéis, dar acesso a uma pessoa era dar acesso a tudo.
+
+### Modelo: `Usuario` separado de `Funcionario`
+
+Tabela própria, com vínculo **opcional** ao funcionário. O funcionário é um
+registro de inventário (dono de equipamento); o usuário é acesso ao app. Nem
+todo funcionário precisa de login, e o TI pode ter login sem estar no
+inventário. Misturar os dois obrigaria a criar "funcionário fantasma" para cada
+conta de serviço, e ligaria o cadastro de RH ao controle de acesso.
+
+### Senha: scrypt, sem dependência nova
+
+`lib/senha.ts` usa o `scrypt` do próprio Node (formato `scrypt$N$salt$hash`).
+bcrypt/argon2 exigiriam dependência nativa compilada na imagem Alpine. O custo
+(N) fica guardado junto do hash, então dá para aumentá-lo no futuro sem
+invalidar as senhas existentes. A comparação é em tempo constante
+(`timingSafeEqual`).
+
+**Distinção importante do projeto:** as senhas do **cofre** (Siscobra, Vonix,
+senha do PC — decisão 8) continuam em **texto puro**, porque o propósito delas é
+ser *lida de volta* pelo TI. A senha de **login** é o oposto: nunca precisa ser
+lida, só comparada — por isso é hash e **não há como recuperá-la**, apenas
+redefinir.
+
+### Sessão: cookie assinado, não tabela de sessão
+
+`lib/sessao.ts` emite um cookie httpOnly com HMAC-SHA256 via **Web Crypto**.
+
+**Por que assinado:** o `middleware.ts` do Next 14 roda no runtime **Edge**, onde
+o Prisma não funciona. Se a sessão vivesse só no banco, o middleware não teria
+como validá-la. Com cookie assinado, ele valida por criptografia — e Web Crypto
+existe tanto no Edge quanto no Node.
+
+**Onde entra o banco (revogação):** um cookie assinado continua válido mesmo
+depois de o usuário ser inativado ou rebaixado. Por isso **toda leitura no
+servidor reconfere no banco** (`lib/sessao-servidor.ts`): o papel que vale é o
+do banco, não o do cookie. Isso acontece nas APIs (via `exigirSessao`) **e no
+layout raiz** — sem a checagem no layout, um acesso cortado sobreviveria nas
+páginas até o cookie expirar. Como um Server Component não pode apagar cookie
+durante a renderização, o layout redireciona para `GET /api/sessao/encerrar`,
+que apaga o cookie de verdade e devolve ao login.
+
+**AUTH_SECRET é obrigatório:** o app falha ao subir sem ele (e o
+`docker-entrypoint.sh` recusa o boot). Um segredo padrão previsível permitiria
+forjar sessão de administrador. Trocar o segredo invalida todas as sessões.
+
+### Autorização em duas camadas (o middleware não é a fronteira)
+
+1. **`middleware.ts`** — portão de navegação: sem sessão vai para `/login`
+   (401 em `/api/*`); operador fora da lista permitida volta para `/chamados`.
+2. **`lib/autorizacao.ts`** — `exigirSessao`/`exigirAdmin` no **início de cada
+   rota de API**. Nenhuma rota confia só no middleware.
+
+O motivo da redundância: o middleware depende de um `matcher` por regex. Um erro
+nesse padrão desligaria a proteção de rotas inteiras sem nenhum sintoma
+aparente. **Isso foi verificado na prática** — com o matcher deliberadamente
+alterado para não cobrir `/api`, o operador continuou recebendo 403 e o anônimo
+401, vindos das guardas de rota.
+
+### Travas contra tranca (lockout)
+
+O sistema não pode ficar sem administrador. A API recusa (409) rebaixar,
+inativar ou remover o **último admin ativo**, e recusa que alguém remova a
+própria conta. O seed `prisma/seed-admin.cjs` roda a cada boot e cria o admin
+inicial **apenas se não houver nenhum** — se o login já existir, promove em vez
+de falhar.
+
+### Senha provisória
+
+Senha definida por outra pessoa (seed ou reset do admin) nasce
+`senhaProvisoria = true`, e o login manda direto para a troca de senha. Sem
+isso, a senha inicial — que trafega por bilhete ou mensagem — viraria a senha
+permanente.
+
+### Consequências
+
+- A auditoria **passa a ter ator sempre preenchido** (via `x-usuario`, que o
+  middleware injeta a partir da sessão e **sempre remove** se vier do cliente).
+- `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` saíram do `.env.example`, do
+  `docker-compose.yml` e do middleware.
+- Quem já usava o sistema precisa de conta: no primeiro boot após a atualização,
+  entrar com o admin inicial e cadastrar os demais em `/usuarios`.

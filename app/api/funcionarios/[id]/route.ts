@@ -4,10 +4,13 @@ import { funcionarioSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { moverParaSala, rotuloDestino } from "@/lib/mover-sala";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 type Params = { params: { id: string } };
 
 export async function PATCH(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, funcionarioSchema.partial());
   if ("resposta" in r) return r.resposta;
 
@@ -70,6 +73,8 @@ export async function PATCH(req: Request, { params }: Params) {
 // DELETE: por padrão bloqueia se houver computador ou celular vinculado. Use
 // ?liberar=1 para soltar os aparelhos (funcionarioId = null) antes de remover.
 export async function DELETE(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const url = new URL(req.url);
   const liberar = url.searchParams.get("liberar") === "1";
 

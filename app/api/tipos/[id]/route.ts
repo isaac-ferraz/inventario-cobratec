@@ -3,10 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { tipoComponenteSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 type Params = { params: { id: string } };
 
 export async function PATCH(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, tipoComponenteSchema.partial());
   if ("resposta" in r) return r.resposta;
   try {
@@ -28,6 +31,8 @@ export async function PATCH(req: Request, { params }: Params) {
 
 // Não deixa remover tipo em uso (evita componentes órfãos).
 export async function DELETE(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const emUso = await prisma.componente.count({ where: { tipoId: params.id } });
   if (emUso > 0) {
     return erro(

@@ -4,10 +4,13 @@ import { componenteUpdateSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { serializar, expandirComponente } from "@/lib/especificacoes";
 import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 type Params = { params: { id: string } };
 
 export async function PATCH(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, componenteUpdateSchema);
   if ("resposta" in r) return r.resposta;
 
@@ -37,6 +40,8 @@ export async function PATCH(req: Request, { params }: Params) {
 }
 
 export async function DELETE(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   try {
     const removido = await prisma.componente.delete({
       where: { id: params.id },

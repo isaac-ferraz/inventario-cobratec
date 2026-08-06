@@ -16,19 +16,26 @@ type Entrada = {
     | "Funcionario"
     | "TipoComponente"
     | "ItemDeposito"
-    | "Sala";
+    | "Sala"
+    | "Usuario";
   entidadeId?: string | null;
   descricao: string;
+  // Ator informado pelo próprio chamador. Usado no LOGIN: naquele instante o
+  // cookie ainda não existe, então o middleware não tem `x-usuario` para
+  // injetar — mas sabemos exatamente quem entrou.
+  atorExplicito?: string | null;
 };
 
-// `req` é usado só para descobrir o ator (cabeçalho `x-usuario`, setado pelo
-// middleware quando a auth Basic está ligada). Sem auth, o ator fica null.
+// `req` é usado só para descobrir o ator: o cabeçalho `x-usuario` é injetado
+// pelo middleware a partir da sessão (e nunca aceito do cliente). Com login
+// obrigatório, o ator está sempre preenchido — exceto no próprio login, que
+// informa `atorExplicito`.
 export async function registrarAuditoria(
   req: Request,
   e: Entrada,
 ): Promise<void> {
   try {
-    const ator = req.headers.get("x-usuario");
+    const ator = e.atorExplicito ?? req.headers.get("x-usuario");
     await prisma.logAuditoria.create({
       data: {
         acao: e.acao,

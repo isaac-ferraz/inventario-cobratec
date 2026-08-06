@@ -3,6 +3,7 @@ import { moverParaSalaSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { moverParaSala, rotuloDestino } from "@/lib/mover-sala";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 // POST /api/salas/mover
 // Um endpoint só cobre os três gestos da tela da sala: trazer para cá, tirar
@@ -12,6 +13,8 @@ import { moverParaSala, rotuloDestino } from "@/lib/mover-sala";
 // A regra do conjunto (os computadores do funcionário vão junto com ele) vive
 // em lib/mover-sala.ts, compartilhada com a edição do funcionário.
 export async function POST(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, moverParaSalaSchema);
   if ("resposta" in r) return r.resposta;
 

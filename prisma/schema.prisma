@@ -30,6 +30,35 @@ model Sala {
   criadoEm     DateTime      @default(now())
 }
 
+// Usuário = quem ENTRA no sistema. Tabela separada do Funcionario de propósito:
+// o funcionário é um registro de inventário (dono de equipamento, com as
+// credenciais Siscobra/Vonix guardadas como cofre); o usuário é acesso ao app.
+// Nem todo funcionário precisa de login, e o TI pode ter login sem estar no
+// inventário. O vínculo é opcional, para o chamado saber de quem é o posto.
+//
+// papel: "ADMIN" (acesso total) | "OPERADOR" (só abre e acompanha chamados).
+// Guardado como String, no mesmo espírito de `cargo`/`categoria` — o SQLite não
+// tem enum nativo e a lista é curta e estável.
+model Usuario {
+  id             String       @id @default(cuid())
+  login          String       @unique
+  nome           String
+  // Hash scrypt no formato "scrypt$N$salt$hash" — ver lib/senha.ts. Diferente
+  // das senhas do cofre (Siscobra/Vonix/PC), que são texto puro por precisarem
+  // ser LIDAS de volta; esta aqui só precisa ser comparada.
+  senhaHash      String
+  papel          String       @default("OPERADOR")
+  ativo          Boolean      @default(true)
+  // Marca a senha inicial gerada pelo seed: a UI cobra a troca até ser mudada.
+  senhaProvisoria Boolean     @default(false)
+  funcionarioId  String?
+  funcionario    Funcionario? @relation(fields: [funcionarioId], references: [id])
+  criadoEm       DateTime     @default(now())
+  ultimoAcessoEm DateTime?
+
+  @@index([funcionarioId])
+}
+
 // Funcionário = a pessoa dona do computador (operadora, gestor, supervisor, etc.)
 model Funcionario {
   id            String       @id @default(cuid())
@@ -45,6 +74,7 @@ model Funcionario {
   senhaVonix    String? // senha do funcionário no Vonix
   computadores  Computador[]
   celulares     Celular[]
+  usuarios      Usuario[]
   criadoEm      DateTime     @default(now())
 
   // SQLite não cria índice de FK automaticamente; ajuda o filtro por sala.

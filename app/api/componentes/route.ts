@@ -4,8 +4,11 @@ import { componenteSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { serializar, expandirComponente } from "@/lib/especificacoes";
 import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 export async function POST(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, componenteSchema);
   if ("resposta" in r) return r.resposta;
   try {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 // Sempre refletir o estado atual do log.
 export const dynamic = "force-dynamic";
@@ -7,6 +8,8 @@ export const dynamic = "force-dynamic";
 // GET /api/auditoria?entidade=Computador&limite=200
 // Lista os eventos de auditoria, mais recentes primeiro.
 export async function GET(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const url = new URL(req.url);
   const entidade = url.searchParams.get("entidade");
   const limite = Math.min(Number(url.searchParams.get("limite")) || 200, 500);

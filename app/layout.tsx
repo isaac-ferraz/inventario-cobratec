@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { Space_Grotesk, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { Sidebar, TopBar } from "@/components/shell/nav";
+import { sessaoAtual } from "@/lib/sessao-servidor";
+import { COOKIE_SESSAO } from "@/lib/sessao";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
@@ -26,9 +30,40 @@ export const metadata: Metadata = {
   description: "Controle de hardware dos computadores do escritório.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // A sessão é lida aqui para: decidir se há shell (a tela de login não tem
+  // navegação), filtrar o menu pelo papel e — principalmente — REVOGAR acesso.
+  //
+  // Revogação: o middleware só valida a assinatura do cookie (roda no Edge, sem
+  // banco). Se o usuário foi inativado ou removido depois de entrar, o cookie
+  // dele continua criptograficamente válido. É aqui, com banco à mão, que isso
+  // é pego — sem esta checagem, um acesso cortado sobreviveria até o cookie
+  // expirar. As APIs têm a mesma checagem via exigirSessao.
+  const temCookie = !!cookies().get(COOKIE_SESSAO)?.value;
+  const usuario = await sessaoAtual();
+  if (!usuario && temCookie) {
+    // Cookie zumbi: manda encerrar (lá o cookie é apagado de verdade) para não
+    // ficar rodando entre /login e as páginas.
+    redirect("/api/sessao/encerrar");
+  }
+
+  const corpo = usuario ? (
+    <div className="md:flex">
+      <Sidebar papel={usuario.papel} usuario={usuario.nome} />
+      <div className="flex min-h-screen flex-1 flex-col">
+        <TopBar papel={usuario.papel} usuario={usuario.nome} />
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:px-8">
+          {children}
+        </main>
+      </div>
+    </div>
+  ) : (
+    // Sem sessão: só o conteúdo (tela de login).
+    children
+  );
+
   return (
     <html lang="pt-BR">
       <body
@@ -39,15 +74,7 @@ export default function RootLayout({
           "font-sans",
         )}
       >
-        <div className="md:flex">
-          <Sidebar />
-          <div className="flex min-h-screen flex-1 flex-col">
-            <TopBar />
-            <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:px-8">
-              {children}
-            </main>
-          </div>
-        </div>
+        {corpo}
       </body>
     </html>
   );

@@ -154,6 +154,7 @@ npm run dev                 # rodar em desenvolvimento
 npm run db:seed             # catálogo + dados de exemplo
 npm run db:catalogo         # garante só o catálogo de tipos (idempotente)
 npm run db:salas            # garante as salas iniciais (idempotente)
+npm run db:admin            # garante um administrador inicial (idempotente)
 docker compose up -d --build # subir via Docker (porta 3000, banco em volume)
 ```
 
@@ -225,7 +226,7 @@ edição de computador via `esperaAtualizadoEm` (decisão 12); delete de funcion
 transacional; **limites de tamanho** (zod) nas entradas.
 
 **Auditoria:** trilha append-only (`LogAuditoria`) das mutações (criar/editar/
-remover/mover) das quatro entidades, com ator (via auth Basic), API
+remover/mover) das quatro entidades, com ator (via sessão), API
 `GET /api/auditoria` e tela `/auditoria`; registro best-effort, fora da transação
 (decisão 13). Eventos podem ser apagados manualmente pelo TI
 (`DELETE /api/auditoria/:id`, botão na tela).
@@ -244,10 +245,24 @@ push/PR para `main` e `develop`).
 - **Catálogo sempre presente:** `prisma/seed-catalogo.cjs` (lista única em
   `prisma/catalogo.cjs`) roda a cada boot do container, garantindo o catálogo de
   tipos sem precisar rodar o seed manualmente.
-- **Segurança/dependências:** ferramenta interna sem autenticação por padrão (LAN
-  restrita); **headers de segurança** e **auth Basic opcional** (env
-  `BASIC_AUTH_*`, via `middleware.ts`) disponíveis — ver decisão 9; Next fixado na
-  linha 14.2.x (14.2.35).
+- **Segurança/dependências:** **login obrigatório com papéis** (ver abaixo);
+  **headers de segurança** em todas as respostas; Next fixado na linha 14.2.x
+  (14.2.35). A antiga auth Basic opcional foi removida (decisões 9 e 19).
+
+**Autenticação e papéis (decisão 19):** o sistema **exige login**. Model
+`Usuario` (login único, `senhaHash` scrypt, papel `ADMIN`|`OPERADOR`, `ativo`,
+`senhaProvisoria`, vínculo opcional com `Funcionario`) + CRUD em `/usuarios` (só
+admin). **Administrador** faz tudo; **operador** só alcança `/chamados` e
+`/trocar-senha`. Sessão em cookie httpOnly assinado por HMAC (`lib/sessao.ts`,
+Web Crypto — funciona no Edge do middleware), com **reconferência no banco** em
+`lib/sessao-servidor.ts` (papel e `ativo` valem os do banco, não os do cookie).
+Autorização em duas camadas: `middleware.ts` (portão de navegação) **e**
+`exigirSessao`/`exigirAdmin` (`lib/autorizacao.ts`) no início de cada rota de
+API — nenhuma rota confia só no middleware. `AUTH_SECRET` é **obrigatório** (o
+app e o entrypoint recusam subir sem ele). Admin inicial idempotente em
+`prisma/seed-admin.cjs`; senha definida por terceiro nasce provisória e a troca
+é cobrada no primeiro acesso. Travas: não dá para rebaixar/inativar/remover o
+último admin ativo, nem remover a própria conta.
 
 **Repositório:** GitHub privado `isaac-ferraz/inventario-cobratec`. Branches:
 `main` (estável), `develop` (integração), `feat/docker` (Docker + catálogo).

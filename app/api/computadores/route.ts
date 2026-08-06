@@ -4,9 +4,12 @@ import { computadorSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { expandirComponentes } from "@/lib/especificacoes";
 import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 // GET /api/computadores?funcionarioId=...&cargo=...&salaId=...
 export async function GET(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const url = new URL(req.url);
   const funcionarioId = url.searchParams.get("funcionarioId");
   const cargo = url.searchParams.get("cargo");
@@ -47,6 +50,8 @@ export async function GET(req: Request): Promise<NextResponse> {
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, computadorSchema);
   if ("resposta" in r) return r.resposta;
   try {

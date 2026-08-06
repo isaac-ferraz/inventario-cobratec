@@ -14,6 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:catalogo": "node prisma/seed-catalogo.cjs",
     "db:salas": "node prisma/seed-salas.cjs",
+    "db:admin": "node prisma/seed-admin.cjs",
     "db:wal": "prisma db execute --schema prisma/schema.prisma --file prisma/sqlite-wal.sql",
     "db:backup": "sh scripts/backup-db.sh",
     "postinstall": "prisma generate"

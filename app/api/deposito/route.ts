@@ -3,9 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { itemDepositoSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 // GET /api/deposito?categoria=...
 export async function GET(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const url = new URL(req.url);
   const categoria = url.searchParams.get("categoria");
 
@@ -19,6 +22,8 @@ export async function GET(req: Request): Promise<NextResponse> {
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, itemDepositoSchema);
   if ("resposta" in r) return r.resposta;
   try {

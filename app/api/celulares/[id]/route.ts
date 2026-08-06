@@ -4,10 +4,13 @@ import { z } from "zod";
 import { celularSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria, type AcaoAuditoria } from "@/lib/auditoria";
+import { exigirAdmin } from "@/lib/autorizacao";
 
 type Params = { params: { id: string } };
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const celular = await prisma.celular.findUnique({
     where: { id: params.id },
     include: { funcionario: true },
@@ -23,6 +26,8 @@ export async function GET(_req: Request, { params }: Params) {
 // envia o `atualizadoEm` que carregou; se o registro mudou nesse meio-tempo,
 // devolvemos 409 em vez de sobrescrever a alteração de outra pessoa.
 export async function PATCH(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(
     req,
     celularSchema.partial().extend({
@@ -99,6 +104,8 @@ export async function PATCH(req: Request, { params }: Params) {
 }
 
 export async function DELETE(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
   try {
     const removido = await prisma.celular.delete({
       where: { id: params.id },

@@ -28,6 +28,41 @@ const relacaoOpcional = z
   .optional()
   .transform((v) => (v === "" ? null : v));
 
+// Mínimo de senha: 8 caracteres. É uma ferramenta interna em LAN, mas a senha
+// agora protege o cofre de credenciais — não dá para aceitar "123".
+const SENHA_MIN = 8;
+const senhaNova = z
+  .string()
+  .min(SENHA_MIN, `A senha precisa de ao menos ${SENHA_MIN} caracteres`)
+  .max(200, "Senha muito longa");
+
+export const loginSchema = z.object({
+  login: z.string().trim().min(1, "Informe o login").max(60, "Login muito longo"),
+  senha: z.string().min(1, "Informe a senha").max(200, "Senha muito longa"),
+});
+
+export const usuarioSchema = z.object({
+  // Sem espaço/acento: o login é digitado e comparado exatamente.
+  login: z
+    .string()
+    .trim()
+    .min(3, "Login precisa de ao menos 3 caracteres")
+    .max(60, "Login muito longo")
+    .regex(/^[a-zA-Z0-9._-]+$/, "Use apenas letras, números, ponto, hífen ou _"),
+  nome: z.string().trim().min(1, "Nome é obrigatório").max(200, "Nome muito longo"),
+  senha: senhaNova.optional(), // ausente na edição = mantém a senha atual
+  papel: z.enum(["ADMIN", "OPERADOR"], {
+    errorMap: () => ({ message: "Papel deve ser ADMIN ou OPERADOR" }),
+  }),
+  ativo: z.boolean().optional(),
+  funcionarioId: relacaoOpcional,
+});
+
+export const trocaSenhaSchema = z.object({
+  senhaAtual: z.string().min(1, "Informe a senha atual").max(200),
+  novaSenha: senhaNova,
+});
+
 export const salaSchema = z.object({
   nome: z.string().trim().min(1, "Nome da sala é obrigatório").max(120, "Nome muito longo"),
   predio: textoOpcional,
@@ -165,6 +200,9 @@ export const componenteUpdateSchema = componenteSchema.partial({
   computadorId: true,
 });
 
+export type LoginInput = z.infer<typeof loginSchema>;
+export type UsuarioInput = z.infer<typeof usuarioSchema>;
+export type TrocaSenhaInput = z.infer<typeof trocaSenhaSchema>;
 export type SalaInput = z.infer<typeof salaSchema>;
 export type MoverParaSalaInput = z.infer<typeof moverParaSalaSchema>;
 export type FuncionarioInput = z.infer<typeof funcionarioSchema>;
