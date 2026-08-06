@@ -41,6 +41,9 @@ o Excel é só relatório de saída.
 - **Salas**: catálogo editável da divisão física (93 superior/inferior,
   Administrativo 83, Judiciário 83 e quantas mais o TI quiser); filtro por sala
   em computadores e funcionários; sala em uso não é removível (desative).
+  Cada sala tem **página própria** (`/salas/[id]`) com os postos de trabalho
+  (pessoa + computadores + celulares) e as máquinas sem posto, com movimentação
+  entre salas item a item ou em lote.
 - **Tipos de componente**: catálogo editável (não remove tipo em uso).
 - **Dashboard**: KPIs, por cargo, por tipo, e **pendências de licença/conta**
   (inclui "sem headset").
@@ -95,7 +98,9 @@ o Excel é só relatório de saída.
     `/salas`, `salaId` no computador (onde a máquina está) e no funcionário (onde
     a pessoa senta), filtros por sala, badge no card, sugestão da sala do dono ao
     vincular, seed idempotente das 4 salas no boot e reflexo no Excel/Dashboard.
-    Decisão 18 em `decisoes.md`.
+    Em seguida ganhou **página por sala** (`/salas/[id]`) com postos de trabalho
+    e movimentação em lote (`POST /api/salas/mover`). Decisões 18 e 18.1 em
+    `decisoes.md`.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)

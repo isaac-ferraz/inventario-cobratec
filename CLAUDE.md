@@ -197,6 +197,14 @@ Filtros por sala nas listas, coluna no Excel, bloco "Computadores por sala" e
 pendência "Sem sala definida" no Dashboard. As 4 salas iniciais vêm de
 `prisma/salas.cjs` por seed idempotente no boot (decisão 18 em `decisoes.md`).
 
+Cada sala tem **página própria** (`/salas/[id]`) com tudo que foi levado para
+ela, agrupado por **posto de trabalho** (funcionário + seus computadores +
+celulares), mais a seção "computadores nesta sala sem posto" (estoque ou
+máquina de alguém de outra sala). Divergência pessoa×máquina é sinalizada no
+posto. A movimentação usa `POST /api/salas/mover` — trazer para cá, tirar daqui
+e mandar para outra sala, item a item ou em lote com seleção múltipla,
+transacional e com auditoria origem→destino por item (decisão 18.1).
+
 **Depósito (estoque de suprimentos):** aba `/deposito` + `/api/deposito` com o
 modelo `ItemDeposito` (nome, `categoria` texto livre, `quantidade`,
 `quantidadeMinima`, `localizacao`, `observacoes`). Controle de estoque por

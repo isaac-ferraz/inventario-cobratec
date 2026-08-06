@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
@@ -260,7 +261,17 @@ export default function FuncionariosPage() {
                     <TableCell className="font-medium">{f.nome}</TableCell>
                     <TableCell>{f.cargo}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {f.sala?.nome ?? "—"}
+                      {f.sala ? (
+                        <Link
+                          href={`/salas/${f.sala.id}`}
+                          className="underline-offset-2 hover:text-foreground hover:underline"
+                          title={`Abrir a sala ${f.sala.nome}`}
+                        >
+                          {f.sala.nome}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {f.loginSiscobra ?? "—"}

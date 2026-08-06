@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   DoorOpen,
   Headphones,
@@ -149,9 +150,16 @@ export function ComputadorCard({
             </Badge>
           )}
           {c.sala && (
-            <Badge variant="outline">
-              <DoorOpen className="mr-1 h-3 w-3" /> {c.sala.nome}
-            </Badge>
+            // A sala é clicável: leva para a página com tudo que está nela.
+            <Link
+              href={`/salas/${c.sala.id}`}
+              title={`Abrir a sala ${c.sala.nome}`}
+              className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Badge variant="outline" className="hover:bg-muted">
+                <DoorOpen className="mr-1 h-3 w-3" /> {c.sala.nome}
+              </Badge>
+            </Link>
           )}
         </div>
 

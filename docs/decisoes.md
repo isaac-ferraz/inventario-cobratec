@@ -327,3 +327,34 @@ editável pela UI** (`/salas`, `/api/salas`), no mesmo padrão do
   Inventário do Excel, coluna "Sala do funcionário" na aba Celulares, bloco
   **"Computadores por sala"** no Dashboard (site e Excel) e a pendência **"Sem
   sala definida"**.
+
+### 18.1 Página própria por sala (`/salas/[id]`)
+
+**Decisão:** cada sala tem uma **página própria** com tudo que foi levado para
+ela, organizada por **posto de trabalho** — a pessoa e o conjunto dela
+(computadores + celulares). A lista `/salas` virou cards clicáveis e os badges
+de sala espalhados pelo sistema levam para essa página.
+
+- **Postos × máquinas soltas:** a página tem duas seções. "Postos de trabalho"
+  agrupa por funcionário da sala; "Computadores nesta sala sem posto" mostra o
+  que está fisicamente aqui mas não pertence a ninguém daqui (estoque parado na
+  sala, ou máquina cujo dono senta em outro lugar). A API devolve as duas listas
+  cruas (`GET /api/salas/[id]`) e a tela compõe — porque pessoa e máquina podem
+  estar em salas diferentes, e **essa divergência é sinalizada** no posto
+  (⚠ "está em Sala X"). É exatamente o tipo de inconsistência que o TI precisa
+  ver, então a UI aponta em vez de esconder.
+- **Celular vem pelo dono:** coerente com a decisão de não dar sala ao aparelho.
+- **Movimentação (`POST /api/salas/mover`):** um endpoint só cobre os três
+  gestos — trazer para cá, tirar daqui (`destinoSalaId: null`) e mandar para
+  outra sala — item a item ou em lote (checkbox + barra de ações). É
+  transacional (`$transaction` com dois `updateMany`) e valida o destino antes,
+  para um id inválido não virar FK quebrada. A auditoria grava **um evento por
+  item movido**, com origem → destino, reaproveitando a semântica de "mover" que
+  já existia para o computador.
+- **Rota estática antes da dinâmica:** `/api/salas/mover` conviveria com
+  `/api/salas/[id]`; no App Router o segmento estático tem precedência, então
+  "mover" nunca é lido como um id.
+- **Recarga silenciosa:** depois de mover, a página recarrega **sem** trocar o
+  conteúdo pelo spinner de tela cheia (só o indicador da ação aparece) — trocar
+  tudo faria a tela piscar e perder a posição do scroll no meio de uma
+  movimentação em lote.

@@ -6,6 +6,38 @@ import { registrarAuditoria } from "@/lib/auditoria";
 
 type Params = { params: { id: string } };
 
+// GET /api/salas/[id] — a sala e tudo que foi levado para ela.
+// Devolve as duas listas cruas (computadores da sala e funcionários da sala); a
+// tela compõe os "postos de trabalho" a partir delas, porque um computador pode
+// estar nesta sala com o dono sentado em outra (e vice-versa).
+export async function GET(_req: Request, { params }: Params) {
+  const sala = await prisma.sala.findUnique({ where: { id: params.id } });
+  if (!sala) {
+    return NextResponse.json({ erro: "Sala não encontrada" }, { status: 404 });
+  }
+
+  const [computadores, funcionarios] = await Promise.all([
+    prisma.computador.findMany({
+      where: { salaId: params.id },
+      include: {
+        funcionario: { include: { sala: true } },
+        componentes: { include: { tipo: true }, orderBy: { criadoEm: "asc" } },
+      },
+      orderBy: { identificador: "asc" },
+    }),
+    prisma.funcionario.findMany({
+      where: { salaId: params.id },
+      include: {
+        computadores: { include: { sala: true }, orderBy: { identificador: "asc" } },
+        celulares: { orderBy: { identificador: "asc" } },
+      },
+      orderBy: { nome: "asc" },
+    }),
+  ]);
+
+  return NextResponse.json({ sala, computadores, funcionarios });
+}
+
 export async function PATCH(req: Request, { params }: Params) {
   const r = await validarCorpo(req, salaSchema.partial());
   if ("resposta" in r) return r.resposta;

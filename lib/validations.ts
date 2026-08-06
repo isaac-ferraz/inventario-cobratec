@@ -43,6 +43,24 @@ export const salaSchema = z.object({
   observacoes: textoOpcional,
 });
 
+// Movimentação em lote de/para uma sala. `destinoSalaId` null = tirar da sala.
+// O teto de 500 ids evita um payload absurdo (o escritório inteiro cabe folgado).
+const listaDeIds = z
+  .array(z.string().trim().min(1, "Identificador inválido").max(60))
+  .max(500, "Selecione no máximo 500 itens por vez")
+  .optional();
+
+export const moverParaSalaSchema = z
+  .object({
+    destinoSalaId: z.string().trim().max(60).nullable(),
+    computadorIds: listaDeIds,
+    funcionarioIds: listaDeIds,
+  })
+  .refine(
+    (d) => (d.computadorIds?.length ?? 0) + (d.funcionarioIds?.length ?? 0) > 0,
+    "Selecione ao menos um computador ou funcionário para mover",
+  );
+
 export const funcionarioSchema = z.object({
   nome: z.string().trim().min(1, "Nome é obrigatório").max(200, "Nome muito longo"),
   cargo: z.string().trim().min(1, "Cargo é obrigatório").max(120, "Cargo muito longo"),
@@ -148,6 +166,7 @@ export const componenteUpdateSchema = componenteSchema.partial({
 });
 
 export type SalaInput = z.infer<typeof salaSchema>;
+export type MoverParaSalaInput = z.infer<typeof moverParaSalaSchema>;
 export type FuncionarioInput = z.infer<typeof funcionarioSchema>;
 export type ComputadorInput = z.infer<typeof computadorSchema>;
 export type CelularInput = z.infer<typeof celularSchema>;

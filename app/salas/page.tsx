@@ -1,7 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import Link from "next/link";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Loader2,
+  ArrowRight,
+  DoorOpen,
+  Monitor,
+  Users,
+} from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,14 +25,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -30,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 type Sala = {
   id: string;
@@ -137,8 +140,8 @@ export default function SalasPage() {
             Salas
           </h1>
           <p className="text-sm text-muted-foreground">
-            Divisão física do escritório. Cadastre quantas salas precisar — elas
-            aparecem nos formulários de computador e de funcionário.
+            Divisão física do escritório. Abra uma sala para ver tudo que foi
+            levado para ela e mover itens entre salas.
           </p>
         </div>
         <Button onClick={abrirNovo}>
@@ -146,93 +149,98 @@ export default function SalasPage() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-display text-base">Salas do escritório</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {carregando ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
-            </div>
-          ) : carregaErro ? (
-            <div className="space-y-2">
-              <p className="text-sm text-destructive">{carregaErro}</p>
-              <Button variant="outline" size="sm" onClick={carregar}>
-                Tentar novamente
-              </Button>
-            </div>
-          ) : lista.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nenhuma sala cadastrada.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Sala</TableHead>
-                  <TableHead>Prédio / piso</TableHead>
-                  <TableHead>Computadores</TableHead>
-                  <TableHead>Funcionários</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lista.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        {s.nome}
-                        {!s.ativa && (
-                          <Badge variant="outline">desativada</Badge>
-                        )}
-                      </div>
-                      {s.observacoes && (
-                        <div className="text-xs text-muted-foreground">
-                          {s.observacoes}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+      {carregando ? (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
+        </div>
+      ) : carregaErro ? (
+        <div className="space-y-2">
+          <p className="text-sm text-destructive">{carregaErro}</p>
+          <Button variant="outline" size="sm" onClick={carregar}>
+            Tentar novamente
+          </Button>
+        </div>
+      ) : lista.length === 0 ? (
+        <Card>
+          <CardContent className="py-6 text-sm text-muted-foreground">
+            Nenhuma sala cadastrada. Crie a primeira em “Nova sala”.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {lista.map((s) => (
+            <Card key={s.id} className="relative overflow-hidden">
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute inset-y-0 left-0 w-1",
+                  s.ativa ? "bg-primary" : "bg-muted-foreground/40",
+                )}
+              />
+              <CardHeader className="pb-2 pl-5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="eyebrow flex items-center gap-1">
+                      <DoorOpen className="h-3 w-3" /> sala
+                    </div>
+                    <CardTitle className="truncate font-display text-base">
+                      {s.nome}
+                    </CardTitle>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {[s.predio && `Prédio ${s.predio}`, s.piso]
                         .filter(Boolean)
-                        .join(" · ") || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {s._count.computadores}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {s._count.funcionarios}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Editar sala ${s.nome}`}
-                        onClick={() => abrirEdicao(s)}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Remover sala ${s.nome}`}
-                        onClick={() => remover(s)}
-                      >
-                        <Trash2 className="text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                        .join(" · ") || "sem prédio/piso"}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Editar sala ${s.nome}`}
+                      title="Editar"
+                      onClick={() => abrirEdicao(s)}
+                    >
+                      <Pencil />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remover sala ${s.nome}`}
+                      title="Remover"
+                      onClick={() => remover(s)}
+                    >
+                      <Trash2 className="text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 pl-5">
+                {!s.ativa && <Badge variant="outline">desativada</Badge>}
+                {s.observacoes && (
+                  <p className="text-xs text-muted-foreground">
+                    {s.observacoes}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="secondary">
+                    <Monitor className="mr-1 h-3 w-3" />
+                    {s._count.computadores} computador(es)
+                  </Badge>
+                  <Badge variant="secondary">
+                    <Users className="mr-1 h-3 w-3" />
+                    {s._count.funcionarios} funcionário(s)
+                  </Badge>
+                </div>
+                <Button variant="outline" size="sm" className="w-full" asChild>
+                  <Link href={`/salas/${s.id}`}>
+                    Abrir sala <ArrowRight />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Dialog open={aberto} onOpenChange={setAberto}>
         <DialogContent>
