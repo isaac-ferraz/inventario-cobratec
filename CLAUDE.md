@@ -264,6 +264,19 @@ app e o entrypoint recusam subir sem ele). Admin inicial idempotente em
 é cobrada no primeiro acesso. Travas: não dá para rebaixar/inativar/remover o
 último admin ativo, nem remover a própria conta.
 
+**Chamados / helpdesk (decisão 20):** `/chamados` + `/chamados/[id]` e
+`/api/chamados*`. Modelos `Chamado` (numero sequencial calculado em transação,
+titulo, descricao, categoria, prioridade, status, solicitante, responsável,
+equipamento e sala opcionais) e `ChamadoMensagem` (com `interna`). As regras
+(visibilidade, transições de status, campos exclusivos do admin) vivem em
+**funções puras** em `lib/chamados.ts`, cobertas por testes. Operador: abre,
+responde, fecha o próprio quando resolvido e reabre — **não** define prioridade,
+responsável nem andamento. Chamado alheio responde **404** (não confirma que
+existe). Nota interna é filtrada **no servidor**, antes de virar JSON.
+`/api/chamados/contexto` devolve só os equipamentos do próprio solicitante.
+Dashboard ganhou KPIs de suporte (em aberto, sem responsável, resolvidos em 7
+dias, mais antigo).
+
 **Repositório:** GitHub privado `isaac-ferraz/inventario-cobratec`. Branches:
 `main` (estável), `develop` (integração), `feat/docker` (Docker + catálogo).
 

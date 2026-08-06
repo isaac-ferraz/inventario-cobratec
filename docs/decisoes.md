@@ -458,3 +458,74 @@ permanente.
   `docker-compose.yml` e do middleware.
 - Quem já usava o sistema precisa de conta: no primeiro boot após a atualização,
   entrar com o admin inicial e cadastrar os demais em `/usuarios`.
+
+## 20. Chamados (helpdesk)
+
+**Decisão:** o operador tem uma única função no sistema — **abrir e acompanhar
+chamados**. Modelos `Chamado` e `ChamadoMensagem`, com ciclo completo
+(aberto → em andamento → aguardando → resolvido → fechado), prioridade,
+responsável e conversa.
+
+### Regras nas funções puras (`lib/chamados.ts`)
+
+Quem vê o quê, quem muda o quê e quais transições existem ficam em **funções
+puras, sem banco** — e por isso cobertas por testes exaustivos
+(`lib/chamados.test.ts`). As rotas só orquestram. Sem isso, a regra mais
+sensível do módulo (visibilidade) estaria espalhada em `if`s dentro de handlers,
+onde ninguém consegue testá-la sem subir servidor.
+
+### O operador não gerencia a fila
+
+Ele **não** define prioridade, **não** atribui responsável e **não** muda o
+andamento. Pode: abrir, responder, **fechar quando o TI marcou como resolvido**
+e **reabrir** se o problema voltou. Motivos:
+
+- **Prioridade é decisão do TI.** Se o solicitante escolhesse, todo chamado
+  nasceria "urgente" e o campo perderia o sentido. Chamado nasce `normal`
+  mesmo que o corpo peça outra coisa — o valor é ignorado, não recusado, para
+  não travar quem só quer pedir ajuda.
+- **Fechar é do solicitante.** Só quem sentiu o problema sabe se acabou; por
+  isso o TI marca "resolvido" e quem confirma o encerramento é o dono.
+
+### Chamado alheio responde 404, não 403
+
+Um 403 confirmaria que aquele identificador existe e é de outra pessoa. Para
+quem não é dono nem administrador, o chamado simplesmente **não existe**. Vale
+para GET, PATCH e envio de mensagem.
+
+### Nota interna é filtrada no servidor
+
+`ChamadoMensagem.interna` marca conversa do TI sobre o chamado. A filtragem
+acontece **antes de virar JSON** (`filtrarMensagens`), não na tela: esconder no
+front deixaria a nota trafegando na resposta, visível em qualquer inspeção. Se
+um operador enviar `interna: true`, o campo é **ignorado** e a mensagem entra
+como pública — ele não teria como criar uma nota que nem ele veria.
+
+### `numero` sequencial calculado na transação
+
+As pessoas se referem ao chamado por um número curto ("o #12"). O SQLite só
+aceita `autoincrement()` na chave primária, então o número é calculado como
+`max(numero) + 1` **dentro da transação de criação**. A escrita no SQLite é
+serializada e o volume é de um escritório — não há corrida real. Se um dia
+houver, a `@@unique` no campo faz a segunda escrita falhar em vez de duplicar.
+
+### Contexto sem fricção
+
+O chamado guarda **sala** (herdada do funcionário vinculado ao usuário) e,
+opcionalmente, o **equipamento**. A rota `/api/chamados/contexto` devolve apenas
+os equipamentos **do próprio solicitante**, para ele só apontar "é neste
+computador" em vez de digitar patrimônio. É o único ponto em que um operador
+toca em dados de inventário: uma lista curta, só do que é dele, sem credencial
+nenhuma.
+
+### Auditoria: sim para o chamado, não para as mensagens
+
+Criação e mudanças de status/prioridade/responsável geram evento. As mensagens
+**não**: a própria conversa já é o histórico, com autor e data, e duplicá-la
+encheria a auditoria de ruído.
+
+### `resolvidoEm` é limpo ao reabrir
+
+Senão a métrica de tempo de resolução mentiria: um chamado reaberto pareceria
+resolvido desde a primeira vez. Ao fechar depois de resolvido, a data original
+é preservada.

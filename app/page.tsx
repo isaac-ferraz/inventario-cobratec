@@ -1,6 +1,17 @@
 // Dashboard — indicadores principais do inventário (mesma base do Excel).
-import { Monitor, Users, PackageOpen, Smartphone } from "lucide-react";
+import Link from "next/link";
+import {
+  Monitor,
+  Users,
+  PackageOpen,
+  Smartphone,
+  LifeBuoy,
+  UserX,
+  CheckCircle2,
+  AlarmClock,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { STATUS_ABERTOS } from "@/lib/chamados";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButton } from "@/components/export-button";
 import { cn } from "@/lib/utils";
@@ -41,6 +52,24 @@ function BarList({
 }
 
 export default async function DashboardPage() {
+  const [chamadosAbertos, chamadoMaisAntigo, semResponsavel, resolvidos7d] =
+    await Promise.all([
+      prisma.chamado.count({ where: { status: { in: STATUS_ABERTOS } } }),
+      prisma.chamado.findFirst({
+        where: { status: { in: STATUS_ABERTOS } },
+        orderBy: { criadoEm: "asc" },
+        select: { numero: true, titulo: true, criadoEm: true },
+      }),
+      prisma.chamado.count({
+        where: { status: { in: STATUS_ABERTOS }, responsavelId: null },
+      }),
+      prisma.chamado.count({
+        where: {
+          resolvidoEm: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        },
+      }),
+    ]);
+
   const [computadores, celulares] = await Promise.all([
     prisma.computador.findMany({
       include: {
@@ -143,6 +172,105 @@ export default async function DashboardPage() {
         <ExportButton />
       </div>
 
+      {/* Suporte vem primeiro: é o que pede ação hoje. */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="eyebrow">suporte</h2>
+          <Link
+            href="/chamados"
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            ver fila de chamados →
+          </Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Link href="/chamados" className="focus-visible:outline-none">
+            <Card
+              className={cn(
+                "relative h-full overflow-hidden transition-shadow hover:shadow-md",
+                chamadosAbertos > 0 && "border-amber-300",
+              )}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute inset-x-0 top-0 h-0.5",
+                  chamadosAbertos > 0 ? "bg-amber-500" : "bg-emerald-500",
+                )}
+              />
+              <CardContent className="pt-5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    Chamados em aberto
+                  </span>
+                  <LifeBuoy className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div
+                  className={cn(
+                    "mt-2 font-display text-3xl font-bold tabular-nums",
+                    chamadosAbertos > 0 ? "text-amber-600" : "text-emerald-600",
+                  )}
+                >
+                  {chamadosAbertos}
+                </div>
+                {chamadoMaisAntigo && (
+                  <div className="eyebrow mt-1 flex items-center gap-1">
+                    <AlarmClock className="h-3 w-3" />
+                    mais antigo: #{chamadoMaisAntigo.numero}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Card className="relative overflow-hidden">
+            <span
+              aria-hidden
+              className={cn(
+                "absolute inset-x-0 top-0 h-0.5",
+                semResponsavel > 0 ? "bg-amber-500" : "bg-emerald-500",
+              )}
+            />
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">
+                  Sem responsável
+                </span>
+                <UserX className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div
+                className={cn(
+                  "mt-2 font-display text-3xl font-bold tabular-nums",
+                  semResponsavel > 0 ? "text-amber-600" : "text-emerald-600",
+                )}
+              >
+                {semResponsavel}
+              </div>
+              <div className="eyebrow mt-1">
+                {semResponsavel > 0 ? "esperando alguém assumir" : "fila coberta"}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="relative overflow-hidden">
+            <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-emerald-500" />
+            <CardContent className="pt-5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">
+                  Resolvidos (7 dias)
+                </span>
+                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="mt-2 font-display text-3xl font-bold tabular-nums">
+                {resolvidos7d}
+              </div>
+              <div className="eyebrow mt-1">na última semana</div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <h2 className="eyebrow">parque de equipamentos</h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((k) => (
           <Card key={k.titulo} className="relative overflow-hidden">

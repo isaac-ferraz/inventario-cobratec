@@ -1,5 +1,6 @@
 // Validação (zod) de toda escrita que chega na camada de API.
 import { z } from "zod";
+import { PRIORIDADES, STATUS } from "@/lib/chamados";
 
 // Campo de texto opcional. Regras:
 //  - ausente (undefined)  -> não mexe no campo (importante no PATCH parcial)
@@ -61,6 +62,45 @@ export const usuarioSchema = z.object({
 export const trocaSenhaSchema = z.object({
   senhaAtual: z.string().min(1, "Informe a senha atual").max(200),
   novaSenha: senhaNova,
+});
+
+// --- Chamados (helpdesk) ---
+// A lista de status/prioridades vive em lib/chamados.ts (regra de negócio);
+// aqui só validamos a entrada contra ela.
+export const chamadoSchema = z.object({
+  titulo: z
+    .string()
+    .trim()
+    .min(3, "Descreva o problema em poucas palavras (mín. 3 caracteres)")
+    .max(200, "Título muito longo"),
+  descricao: z
+    .string()
+    .trim()
+    .min(1, "Conte o que está acontecendo")
+    .max(5000, "Descrição muito longa"),
+  categoria: textoOpcional,
+  prioridade: z.enum(PRIORIDADES).optional(),
+  // Equipamento relacionado (opcional): ajuda o TI a saber onde mexer.
+  computadorId: relacaoOpcional,
+  celularId: relacaoOpcional,
+});
+
+export const chamadoUpdateSchema = z.object({
+  status: z.enum(STATUS).optional(),
+  prioridade: z.enum(PRIORIDADES).optional(),
+  categoria: textoOpcional,
+  // "" limpa o responsável (devolve o chamado para a fila).
+  responsavelId: relacaoOpcional,
+});
+
+export const chamadoMensagemSchema = z.object({
+  corpo: z
+    .string()
+    .trim()
+    .min(1, "Escreva a mensagem")
+    .max(5000, "Mensagem muito longa"),
+  // Nota interna do TI. A rota ignora este campo quando quem envia é operador.
+  interna: z.boolean().optional(),
 });
 
 export const salaSchema = z.object({
@@ -200,6 +240,9 @@ export const componenteUpdateSchema = componenteSchema.partial({
   computadorId: true,
 });
 
+export type ChamadoInput = z.infer<typeof chamadoSchema>;
+export type ChamadoUpdateInput = z.infer<typeof chamadoUpdateSchema>;
+export type ChamadoMensagemInput = z.infer<typeof chamadoMensagemSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type UsuarioInput = z.infer<typeof usuarioSchema>;
 export type TrocaSenhaInput = z.infer<typeof trocaSenhaSchema>;

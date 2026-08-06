@@ -27,6 +27,7 @@ model Sala {
   observacoes  String?
   computadores Computador[]
   funcionarios Funcionario[]
+  chamados     Chamado[]
   criadoEm     DateTime      @default(now())
 }
 
@@ -56,7 +57,75 @@ model Usuario {
   criadoEm       DateTime     @default(now())
   ultimoAcessoEm DateTime?
 
+  chamadosAbertos    Chamado[]         @relation("solicitante")
+  chamadosAtribuidos Chamado[]         @relation("responsavel")
+  mensagens          ChamadoMensagem[]
+
   @@index([funcionarioId])
+}
+
+// Chamado = pedido de suporte ao TI. É a única coisa que o OPERADOR faz no
+// sistema; o admin recebe, assume, responde e fecha.
+//
+// status:     aberto | em_andamento | aguardando | resolvido | fechado
+// prioridade: baixa | normal | alta | urgente
+// Guardados como String pelo mesmo motivo de `papel` e `cargo`: SQLite não tem
+// enum nativo e a lista é curta e estável.
+model Chamado {
+  id     String @id @default(cuid())
+  // Número curto para as pessoas se referirem ao chamado ("o #12"). O SQLite só
+  // aceita autoincrement na PK, então é calculado como max+1 dentro da
+  // transação de criação (escrita serializada; volume de um escritório).
+  numero Int    @unique
+
+  titulo     String
+  descricao  String
+  categoria  String? // texto livre com sugestões na UI
+  prioridade String  @default("normal")
+  status     String  @default("aberto")
+
+  // Quem pediu. Sempre vem da sessão, nunca do corpo da requisição.
+  solicitanteId String
+  solicitante   Usuario @relation("solicitante", fields: [solicitanteId], references: [id])
+  // Admin que assumiu (opcional: chamado pode estar sem dono ainda).
+  responsavelId String?
+  responsavel   Usuario? @relation("responsavel", fields: [responsavelId], references: [id])
+
+  // Contexto do problema — todos opcionais. `onDelete: SetNull` porque o
+  // histórico do chamado deve sobreviver ao descarte do equipamento.
+  computadorId String?
+  computador   Computador? @relation(fields: [computadorId], references: [id], onDelete: SetNull)
+  celularId    String?
+  celular      Celular?    @relation(fields: [celularId], references: [id], onDelete: SetNull)
+  salaId       String?
+  sala         Sala?       @relation(fields: [salaId], references: [id], onDelete: SetNull)
+
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+  resolvidoEm  DateTime?
+
+  mensagens ChamadoMensagem[]
+
+  @@index([status])
+  @@index([solicitanteId])
+  @@index([responsavelId])
+  @@index([criadoEm])
+}
+
+// Andamento do chamado. `interna = true` marca nota do TI: aparece só para
+// administradores e é filtrada na API antes de sair — o operador nunca a recebe.
+model ChamadoMensagem {
+  id        String   @id @default(cuid())
+  chamadoId String
+  chamado   Chamado  @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+  autorId   String
+  autor     Usuario  @relation(fields: [autorId], references: [id])
+  corpo     String
+  interna   Boolean  @default(false)
+  criadoEm  DateTime @default(now())
+
+  @@index([chamadoId, criadoEm])
+  @@index([autorId])
 }
 
 // Funcionário = a pessoa dona do computador (operadora, gestor, supervisor, etc.)
@@ -94,6 +163,7 @@ model Celular {
   observacoes   String?
   funcionarioId String?
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id])
+  chamados      Chamado[]
   criadoEm      DateTime     @default(now())
   atualizadoEm  DateTime     @updatedAt
 
@@ -124,6 +194,7 @@ model Computador {
   salaId        String?
   sala          Sala?        @relation(fields: [salaId], references: [id])
   componentes   Componente[]
+  chamados      Chamado[]
   criadoEm      DateTime     @default(now())
   atualizadoEm  DateTime     @updatedAt
 

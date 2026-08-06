@@ -19,6 +19,9 @@ o Excel é só relatório de saída.
   editável da divisão física do escritório
 - **Usuario**: login (único), nome, senhaHash (scrypt), papel (ADMIN|OPERADOR),
   ativo, senhaProvisoria, funcionarioId? — quem ENTRA no sistema
+- **Chamado**: numero (sequencial), titulo, descricao, categoria?, prioridade,
+  status, solicitante, responsavel?, computador?/celular?/sala? (contexto)
+- **ChamadoMensagem**: corpo, `interna` (nota do TI), autor, chamado (cascade)
 - **Funcionario**: nome, cargo (texto livre), ativo, **loginSiscobra?/
   senhaSiscobra?/loginVonix?/senhaVonix?** (credenciais dos sistemas, substituem a
   antiga matrícula), **salaId?** (onde senta), computadores[]
@@ -47,6 +50,10 @@ o Excel é só relatório de saída.
   (pessoa + computadores + celulares) e as máquinas sem posto, com movimentação
   entre salas item a item ou em lote.
 - **Tipos de componente**: catálogo editável (não remove tipo em uso).
+- **Chamados**: operador abre e acompanha; TI assume, prioriza, responde
+  (inclusive com **nota interna**, invisível ao solicitante) e resolve; o
+  solicitante confirma o fechamento ou reabre. Chamado leva sala e equipamento
+  do próprio usuário como contexto.
 - **Usuários e acesso**: login obrigatório; **administrador** faz tudo,
   **operador** só abre/acompanha chamados. CRUD em `/usuarios` (só admin),
   troca da própria senha, senha provisória cobrada no primeiro acesso.
@@ -111,6 +118,11 @@ o Excel é só relatório de saída.
     menu filtrado por papel, guardas em todas as rotas de API e travas
     anti-tranca de administrador. Remove a Basic Auth. Decisão 19 em
     `decisoes.md`.
+14. **Chamados** (branch **`feat/chamados`**): helpdesk completo — abrir,
+    atender, conversar (com nota interna do TI), resolver e fechar. Regras em
+    funções puras testadas (`lib/chamados.ts`), escopo por papel na API,
+    contexto de sala/equipamento e KPIs de suporte no Dashboard. Decisão 20 em
+    `decisoes.md`.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)
@@ -156,7 +168,7 @@ Ainda assim: restringir acesso ao servidor e proteger os **backups**.
 ## Roadmap
 Plano de continuação em 5 fases (aprovado): **1. Salas** (feito — branch
 `feat/salas`), **2. Login com papéis** (feito — branch `feat/auth-usuarios`),
-**3. Chamados** (helpdesk completo, único acesso do
-operador), **4. Ciclo de vida do ativo** (situação, aquisição, garantia,
-manutenção), **5. Polimento** (toast/confirm próprios, testes de API/autorização,
-paginação, dark mode, backup agendado).
+**3. Chamados** (feito — branch `feat/chamados`),
+**4. Ciclo de vida do ativo** (situação, aquisição, garantia, manutenção),
+**5. Polimento** (toast/confirm próprios, testes de API/autorização, paginação,
+dark mode, backup agendado).
