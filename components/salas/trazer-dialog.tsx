@@ -127,7 +127,8 @@ export function TrazerDialog({
           <DialogTitle>Trazer para {salaNome}</DialogTitle>
           <DialogDescription>
             Marque os computadores e funcionários que passam a ficar nesta sala.
-            Eles saem automaticamente da sala anterior.
+            Eles saem automaticamente da sala anterior — e quem vem traz junto os
+            computadores que são dele.
           </DialogDescription>
         </DialogHeader>
 

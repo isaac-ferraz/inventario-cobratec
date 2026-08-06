@@ -369,7 +369,8 @@ export default function FuncionariosPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Onde a pessoa senta. Sugerida ao vincular um computador a ela.
+                Onde a pessoa senta. Ao mudar a sala, os computadores dela vão
+                junto — e o celular acompanha o dono.
               </p>
             </div>
             <div className="rounded-md border bg-muted/30 p-3">

@@ -311,7 +311,7 @@ export default function SalaPage({ params }: { params: { id: string } }) {
                       <Button
                         variant="ghost"
                         size="sm"
-                        title="Tirar desta sala"
+                        title="Tirar desta sala (leva os computadores dele junto)"
                         disabled={movendo}
                         onClick={() => mover(null, { funcionarioIds: [f.id] })}
                       >
