@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Funcionario } from "./types";
+import type { Funcionario, Sala } from "./types";
 
 type Props = {
   busca: string;
@@ -21,7 +21,10 @@ type Props = {
   setFiltroFunc: (v: string) => void;
   filtroCargo: string;
   setFiltroCargo: (v: string) => void;
+  filtroSala: string;
+  setFiltroSala: (v: string) => void;
   funcionarios: Funcionario[];
+  salas: Sala[];
   cargos: string[];
   total: number;
 };
@@ -33,12 +36,18 @@ export function Filtros({
   setFiltroFunc,
   filtroCargo,
   setFiltroCargo,
+  filtroSala,
+  setFiltroSala,
   funcionarios,
+  salas,
   cargos,
   total,
 }: Props) {
   const algumFiltro =
-    busca !== "" || filtroFunc !== "todos" || filtroCargo !== "todos";
+    busca !== "" ||
+    filtroFunc !== "todos" ||
+    filtroCargo !== "todos" ||
+    filtroSala !== "todos";
 
   return (
     <Card>
@@ -89,6 +98,23 @@ export function Filtros({
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-1.5">
+          <Label>Sala</Label>
+          <Select value={filtroSala} onValueChange={setFiltroSala}>
+            <SelectTrigger className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todas</SelectItem>
+              <SelectItem value="sem">— Sem sala definida —</SelectItem>
+              {salas.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {algumFiltro && (
           <Button
             variant="ghost"
@@ -96,6 +122,7 @@ export function Filtros({
               setBusca("");
               setFiltroFunc("todos");
               setFiltroCargo("todos");
+              setFiltroSala("todos");
             }}
           >
             Limpar filtros

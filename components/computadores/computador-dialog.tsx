@@ -22,15 +22,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Computador, Funcionario } from "./types";
+import type { Computador, Funcionario, Sala } from "./types";
 
 const SEM_FUNC = "__sem__";
+const SEM_SALA = "__sem_sala__";
 
 type Props = {
   aberto: boolean;
   onOpenChange: (v: boolean) => void;
   computador: Computador | null; // null = novo
   funcionarios: Funcionario[];
+  salas: Sala[];
   onSaved: () => void;
 };
 
@@ -39,6 +41,7 @@ export function ComputadorDialog({
   onOpenChange,
   computador,
   funcionarios,
+  salas,
   onSaved,
 }: Props) {
   const [identificador, setIdentificador] = React.useState("");
@@ -53,6 +56,7 @@ export function ComputadorDialog({
   const [temTeclado, setTemTeclado] = React.useState(true);
   const [temHeadset, setTemHeadset] = React.useState(false);
   const [pcFunc, setPcFunc] = React.useState<string>(SEM_FUNC);
+  const [pcSala, setPcSala] = React.useState<string>(SEM_SALA);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
@@ -72,6 +76,7 @@ export function ComputadorDialog({
     setTemTeclado(computador?.temTeclado ?? true);
     setTemHeadset(computador?.temHeadset ?? false);
     setPcFunc(computador?.funcionarioId ?? SEM_FUNC);
+    setPcSala(computador?.salaId ?? SEM_SALA);
   }, [aberto, computador]);
 
   // Só funcionários ativos podem receber computador. Na edição, mantemos o dono
@@ -84,6 +89,24 @@ export function ComputadorDialog({
     if (donoAtual && !donoAtual.ativo) return [donoAtual, ...ativos];
     return ativos;
   }, [funcionarios, computador]);
+
+  // Só salas ativas entram no seletor; na edição, mantemos a sala atual mesmo
+  // desativada para não perder o vínculo ao salvar.
+  const salasAtribuiveis = React.useMemo(() => {
+    const ativas = salas.filter((s) => s.ativa);
+    const atual = salas.find((s) => s.id === computador?.salaId);
+    if (atual && !atual.ativa) return [atual, ...ativas];
+    return ativas;
+  }, [salas, computador]);
+
+  // Ao escolher o dono, sugere a sala dele — mas só quando nenhuma sala foi
+  // definida ainda, para nunca sobrescrever uma escolha explícita.
+  function escolherFuncionario(id: string) {
+    setPcFunc(id);
+    if (pcSala !== SEM_SALA) return;
+    const salaDoDono = funcionarios.find((f) => f.id === id)?.salaId;
+    if (salaDoDono) setPcSala(salaDoDono);
+  }
 
   async function salvar() {
     setSalvando(true);
@@ -101,6 +124,7 @@ export function ComputadorDialog({
       temTeclado,
       temHeadset,
       funcionarioId: pcFunc === SEM_FUNC ? null : pcFunc,
+      salaId: pcSala === SEM_SALA ? null : pcSala,
       // Concorrência otimista: na edição, informamos a versão que carregamos.
       ...(computador ? { esperaAtualizadoEm: computador.atualizadoEm } : {}),
     };
@@ -151,7 +175,7 @@ export function ComputadorDialog({
           </div>
           <div className="space-y-1.5">
             <Label>Funcionário</Label>
-            <Select value={pcFunc} onValueChange={setPcFunc}>
+            <Select value={pcFunc} onValueChange={escolherFuncionario}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -167,6 +191,27 @@ export function ComputadorDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Sala</Label>
+            <Select value={pcSala} onValueChange={setPcSala}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SEM_SALA}>— Sem sala definida —</SelectItem>
+                {salasAtribuiveis.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.nome}
+                    {!s.ativa && " (desativada)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Onde a máquina está fisicamente — vale também para máquinas em
+              estoque.
+            </p>
           </div>
           <div className="rounded-md border bg-muted/30 p-3">
             <p className="mb-3 text-xs font-medium text-muted-foreground">

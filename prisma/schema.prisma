@@ -12,12 +12,32 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Sala = espaço físico do escritório (ex: "Sala 93 — piso superior"). É um
+// catálogo EDITÁVEL pela UI, no mesmo espírito do TipoComponente: o TI cadastra
+// salas novas sem mexer no código. Liga-se ao computador (onde a máquina está) e
+// ao funcionário (onde a pessoa senta). Celular não tem sala: o aparelho anda
+// com o dono. Ver /docs/decisoes.md.
+model Sala {
+  id           String        @id @default(cuid())
+  nome         String        @unique // "Sala 93 — piso superior"
+  predio       String? // "93", "83"... texto livre
+  piso         String? // "superior", "inferior", "térreo"... texto livre
+  ordem        Int           @default(0) // ordem de exibição nas listas
+  ativa        Boolean       @default(true) // sala desativada some dos seletores
+  observacoes  String?
+  computadores Computador[]
+  funcionarios Funcionario[]
+  criadoEm     DateTime      @default(now())
+}
+
 // Funcionário = a pessoa dona do computador (operadora, gestor, supervisor, etc.)
 model Funcionario {
   id            String       @id @default(cuid())
   nome          String
   cargo         String // texto livre p/ não engessar a lista de cargos
   ativo         Boolean      @default(true)
+  salaId        String? // onde a pessoa senta (null = sem sala definida)
+  sala          Sala?        @relation(fields: [salaId], references: [id])
   // Credenciais dos sistemas usados pelo funcionário (substituem a matrícula).
   loginSiscobra String? // login do funcionário no sistema Siscobra
   senhaSiscobra String? // senha do funcionário no Siscobra
@@ -26,6 +46,9 @@ model Funcionario {
   computadores  Computador[]
   celulares     Celular[]
   criadoEm      DateTime     @default(now())
+
+  // SQLite não cria índice de FK automaticamente; ajuda o filtro por sala.
+  @@index([salaId])
 }
 
 // Celular = aparelho corporativo. Igual ao Computador, pertence a um funcionário
@@ -66,12 +89,17 @@ model Computador {
   temHeadset Boolean @default(false)
   funcionarioId String?
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id])
+  // Onde a máquina está fisicamente. Independe do dono: um PC em estoque
+  // continua ocupando uma sala.
+  salaId        String?
+  sala          Sala?        @relation(fields: [salaId], references: [id])
   componentes   Componente[]
   criadoEm      DateTime     @default(now())
   atualizadoEm  DateTime     @updatedAt
 
-  // SQLite não cria índice de FK automaticamente; ajuda os filtros por dono.
+  // SQLite não cria índice de FK automaticamente; ajuda os filtros por dono/sala.
   @@index([funcionarioId])
+  @@index([salaId])
 }
 
 // Item do depósito = suprimento avulso guardado em caixas (cabos, mouses,

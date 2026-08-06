@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  DoorOpen,
   Headphones,
   Keyboard,
   Loader2,
@@ -136,8 +137,8 @@ export function ComputadorCard({
           </div>
         </div>
 
-        {/* Dono / estoque */}
-        <div>
+        {/* Dono / estoque · sala */}
+        <div className="flex flex-wrap gap-1.5">
           {c.funcionario ? (
             <Badge variant="secondary">
               {c.funcionario.nome} · {c.funcionario.cargo}
@@ -145,6 +146,11 @@ export function ComputadorCard({
           ) : (
             <Badge variant="warning">
               <PackageOpen className="mr-1 h-3 w-3" /> Sem funcionário (estoque)
+            </Badge>
+          )}
+          {c.sala && (
+            <Badge variant="outline">
+              <DoorOpen className="mr-1 h-3 w-3" /> {c.sala.nome}
             </Badge>
           )}
         </div>

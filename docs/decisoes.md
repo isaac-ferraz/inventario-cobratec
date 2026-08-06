@@ -294,3 +294,36 @@ suprimentos avulsos guardados em caixas (cabos, mouses, adaptadores...) como um
 
 **Por quê:** o TI precisa saber rapidamente quanto há de cada insumo e o que
 falta repor, sem o peso de modelar cada item como ativo individual.
+
+## 18. Sala como catálogo editável, ligada ao computador e ao funcionário
+
+**Decisão:** o espaço físico do escritório vira o model `Sala` — um **catálogo
+editável pela UI** (`/salas`, `/api/salas`), no mesmo padrão do
+`TipoComponente`. `salaId` (opcional) foi adicionado ao **`Computador`** e ao
+**`Funcionario`**.
+
+- **Campos:** `nome` (único), `predio` e `piso` (texto livre, com sugestões via
+  `<datalist>`), `ordem` (exibição), `ativa` e `observacoes`. As 4 salas
+  iniciais (93 superior, 93 inferior, Administrativo 83, Judiciário 83) vêm de
+  `prisma/salas.cjs` via seed idempotente, mas **nada é fixo no código**:
+  cadastrar sala nova é uma tela.
+- **Por que nos dois:** são perguntas diferentes. O computador responde *"onde a
+  máquina está"* — inclusive uma máquina de estoque, que tem sala mas não tem
+  dono. O funcionário responde *"onde a pessoa senta"*. Derivar uma da outra
+  deixaria o estoque sem localização (se ficasse só no funcionário) ou perderia
+  o mapa de assentos (se ficasse só no computador). Para evitar retrabalho, ao
+  escolher o dono no formulário do computador a sala **dele** é sugerida — mas
+  só quando nenhuma sala foi definida ainda, para nunca sobrescrever uma escolha
+  explícita.
+- **Celular fica de fora:** o aparelho anda com a pessoa; nos relatórios a sala
+  do celular é a do dono.
+- **Remoção:** sala em uso não é removível (**409**, como o tipo em uso), porque
+  removê-la apagaria a localização de todos os vinculados. Para tirar de
+  circulação sem perder histórico, existe `ativa = false` — a sala some dos
+  seletores mas continua nos registros antigos.
+- **Reflexo no resto do sistema:** filtro por sala nas listas de computadores e
+  funcionários (com a opção "— sem sala definida —", mesma convenção do "sem
+  funcionário"), badge no card do computador, coluna **"Sala"** na aba
+  Inventário do Excel, coluna "Sala do funcionário" na aba Celulares, bloco
+  **"Computadores por sala"** no Dashboard (site e Excel) e a pendência **"Sem
+  sala definida"**.

@@ -43,7 +43,11 @@ function BarList({
 export default async function DashboardPage() {
   const [computadores, celulares] = await Promise.all([
     prisma.computador.findMany({
-      include: { funcionario: true, componentes: { include: { tipo: true } } },
+      include: {
+        funcionario: true,
+        sala: true,
+        componentes: { include: { tipo: true } },
+      },
     }),
     prisma.celular.findMany({ include: { funcionario: true } }),
   ]);
@@ -61,6 +65,12 @@ export default async function DashboardPage() {
     porCargo.set(cargo, (porCargo.get(cargo) ?? 0) + 1);
   }
 
+  const porSala = new Map<string, number>();
+  for (const c of computadores) {
+    const sala = c.sala?.nome ?? "Sem sala definida";
+    porSala.set(sala, (porSala.get(sala) ?? 0) + 1);
+  }
+
   const porTipo = new Map<string, number>();
   for (const c of computadores) {
     for (const comp of c.componentes) {
@@ -71,12 +81,19 @@ export default async function DashboardPage() {
   const cargoData = [...porCargo.entries()]
     .map(([label, valor]) => ({ label, valor }))
     .sort((a, b) => b.valor - a.valor);
+  const salaData = [...porSala.entries()]
+    .map(([label, valor]) => ({ label, valor }))
+    .sort((a, b) => b.valor - a.valor);
   const tipoData = [...porTipo.entries()]
     .map(([label, valor]) => ({ label, valor }))
     .sort((a, b) => b.valor - a.valor);
 
   // Pendências de licença/conta: quantos computadores estão sem cada item.
   const pendencias = [
+    {
+      label: "Sem sala definida",
+      valor: computadores.filter((c) => !c.salaId).length,
+    },
     {
       label: "Sem licença Windows",
       valor: computadores.filter((c) => !c.licencaWindows).length,
@@ -162,6 +179,16 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="font-display text-base">
+              Computadores por sala
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BarList dados={salaData} cor="bg-violet-500" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-base">
               Componentes por tipo
             </CardTitle>
           </CardHeader>
@@ -178,7 +205,7 @@ export default async function DashboardPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {pendencias.map((p) => {
               const ok = p.valor === 0;
               return (

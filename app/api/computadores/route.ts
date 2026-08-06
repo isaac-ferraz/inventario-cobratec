@@ -5,11 +5,12 @@ import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { expandirComponentes } from "@/lib/especificacoes";
 import { registrarAuditoria } from "@/lib/auditoria";
 
-// GET /api/computadores?funcionarioId=...&cargo=...
+// GET /api/computadores?funcionarioId=...&cargo=...&salaId=...
 export async function GET(req: Request): Promise<NextResponse> {
   const url = new URL(req.url);
   const funcionarioId = url.searchParams.get("funcionarioId");
   const cargo = url.searchParams.get("cargo");
+  const salaId = url.searchParams.get("salaId");
 
   const where: Record<string, unknown> = {};
   if (funcionarioId === "sem") {
@@ -22,11 +23,18 @@ export async function GET(req: Request): Promise<NextResponse> {
   if (cargo && funcionarioId !== "sem") {
     where.funcionario = { cargo };
   }
+  // "sem" = máquinas sem sala definida (mesma convenção do funcionário).
+  if (salaId === "sem") {
+    where.salaId = null;
+  } else if (salaId) {
+    where.salaId = salaId;
+  }
 
   const computadores = await prisma.computador.findMany({
     where,
     include: {
       funcionario: true,
+      sala: true,
       componentes: { include: { tipo: true }, orderBy: { criadoEm: "asc" } },
     },
     orderBy: { identificador: "asc" },
@@ -56,6 +64,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         temTeclado: r.data.temTeclado,
         temHeadset: r.data.temHeadset,
         funcionarioId: r.data.funcionarioId || null,
+        salaId: r.data.salaId || null,
       },
     });
     await registrarAuditoria(req, {

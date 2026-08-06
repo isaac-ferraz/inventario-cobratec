@@ -4,10 +4,24 @@ import { funcionarioSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
 
-export async function GET(): Promise<NextResponse> {
+// GET /api/funcionarios?salaId=...  ("sem" = sem sala definida)
+export async function GET(req: Request): Promise<NextResponse> {
+  const salaId = new URL(req.url).searchParams.get("salaId");
+
+  const where: Record<string, unknown> = {};
+  if (salaId === "sem") {
+    where.salaId = null;
+  } else if (salaId) {
+    where.salaId = salaId;
+  }
+
   const funcionarios = await prisma.funcionario.findMany({
+    where,
     orderBy: { nome: "asc" },
-    include: { _count: { select: { computadores: true, celulares: true } } },
+    include: {
+      sala: true,
+      _count: { select: { computadores: true, celulares: true } },
+    },
   });
   return NextResponse.json(funcionarios);
 }

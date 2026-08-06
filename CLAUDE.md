@@ -153,6 +153,7 @@ npx prisma studio           # inspecionar o banco visualmente
 npm run dev                 # rodar em desenvolvimento
 npm run db:seed             # catálogo + dados de exemplo
 npm run db:catalogo         # garante só o catálogo de tipos (idempotente)
+npm run db:salas            # garante as salas iniciais (idempotente)
 docker compose up -d --build # subir via Docker (porta 3000, banco em volume)
 ```
 
@@ -185,6 +186,16 @@ todos campos diretos do `Computador` (decisão 8 em `decisoes.md`).
 `Funcionario`, opcionais). Senhas em texto puro (cofre interno de TI; decisão 8). Há também os **periféricos** `temMouse`,
 `temTeclado` e `temHeadset` — booleans de presença (sem modelo); mouse e teclado
 com default `true`, headset `false` (decisão 10 em `decisoes.md`).
+
+**Salas (divisão física do escritório):** modelo `Sala` como catálogo editável
+(`/salas` + `/api/salas`), com `nome` único, `predio`/`piso` (texto livre),
+`ordem`, `ativa` e `observacoes`. `salaId` opcional no **Computador** (onde a
+máquina está — vale para estoque) e no **Funcionário** (onde a pessoa senta); o
+formulário do computador sugere a sala do dono ao vinculá-lo. Celular não tem
+sala (anda com a pessoa). Sala em uso não é removível (409) — use "desativar".
+Filtros por sala nas listas, coluna no Excel, bloco "Computadores por sala" e
+pendência "Sem sala definida" no Dashboard. As 4 salas iniciais vêm de
+`prisma/salas.cjs` por seed idempotente no boot (decisão 18 em `decisoes.md`).
 
 **Depósito (estoque de suprimentos):** aba `/deposito` + `/api/deposito` com o
 modelo `ItemDeposito` (nome, `categoria` texto livre, `quantidade`,

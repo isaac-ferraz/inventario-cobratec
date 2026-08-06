@@ -37,12 +37,14 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     prisma.computador.findMany({
       include: {
         funcionario: true,
+        sala: true,
         componentes: { include: { tipo: true } },
       },
       orderBy: { identificador: "asc" },
     }),
     prisma.celular.findMany({
-      include: { funcionario: true },
+      // A sala do celular é a do dono: o aparelho anda com a pessoa.
+      include: { funcionario: { include: { sala: true } } },
       orderBy: { identificador: "asc" },
     }),
   ]);
@@ -60,6 +62,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     { header: "Apelido", key: "apelido", width: 22 },
     { header: "Funcionário", key: "funcionario", width: 24 },
     { header: "Cargo", key: "cargo", width: 18 },
+    { header: "Sala", key: "sala", width: 24 },
     { header: "Status", key: "status", width: 14 },
     { header: "Login padrão", key: "loginPadrao", width: 14 },
     { header: "Conta Outlook", key: "contaOutlook", width: 26 },
@@ -83,6 +86,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       apelido: c.apelido ?? "",
       funcionario: c.funcionario?.nome ?? "— sem funcionário —",
       cargo: c.funcionario?.cargo ?? "",
+      sala: c.sala?.nome ?? "— sem sala —",
       status: c.funcionario ? "Em uso" : "Estoque",
       loginPadrao: c.loginPadrao ?? "",
       contaOutlook: c.contaOutlook ?? "",
@@ -108,6 +112,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     { header: "Modelo / apelido", key: "apelido", width: 24 },
     { header: "Funcionário", key: "funcionario", width: 24 },
     { header: "Cargo", key: "cargo", width: 18 },
+    { header: "Sala do funcionário", key: "sala", width: 24 },
     { header: "Status", key: "status", width: 14 },
     { header: "Número", key: "numero", width: 18 },
     { header: "Operadora", key: "operadora", width: 14 },
@@ -122,6 +127,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       apelido: c.apelido ?? "",
       funcionario: c.funcionario?.nome ?? "— sem funcionário —",
       cargo: c.funcionario?.cargo ?? "",
+      sala: c.funcionario?.sala?.nome ?? "— sem sala —",
       status: c.funcionario ? "Em uso" : "Estoque",
       numero: c.numero ?? "",
       operadora: c.operadora ?? "",
@@ -144,6 +150,12 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     porCargo.set(cargo, (porCargo.get(cargo) ?? 0) + 1);
   }
 
+  const porSala = new Map<string, number>();
+  for (const c of computadores) {
+    const sala = c.sala?.nome ?? "Sem sala definida";
+    porSala.set(sala, (porSala.get(sala) ?? 0) + 1);
+  }
+
   const porTipo = new Map<string, number>();
   for (const c of computadores) {
     for (const comp of c.componentes) {
@@ -153,6 +165,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
 
   // Pendências: computadores sem cada licença/conta registrada.
   const pendencias: [string, number][] = [
+    ["Sem sala definida", computadores.filter((c) => !c.salaId).length],
     ["Sem licença Windows", computadores.filter((c) => !c.licencaWindows).length],
     [
       "Sem licença Microsoft / Office",
@@ -215,6 +228,16 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
   );
   r += 1 + porCargo.size + 1;
 
+  // Bloco: Computadores por sala (tabela + data bar)
+  const blocoSalaInicio = r;
+  adicionarBlocoIndicador(
+    dash,
+    r,
+    "Computadores por sala",
+    [...porSala.entries()].sort((a, b) => b[1] - a[1]),
+  );
+  r += 1 + porSala.size + 1;
+
   // Bloco: Distribuição de componentes por tipo (tabela + data bar)
   const blocoTipoInicio = r;
   adicionarBlocoIndicador(
@@ -236,6 +259,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
 
   // Data bars (gráficos de barra nativos via formatação condicional)
   aplicarDataBar(dash, blocoCargoInicio + 1, porCargo.size, "FF2563EB");
+  aplicarDataBar(dash, blocoSalaInicio + 1, porSala.size, "FF7C3AED");
   aplicarDataBar(dash, blocoTipoInicio + 1, porTipo.size, "FF059669");
   aplicarDataBar(dash, blocoPendInicio + 1, pendencias.length, "FFD97706");
 

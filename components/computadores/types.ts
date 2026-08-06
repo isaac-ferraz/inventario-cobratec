@@ -1,11 +1,21 @@
 // Tipos das respostas da API usados pela tela de Computadores e seus
 // componentes. Centralizados aqui para não duplicar/desencontrar entre arquivos.
 
+export type Sala = {
+  id: string;
+  nome: string;
+  predio: string | null;
+  piso: string | null;
+  ativa: boolean;
+};
+
 export type Funcionario = {
   id: string;
   nome: string;
   cargo: string;
   ativo: boolean;
+  salaId: string | null;
+  sala: Sala | null;
 };
 
 export type Tipo = { id: string; nome: string };
@@ -33,6 +43,8 @@ export type Computador = {
   temHeadset: boolean;
   funcionarioId: string | null;
   funcionario: Funcionario | null;
+  salaId: string | null;
+  sala: Sala | null;
   componentes: Componente[];
   atualizadoEm: string; // usado para concorrência otimista na edição
 };

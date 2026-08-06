@@ -12,12 +12,14 @@ import type {
   Componente,
   Computador,
   Funcionario,
+  Sala,
   Tipo,
 } from "@/components/computadores/types";
 
 export default function ComputadoresPage() {
   const [computadores, setComputadores] = React.useState<Computador[]>([]);
   const [funcionarios, setFuncionarios] = React.useState<Funcionario[]>([]);
+  const [salas, setSalas] = React.useState<Sala[]>([]);
   const [tipos, setTipos] = React.useState<Tipo[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
@@ -30,6 +32,7 @@ export default function ComputadoresPage() {
   const [busca, setBusca] = React.useState("");
   const [filtroFunc, setFiltroFunc] = React.useState<string>("todos");
   const [filtroCargo, setFiltroCargo] = React.useState<string>("todos");
+  const [filtroSala, setFiltroSala] = React.useState<string>("todos");
 
   // diálogos (a tela só guarda "o que está aberto e com qual registro";
   // o estado do formulário vive dentro de cada diálogo)
@@ -47,13 +50,15 @@ export default function ComputadoresPage() {
     setCarregando(true);
     setCarregaErro(null);
     try {
-      const [c, f, t] = await Promise.all([
+      const [c, f, s, t] = await Promise.all([
         apiGet<Computador[]>("/api/computadores"),
         apiGet<Funcionario[]>("/api/funcionarios"),
+        apiGet<Sala[]>("/api/salas"),
         apiGet<Tipo[]>("/api/tipos"),
       ]);
       setComputadores(c);
       setFuncionarios(f);
+      setSalas(s);
       setTipos(t);
     } catch (e) {
       setCarregaErro(mensagem(e));
@@ -80,6 +85,10 @@ export default function ComputadoresPage() {
     if (filtroCargo !== "todos") {
       if (c.funcionario?.cargo !== filtroCargo) return false;
     }
+    if (filtroSala === "sem" && c.salaId) return false;
+    if (filtroSala !== "todos" && filtroSala !== "sem") {
+      if (c.salaId !== filtroSala) return false;
+    }
     if (termo) {
       const alvo = [
         c.identificador,
@@ -87,6 +96,7 @@ export default function ComputadoresPage() {
         c.loginPadrao,
         c.contaOutlook,
         c.funcionario?.nome,
+        c.sala?.nome,
       ]
         .filter(Boolean)
         .join(" ")
@@ -151,7 +161,10 @@ export default function ComputadoresPage() {
         setFiltroFunc={setFiltroFunc}
         filtroCargo={filtroCargo}
         setFiltroCargo={setFiltroCargo}
+        filtroSala={filtroSala}
+        setFiltroSala={setFiltroSala}
         funcionarios={funcionarios}
+        salas={salas}
         cargos={cargos}
         total={filtrados.length}
       />
@@ -206,6 +219,7 @@ export default function ComputadoresPage() {
         onOpenChange={(v) => setPcDialog((s) => ({ ...s, aberto: v }))}
         computador={pcDialog.computador}
         funcionarios={funcionarios}
+        salas={salas}
         onSaved={() => {
           setPcDialog({ aberto: false, computador: null });
           carregarTudo();

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Boxes,
   Cpu,
+  DoorOpen,
   Gauge,
   Monitor,
   Smartphone,
@@ -20,6 +21,7 @@ const NAV = [
   { href: "/celulares", label: "Celulares", icon: Smartphone },
   { href: "/deposito", label: "Depósito", icon: Boxes },
   { href: "/funcionarios", label: "Funcionários", icon: Users },
+  { href: "/salas", label: "Salas", icon: DoorOpen },
   { href: "/tipos", label: "Tipos", icon: Tags },
   { href: "/auditoria", label: "Auditoria", icon: ScrollText },
 ];

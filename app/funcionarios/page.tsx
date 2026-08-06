@@ -29,6 +29,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+type Sala = { id: string; nome: string; ativa: boolean };
 
 type Funcionario = {
   id: string;
@@ -39,11 +48,18 @@ type Funcionario = {
   loginVonix: string | null;
   senhaVonix: string | null;
   ativo: boolean;
+  salaId: string | null;
+  sala: Sala | null;
   _count: { computadores: number; celulares: number };
 };
 
+// Valor sentinela do seletor: o Radix Select não aceita item com value "".
+const SEM_SALA = "__sem_sala__";
+
 export default function FuncionariosPage() {
   const [lista, setLista] = React.useState<Funcionario[]>([]);
+  const [salas, setSalas] = React.useState<Sala[]>([]);
+  const [filtroSala, setFiltroSala] = React.useState<string>("todos");
   const [carregando, setCarregando] = React.useState(true);
   const [aberto, setAberto] = React.useState(false);
   const [editando, setEditando] = React.useState<Funcionario | null>(null);
@@ -54,6 +70,7 @@ export default function FuncionariosPage() {
   const [senhaSiscobra, setSenhaSiscobra] = React.useState("");
   const [loginVonix, setLoginVonix] = React.useState("");
   const [senhaVonix, setSenhaVonix] = React.useState("");
+  const [salaId, setSalaId] = React.useState<string>(SEM_SALA);
   const [ativo, setAtivo] = React.useState(true);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
@@ -64,7 +81,12 @@ export default function FuncionariosPage() {
     setCarregando(true);
     setCarregaErro(null);
     try {
-      setLista(await apiGet<Funcionario[]>("/api/funcionarios"));
+      const [f, s] = await Promise.all([
+        apiGet<Funcionario[]>("/api/funcionarios"),
+        apiGet<Sala[]>("/api/salas"),
+      ]);
+      setLista(f);
+      setSalas(s);
     } catch (e) {
       setCarregaErro(mensagem(e));
     } finally {
@@ -76,6 +98,12 @@ export default function FuncionariosPage() {
     carregar();
   }, []);
 
+  const filtrados = React.useMemo(() => {
+    if (filtroSala === "todos") return lista;
+    if (filtroSala === "sem") return lista.filter((f) => !f.salaId);
+    return lista.filter((f) => f.salaId === filtroSala);
+  }, [lista, filtroSala]);
+
   function abrirNovo() {
     setEditando(null);
     setNome("");
@@ -84,6 +112,7 @@ export default function FuncionariosPage() {
     setSenhaSiscobra("");
     setLoginVonix("");
     setSenhaVonix("");
+    setSalaId(SEM_SALA);
     setAtivo(true);
     setErro(null);
     setAberto(true);
@@ -97,6 +126,7 @@ export default function FuncionariosPage() {
     setSenhaSiscobra(f.senhaSiscobra ?? "");
     setLoginVonix(f.loginVonix ?? "");
     setSenhaVonix(f.senhaVonix ?? "");
+    setSalaId(f.salaId ?? SEM_SALA);
     setAtivo(f.ativo);
     setErro(null);
     setAberto(true);
@@ -116,6 +146,7 @@ export default function FuncionariosPage() {
           senhaSiscobra,
           loginVonix,
           senhaVonix,
+          salaId: salaId === SEM_SALA ? null : salaId,
           ativo,
         },
       );
@@ -168,8 +199,27 @@ export default function FuncionariosPage() {
       </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
           <CardTitle className="font-display text-base">Lista</CardTitle>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="filtro-sala" className="text-xs text-muted-foreground">
+              Sala
+            </Label>
+            <Select value={filtroSala} onValueChange={setFiltroSala}>
+              <SelectTrigger id="filtro-sala" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todas</SelectItem>
+                <SelectItem value="sem">— Sem sala definida —</SelectItem>
+                {salas.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {carregando ? (
@@ -183,9 +233,11 @@ export default function FuncionariosPage() {
                 Tentar novamente
               </Button>
             </div>
-          ) : lista.length === 0 ? (
+          ) : filtrados.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nenhum funcionário cadastrado.
+              {lista.length === 0
+                ? "Nenhum funcionário cadastrado."
+                : "Nenhum funcionário nesta sala."}
             </p>
           ) : (
             <Table>
@@ -193,6 +245,7 @@ export default function FuncionariosPage() {
                 <TableRow>
                   <TableHead>Nome</TableHead>
                   <TableHead>Cargo</TableHead>
+                  <TableHead>Sala</TableHead>
                   <TableHead>Siscobra</TableHead>
                   <TableHead>Vonix</TableHead>
                   <TableHead>Computadores</TableHead>
@@ -202,10 +255,13 @@ export default function FuncionariosPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {lista.map((f) => (
+                {filtrados.map((f) => (
                   <TableRow key={f.id}>
                     <TableCell className="font-medium">{f.nome}</TableCell>
                     <TableCell>{f.cargo}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {f.sala?.nome ?? "—"}
+                    </TableCell>
                     <TableCell className="font-mono text-xs">
                       {f.loginSiscobra ?? "—"}
                     </TableCell>
@@ -282,6 +338,28 @@ export default function FuncionariosPage() {
                 onChange={(e) => setCargo(e.target.value)}
                 placeholder="Ex: Operadora, Gestor, Supervisor..."
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Sala</Label>
+              <Select value={salaId} onValueChange={setSalaId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SEM_SALA}>— Sem sala definida —</SelectItem>
+                  {salas
+                    .filter((s) => s.ativa || s.id === salaId)
+                    .map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.nome}
+                        {!s.ativa && " (desativada)"}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Onde a pessoa senta. Sugerida ao vincular um computador a ela.
+              </p>
             </div>
             <div className="rounded-md border bg-muted/30 p-3">
               <p className="mb-3 text-xs font-medium text-muted-foreground">

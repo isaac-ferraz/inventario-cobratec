@@ -15,7 +15,8 @@ type Entrada = {
     | "Componente"
     | "Funcionario"
     | "TipoComponente"
-    | "ItemDeposito";
+    | "ItemDeposito"
+    | "Sala";
   entidadeId?: string | null;
   descricao: string;
 };

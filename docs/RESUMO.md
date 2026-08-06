@@ -15,13 +15,15 @@ o Excel é só relatório de saída.
 - **zod** (validação na API), **exceljs** (Excel), **lucide-react** (ícones)
 
 ## Modelo de dados (Prisma)
+- **Sala**: nome (único), predio?, piso?, ordem, ativa, observacoes? — catálogo
+  editável da divisão física do escritório
 - **Funcionario**: nome, cargo (texto livre), ativo, **loginSiscobra?/
   senhaSiscobra?/loginVonix?/senhaVonix?** (credenciais dos sistemas, substituem a
-  antiga matrícula), computadores[]
+  antiga matrícula), **salaId?** (onde senta), computadores[]
 - **Computador**: identificador (único), apelido?, **observacoes?**, loginPadrao?,
   **senha?**, licencaWindows?, licencaMicrosoft?, contaOutlook?, **temMouse/
   temTeclado/temHeadset** (booleans de presença), funcionarioId? (null = estoque),
-  componentes[]
+  **salaId?** (onde a máquina está), componentes[]
 - **TipoComponente**: nome (único) — catálogo editável
 - **Componente**: descricao, especificacoes? (JSON livre guardado como texto, pois
   o SQLite não suporta Json no Prisma), tipo, computador (cascade)
@@ -36,6 +38,9 @@ o Excel é só relatório de saída.
   especificações livres (chave/valor).
 - **Funcionários**: CRUD, **inativar** (preserva histórico), regra de liberação
   de máquinas ao remover; inativos não aparecem no seletor de dono.
+- **Salas**: catálogo editável da divisão física (93 superior/inferior,
+  Administrativo 83, Judiciário 83 e quantas mais o TI quiser); filtro por sala
+  em computadores e funcionários; sala em uso não é removível (desative).
 - **Tipos de componente**: catálogo editável (não remove tipo em uso).
 - **Dashboard**: KPIs, por cargo, por tipo, e **pendências de licença/conta**
   (inclui "sem headset").
@@ -83,11 +88,19 @@ o Excel é só relatório de saída.
     Grotesk + IBM Plex Sans + IBM Plex Mono (self-hosted), nav lateral, cards de
     PC como etiqueta de ativo e Dashboard como leituras de instrumento.
     Decisão 14 em `decisoes.md`.
+11. **Celulares e depósito** (branch **`feat/celulares-e-deposito`**): entidade
+    `Celular` espelhando o computador e o `ItemDeposito` (estoque de suprimentos
+    por quantidade). Decisões 15 e 17 em `decisoes.md`.
+12. **Salas** (branch **`feat/salas`**): catálogo editável `Sala` com CRUD em
+    `/salas`, `salaId` no computador (onde a máquina está) e no funcionário (onde
+    a pessoa senta), filtros por sala, badge no card, sugestão da sala do dono ao
+    vincular, seed idempotente das 4 salas no boot e reflexo no Excel/Dashboard.
+    Decisão 18 em `decisoes.md`.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)
-- **Branches**: `main` (estável), `develop` (integração), `feat/docker` (Docker +
-  catálogo automático)
+- **Branches**: `main` (estável), `develop` (integração),
+  `feat/celulares-e-deposito` e `feat/salas` (últimas features)
 
 ## Como rodar
 **Local:**
@@ -117,6 +130,10 @@ Ferramenta interna **sem autenticação**, para LAN restrita. `dev.db` guarda
 licenças/contas em texto → restringir acesso ao servidor e backups; **não**
 armazenar senhas. Se for exposta fora do escritório, adicionar autenticação antes.
 
-## Roadmap (opcionais não feitos)
-Visão funcionário→computadores; testes automatizados; toast/confirm no lugar de
-`alert`/`confirm` nativos; autenticação (se sair da LAN).
+## Roadmap
+Plano de continuação em 5 fases (aprovado): **1. Salas** (feito — branch
+`feat/salas`), **2. Login com papéis** (tabela `Usuario`, sessão assinada,
+operador × administrador), **3. Chamados** (helpdesk completo, único acesso do
+operador), **4. Ciclo de vida do ativo** (situação, aquisição, garantia,
+manutenção), **5. Polimento** (toast/confirm próprios, testes de API/autorização,
+paginação, dark mode, backup agendado).

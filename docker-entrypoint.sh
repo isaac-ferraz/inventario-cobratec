@@ -13,5 +13,8 @@ node ./node_modules/prisma/build/index.js db execute \
 # Garante o catálogo padrão de tipos de componente (idempotente).
 node ./prisma/seed-catalogo.cjs
 
+# Garante as salas iniciais do escritório (idempotente).
+node ./prisma/seed-salas.cjs
+
 echo "→ Iniciando Next.js (standalone) em ${HOSTNAME}:${PORT}..."
 exec node server.js

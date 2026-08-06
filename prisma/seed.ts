@@ -1,7 +1,8 @@
 // Seed inicial: catálogo de tipos de componente comuns + dados de exemplo.
 import { PrismaClient } from "@prisma/client";
-// Lista única do catálogo (também usada pelo seed-catalogo.cjs no boot).
+// Listas únicas do catálogo e das salas (também usadas pelos seeds .cjs do boot).
 import catalogo from "./catalogo.cjs";
+import salasPadrao from "./salas.cjs";
 
 const prisma = new PrismaClient();
 
@@ -15,6 +16,22 @@ async function main() {
     });
   }
 
+  // Salas iniciais do escritório (editáveis depois pela UI)
+  for (const sala of salasPadrao.SALAS_PADRAO) {
+    await prisma.sala.upsert({
+      where: { nome: sala.nome },
+      update: {},
+      create: sala,
+    });
+  }
+
+  const sala93Sup = await prisma.sala.findUniqueOrThrow({
+    where: { nome: "Sala 93 — piso superior" },
+  });
+  const salaAdm = await prisma.sala.findUniqueOrThrow({
+    where: { nome: "Administrativo 83" },
+  });
+
   // Funcionários de exemplo
   const ana = await prisma.funcionario.create({
     data: {
@@ -22,6 +39,7 @@ async function main() {
       cargo: "Operadora",
       loginSiscobra: "ana.souza",
       loginVonix: "ana.souza",
+      salaId: sala93Sup.id,
     },
   });
   const carlos = await prisma.funcionario.create({
@@ -30,6 +48,7 @@ async function main() {
       cargo: "Gestor",
       loginSiscobra: "carlos.lima",
       loginVonix: "carlos.lima",
+      salaId: salaAdm.id,
     },
   });
 
@@ -49,6 +68,7 @@ async function main() {
       identificador: "PAT-1001",
       apelido: "PC Atendimento 01",
       funcionarioId: ana.id,
+      salaId: sala93Sup.id,
       componentes: {
         create: [
           { tipoId: tipoProc.id, descricao: "Intel Core i5-10400" },
@@ -73,6 +93,7 @@ async function main() {
       identificador: "PAT-1002",
       apelido: "Notebook Gestão",
       funcionarioId: carlos.id,
+      salaId: salaAdm.id,
       componentes: {
         create: [
           { tipoId: tipoProc.id, descricao: "Intel Core i7-1165G7" },

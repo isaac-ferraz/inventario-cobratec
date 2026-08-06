@@ -18,6 +18,31 @@ const emailOpcional = textoOpcional.refine(
   "Conta Outlook deve ser um e-mail válido",
 );
 
+// Id de relação opcional: "" (ou null) significa "sem vínculo" e vira null.
+// Mesma semântica de limpeza dos campos de texto.
+const relacaoOpcional = z
+  .string()
+  .trim()
+  .max(60, "Identificador inválido")
+  .nullable()
+  .optional()
+  .transform((v) => (v === "" ? null : v));
+
+export const salaSchema = z.object({
+  nome: z.string().trim().min(1, "Nome da sala é obrigatório").max(120, "Nome muito longo"),
+  predio: textoOpcional,
+  piso: textoOpcional,
+  // Ordem de exibição: inteiro pequeno, aceita número ou string do formulário.
+  ordem: z.coerce
+    .number({ invalid_type_error: "Ordem deve ser um número" })
+    .int("Ordem deve ser um número inteiro")
+    .min(0, "Ordem não pode ser negativa")
+    .max(9999, "Ordem muito alta")
+    .optional(),
+  ativa: z.boolean().optional(),
+  observacoes: textoOpcional,
+});
+
 export const funcionarioSchema = z.object({
   nome: z.string().trim().min(1, "Nome é obrigatório").max(200, "Nome muito longo"),
   cargo: z.string().trim().min(1, "Cargo é obrigatório").max(120, "Cargo muito longo"),
@@ -26,6 +51,8 @@ export const funcionarioSchema = z.object({
   loginVonix: textoOpcional,
   senhaVonix: textoOpcional,
   ativo: z.boolean().optional(),
+  // null = sem sala definida
+  salaId: relacaoOpcional,
 });
 
 export const computadorSchema = z.object({
@@ -47,6 +74,8 @@ export const computadorSchema = z.object({
   temHeadset: z.boolean().optional(),
   // null = sem funcionário (estoque/manutenção)
   funcionarioId: z.string().trim().nullable().optional(),
+  // null = sem sala definida
+  salaId: relacaoOpcional,
 });
 
 export const celularSchema = z.object({
@@ -118,6 +147,7 @@ export const componenteUpdateSchema = componenteSchema.partial({
   computadorId: true,
 });
 
+export type SalaInput = z.infer<typeof salaSchema>;
 export type FuncionarioInput = z.infer<typeof funcionarioSchema>;
 export type ComputadorInput = z.infer<typeof computadorSchema>;
 export type CelularInput = z.infer<typeof celularSchema>;

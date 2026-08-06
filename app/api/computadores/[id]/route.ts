@@ -13,6 +13,7 @@ export async function GET(_req: Request, { params }: Params) {
     where: { id: params.id },
     include: {
       funcionario: true,
+      sala: true,
       componentes: { include: { tipo: true }, orderBy: { criadoEm: "asc" } },
     },
   });
