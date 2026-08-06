@@ -1,15 +1,20 @@
 // Helpers para padronizar respostas e tratamento de erros na camada de API.
 import { NextResponse } from "next/server";
-import { ZodError, ZodSchema } from "zod";
+import { ZodError, ZodTypeDef, type ZodType } from "zod";
 
 export function erro(mensagem: string, status = 400) {
   return NextResponse.json({ erro: mensagem }, { status });
 }
 
 // Valida o corpo da requisição com um schema zod e retorna os dados tipados.
+//
+// O tipo de ENTRADA é `unknown` (e não igual ao de saída): schemas com
+// `.transform()` — datas que chegam como "2026-08-06" e saem como Date, valores
+// que chegam como "1.234,56" e saem number — têm entrada e saída diferentes, e
+// `ZodSchema<T>` (que exige entrada === saída) os rejeitaria.
 export async function validarCorpo<T>(
   req: Request,
-  schema: ZodSchema<T>,
+  schema: ZodType<T, ZodTypeDef, unknown>,
 ): Promise<{ data: T } | { resposta: NextResponse }> {
   let json: unknown;
   try {

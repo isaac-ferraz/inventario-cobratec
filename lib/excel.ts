@@ -8,6 +8,20 @@
 // Decisão registrada em /docs/decisoes.md.
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
+import {
+  DIAS_AVISO_GARANTIA,
+  ROTULO_SITUACAO,
+  ROTULO_TIPO_MANUTENCAO,
+  estadoGarantia,
+  somarCustos,
+  type Situacao,
+  type TipoManutencao,
+} from "@/lib/ativos";
+
+// Data no formato que o Excel do usuário entende (e vazio quando não há).
+function dataBR(d: Date | null | undefined): string {
+  return d ? d.toLocaleDateString("pt-BR") : "";
+}
 
 const COR_CABECALHO = "FF1F2937"; // cinza-azulado escuro
 const COR_TEXTO_CABECALHO = "FFFFFFFF";
@@ -49,6 +63,15 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     }),
   ]);
 
+  const manutencoes = await prisma.manutencao.findMany({
+    include: {
+      computador: { select: { identificador: true } },
+      celular: { select: { identificador: true } },
+      chamado: { select: { numero: true } },
+    },
+    orderBy: [{ concluidaEm: "asc" }, { abertaEm: "desc" }],
+  });
+
   const wb = new ExcelJS.Workbook();
   wb.creator = "Cobratec TI — Inventário de Hardware";
   wb.created = new Date();
@@ -71,6 +94,11 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     { header: "Mouse", key: "temMouse", width: 8 },
     { header: "Teclado", key: "temTeclado", width: 9 },
     { header: "Headset", key: "temHeadset", width: 9 },
+    { header: "Situação", key: "situacao", width: 15 },
+    { header: "Aquisição", key: "dataAquisicao", width: 12 },
+    { header: "Garantia até", key: "garantiaAte", width: 13 },
+    { header: "Nota fiscal", key: "notaFiscal", width: 16 },
+    { header: "Valor de compra", key: "valorCompra", width: 15 },
     { header: "Qtde componentes", key: "qtde", width: 16 },
     { header: "Componentes (hardware)", key: "componentes", width: 60 },
     { header: "Observações", key: "observacoes", width: 30 },
@@ -95,6 +123,11 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       temMouse: c.temMouse ? "Sim" : "Não",
       temTeclado: c.temTeclado ? "Sim" : "Não",
       temHeadset: c.temHeadset ? "Sim" : "Não",
+      situacao: ROTULO_SITUACAO[c.situacao as Situacao] ?? c.situacao,
+      dataAquisicao: dataBR(c.dataAquisicao),
+      garantiaAte: dataBR(c.garantiaAte),
+      notaFiscal: c.notaFiscal ?? "",
+      valorCompra: c.valorCompra ?? "",
       qtde: c.componentes.length,
       componentes: componentesTxt,
       observacoes: c.observacoes ?? "",
@@ -117,6 +150,9 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     { header: "Número", key: "numero", width: 18 },
     { header: "Operadora", key: "operadora", width: 14 },
     { header: "IMEI", key: "imei", width: 20 },
+    { header: "Situação", key: "situacao", width: 15 },
+    { header: "Aquisição", key: "dataAquisicao", width: 12 },
+    { header: "Garantia até", key: "garantiaAte", width: 13 },
     { header: "Observações", key: "observacoes", width: 30 },
   ];
   estilizarCabecalho(cel.getRow(1));
@@ -132,7 +168,46 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       numero: c.numero ?? "",
       operadora: c.operadora ?? "",
       imei: c.imei ?? "",
+      situacao: ROTULO_SITUACAO[c.situacao as Situacao] ?? c.situacao,
+      dataAquisicao: dataBR(c.dataAquisicao),
+      garantiaAte: dataBR(c.garantiaAte),
       observacoes: c.observacoes ?? "",
+    });
+    row.alignment = { vertical: "top", wrapText: true };
+    row.eachCell((cell) => (cell.border = BORDA_LEVE));
+  }
+
+  // ----- Aba "Manutenções" -----
+  const man = wb.addWorksheet("Manutenções", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+  man.columns = [
+    { header: "Equipamento", key: "equipamento", width: 18 },
+    { header: "Tipo", key: "tipo", width: 22 },
+    { header: "Descrição", key: "descricao", width: 40 },
+    { header: "Situação", key: "situacao", width: 14 },
+    { header: "Aberta em", key: "abertaEm", width: 12 },
+    { header: "Concluída em", key: "concluidaEm", width: 13 },
+    { header: "Fornecedor", key: "fornecedor", width: 24 },
+    { header: "Custo", key: "custo", width: 12 },
+    { header: "Chamado", key: "chamado", width: 10 },
+    { header: "Observações", key: "observacoes", width: 30 },
+  ];
+  estilizarCabecalho(man.getRow(1));
+
+  for (const m of manutencoes) {
+    const row = man.addRow({
+      equipamento:
+        m.computador?.identificador ?? m.celular?.identificador ?? "(removido)",
+      tipo: ROTULO_TIPO_MANUTENCAO[m.tipo as TipoManutencao] ?? m.tipo,
+      descricao: m.descricao,
+      situacao: m.concluidaEm ? "Concluída" : "No conserto",
+      abertaEm: dataBR(m.abertaEm),
+      concluidaEm: dataBR(m.concluidaEm),
+      fornecedor: m.fornecedor ?? "",
+      custo: m.custo ?? "",
+      chamado: m.chamado ? `#${m.chamado.numero}` : "",
+      observacoes: m.observacoes ?? "",
     });
     row.alignment = { vertical: "top", wrapText: true };
     row.eachCell((cell) => (cell.border = BORDA_LEVE));
@@ -162,6 +237,30 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       porTipo.set(comp.tipo.nome, (porTipo.get(comp.tipo.nome) ?? 0) + 1);
     }
   }
+
+  // Ciclo de vida — a mesma leitura do Dashboard do site.
+  const equipamentos = [...computadores, ...celulares];
+  const cicloVida: [string, number][] = [
+    [
+      "Em manutenção (no conserto)",
+      equipamentos.filter((e) => e.situacao === "manutencao").length,
+    ],
+    [
+      `Garantia acabando (${DIAS_AVISO_GARANTIA} dias)`,
+      equipamentos.filter((e) => estadoGarantia(e.garantiaAte) === "vencendo")
+        .length,
+    ],
+    [
+      "Fora da garantia",
+      equipamentos.filter((e) => estadoGarantia(e.garantiaAte) === "vencida")
+        .length,
+    ],
+    [
+      "Sem garantia registrada",
+      equipamentos.filter((e) => !e.garantiaAte).length,
+    ],
+    ["Descartados", equipamentos.filter((e) => e.situacao === "descartado").length],
+  ];
 
   // Pendências: computadores sem cada licença/conta registrada.
   const pendencias: [string, number][] = [
@@ -204,6 +303,9 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     ["Total de celulares", totalCelulares],
     ["Celulares em uso", totalCelulares - celularesSemFunc],
     ["Celulares sem funcionário / em estoque", celularesSemFunc],
+    ["Manutenções registradas", manutencoes.length],
+    ["Manutenções em aberto", manutencoes.filter((m) => !m.concluidaEm).length],
+    ["Custo total de manutenção (R$)", somarCustos(manutencoes)],
   ];
   for (const [label, valor] of kpis) {
     dash.getCell(`A${r}`).value = label;
@@ -248,6 +350,11 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
   );
   r += 1 + porTipo.size + 1;
 
+  // Bloco: Ciclo de vida
+  const blocoCicloInicio = r;
+  adicionarBlocoIndicador(dash, r, "Ciclo de vida dos equipamentos", cicloVida);
+  r += 1 + cicloVida.length + 1;
+
   // Bloco: Pendências de licença / conta
   const blocoPendInicio = r;
   adicionarBlocoIndicador(
@@ -261,6 +368,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
   aplicarDataBar(dash, blocoCargoInicio + 1, porCargo.size, "FF2563EB");
   aplicarDataBar(dash, blocoSalaInicio + 1, porSala.size, "FF7C3AED");
   aplicarDataBar(dash, blocoTipoInicio + 1, porTipo.size, "FF059669");
+  aplicarDataBar(dash, blocoCicloInicio + 1, cicloVida.length, "FFDC2626");
   aplicarDataBar(dash, blocoPendInicio + 1, pendencias.length, "FFD97706");
 
   return wb.xlsx.writeBuffer();

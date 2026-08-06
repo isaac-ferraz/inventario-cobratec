@@ -277,6 +277,20 @@ existe). Nota interna é filtrada **no servidor**, antes de virar JSON.
 Dashboard ganhou KPIs de suporte (em aberto, sem responsável, resolvidos em 7
 dias, mais antigo).
 
+**Ciclo de vida do ativo (decisão 21):** `Computador` e `Celular` ganharam
+`situacao` (`ativo|manutencao|reserva|descartado`), `dataAquisicao`,
+`notaFiscal`, `garantiaAte` e `valorCompra`; e existe o model `Manutencao`
+(tipo corretiva/preventiva, descrição, fornecedor, custo, `abertaEm`,
+`concluidaEm`, vínculo com o equipamento e com o chamado que originou). Tela
+`/manutencoes` + `/api/manutencoes`. **Estado × evento:** `situacao` diz onde o
+equipamento está hoje; `Manutencao` guarda o histórico — abrir/concluir/apagar
+mexe na situação **na mesma transação**, com regras puras e testadas em
+`lib/ativos.ts` (não ressuscita descartado; concluir não desfaz decisão tomada
+durante o conserto). Garantia avisa só quando acionável (janela de 90 dias).
+Datas gravadas ao meio-dia UTC (fuso do Brasil leria o dia anterior); valores
+aceitam "3.450,90". Reflexo em filtros, badges, Dashboard e Excel (aba
+"Manutenções").
+
 **Repositório:** GitHub privado `isaac-ferraz/inventario-cobratec`. Branches:
 `main` (estável), `develop` (integração), `feat/docker` (Docker + catálogo).
 

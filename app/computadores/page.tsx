@@ -33,6 +33,7 @@ export default function ComputadoresPage() {
   const [filtroFunc, setFiltroFunc] = React.useState<string>("todos");
   const [filtroCargo, setFiltroCargo] = React.useState<string>("todos");
   const [filtroSala, setFiltroSala] = React.useState<string>("todos");
+  const [filtroSituacao, setFiltroSituacao] = React.useState<string>("todas");
 
   // diálogos (a tela só guarda "o que está aberto e com qual registro";
   // o estado do formulário vive dentro de cada diálogo)
@@ -85,6 +86,7 @@ export default function ComputadoresPage() {
     if (filtroCargo !== "todos") {
       if (c.funcionario?.cargo !== filtroCargo) return false;
     }
+    if (filtroSituacao !== "todas" && c.situacao !== filtroSituacao) return false;
     if (filtroSala === "sem" && c.salaId) return false;
     if (filtroSala !== "todos" && filtroSala !== "sem") {
       if (c.salaId !== filtroSala) return false;
@@ -163,6 +165,8 @@ export default function ComputadoresPage() {
         setFiltroCargo={setFiltroCargo}
         filtroSala={filtroSala}
         setFiltroSala={setFiltroSala}
+        filtroSituacao={filtroSituacao}
+        setFiltroSituacao={setFiltroSituacao}
         funcionarios={funcionarios}
         salas={salas}
         cargos={cargos}

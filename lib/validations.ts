@@ -1,6 +1,7 @@
 // Validação (zod) de toda escrita que chega na camada de API.
 import { z } from "zod";
 import { PRIORIDADES, STATUS } from "@/lib/chamados";
+import { SITUACOES, TIPOS_MANUTENCAO } from "@/lib/ativos";
 
 // Campo de texto opcional. Regras:
 //  - ausente (undefined)  -> não mexe no campo (importante no PATCH parcial)
@@ -63,6 +64,77 @@ export const trocaSenhaSchema = z.object({
   senhaAtual: z.string().min(1, "Informe a senha atual").max(200),
   novaSenha: senhaNova,
 });
+
+// --- Ciclo de vida do ativo ---
+
+// Data vinda de <input type="date"> ("2026-08-06"). Regras iguais às de texto:
+// ausente não mexe, "" limpa. A data é fixada ao MEIO-DIA UTC de propósito:
+// com 00:00 UTC, quem está em fuso negativo (Brasil) veria o dia anterior.
+const dataOpcional = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v) => (v === "" || v == null ? (v === "" ? null : undefined) : v))
+  .refine(
+    (v) => v == null || /^\d{4}-\d{2}-\d{2}$/.test(v),
+    "Data deve estar no formato AAAA-MM-DD",
+  )
+  .transform((v) => (v == null ? v : new Date(`${v}T12:00:00.000Z`)));
+
+const valorOpcional = z
+  .union([z.number(), z.string()])
+  .optional()
+  .transform((v) => {
+    if (v === "" || v == null) return v === "" ? null : undefined;
+    // Aceita "1.234,56" (formato que o TI digita) e "1234.56".
+    const n =
+      typeof v === "number"
+        ? v
+        : Number(v.replace(/\./g, "").replace(",", "."));
+    return Number.isFinite(n) ? n : NaN;
+  })
+  .refine((v) => v == null || (!Number.isNaN(v) && v >= 0 && v <= 10_000_000), {
+    message: "Valor inválido",
+  });
+
+// Campos de ciclo de vida compartilhados por computador e celular.
+const camposCicloVida = {
+  situacao: z.enum(SITUACOES).optional(),
+  dataAquisicao: dataOpcional,
+  notaFiscal: textoOpcional,
+  garantiaAte: dataOpcional,
+  valorCompra: valorOpcional,
+};
+
+export const manutencaoSchema = z
+  .object({
+    computadorId: relacaoOpcional,
+    celularId: relacaoOpcional,
+    tipo: z.enum(TIPOS_MANUTENCAO, {
+      errorMap: () => ({ message: "Tipo deve ser corretiva ou preventiva" }),
+    }),
+    descricao: z
+      .string()
+      .trim()
+      .min(1, "Descreva o que está sendo feito")
+      .max(2000, "Descrição muito longa"),
+    fornecedor: textoOpcional,
+    custo: valorOpcional,
+    chamadoId: relacaoOpcional,
+    observacoes: textoOpcional,
+    // Enviar concluidaEm fecha a manutenção; "" reabre.
+    concluidaEm: dataOpcional,
+  })
+  .refine(
+    (d) => Boolean(d.computadorId) !== Boolean(d.celularId),
+    "Informe exatamente um equipamento: computador OU celular",
+  );
+
+// Na edição o equipamento não muda (a manutenção pertence àquele aparelho).
+export const manutencaoUpdateSchema = manutencaoSchema
+  .innerType()
+  .omit({ computadorId: true, celularId: true })
+  .partial();
 
 // --- Chamados (helpdesk) ---
 // A lista de status/prioridades vive em lib/chamados.ts (regra de negócio);
@@ -169,6 +241,7 @@ export const computadorSchema = z.object({
   funcionarioId: z.string().trim().nullable().optional(),
   // null = sem sala definida
   salaId: relacaoOpcional,
+  ...camposCicloVida,
 });
 
 export const celularSchema = z.object({
@@ -184,6 +257,7 @@ export const celularSchema = z.object({
   observacoes: textoOpcional,
   // null = sem funcionário (estoque/manutenção)
   funcionarioId: z.string().trim().nullable().optional(),
+  ...camposCicloVida,
 });
 
 // Quantidade inteira, não-negativa e com teto (evita entrada absurda/abuso).
@@ -240,6 +314,8 @@ export const componenteUpdateSchema = componenteSchema.partial({
   computadorId: true,
 });
 
+export type ManutencaoInput = z.infer<typeof manutencaoSchema>;
+export type ManutencaoUpdateInput = z.infer<typeof manutencaoUpdateSchema>;
 export type ChamadoInput = z.infer<typeof chamadoSchema>;
 export type ChamadoUpdateInput = z.infer<typeof chamadoUpdateSchema>;
 export type ChamadoMensagemInput = z.infer<typeof chamadoMensagemSchema>;

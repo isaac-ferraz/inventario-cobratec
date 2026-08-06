@@ -529,3 +529,73 @@ encheria a auditoria de ruído.
 Senão a métrica de tempo de resolução mentiria: um chamado reaberto pareceria
 resolvido desde a primeira vez. Ao fechar depois de resolvido, a data original
 é preservada.
+
+## 21. Ciclo de vida do ativo e manutenções
+
+**Decisão:** o equipamento passa a ter **estado** (`situacao`) e **histórico de
+consertos** (`Manutencao`), além dos dados de compra (aquisição, nota fiscal,
+garantia, valor). Vale igual para computador e celular.
+
+### Estado × evento: duas coisas diferentes
+
+- **`situacao`** (`ativo | manutencao | reserva | descartado`) é o **estado**:
+  responde "onde este equipamento está na vida útil?" numa olhada.
+- **`Manutencao`** é um **evento** com começo e fim: responde "o que já
+  aconteceu com ele?".
+
+Guardar só o estado perderia o histórico ("já foi três vezes para o conserto");
+guardar só os eventos exigiria varrer a tabela para saber se a máquina está
+parada agora. Os dois se mantêm coerentes porque **abrir/concluir manutenção
+mexe na situação dentro da mesma transação**.
+
+Nada disso se confunde com **"em uso × estoque"**, que continua sendo derivado
+de ter ou não funcionário: uma máquina pode estar em manutenção e continuar
+atribuída a alguém.
+
+### Regras de coerência (puras, testadas em `lib/ativos.ts`)
+
+- **Abrir** manutenção → situação vira `manutencao`. **Exceto** se o equipamento
+  estiver `descartado`: registrar conserto não pode ressuscitar o que saiu do
+  parque.
+- **Concluir** → volta para `ativo`, **mas só se ainda estiver em
+  `manutencao`**. Se durante o conserto alguém marcou `descartado` (não valeu a
+  pena) ou `reserva`, concluir não desfaz essa decisão — só revertemos o que a
+  própria manutenção causou.
+- **Apagar** manutenção em aberto devolve o equipamento a `ativo`: senão ele
+  ficaria preso em "manutenção" sem nenhum registro que explicasse o porquê.
+- A situação `manutencao` fica **bloqueada no formulário** do equipamento
+  enquanto há conserto aberto — editá-la ali deixaria estado e evento em
+  desacordo. Ela volta sozinha ao concluir.
+
+### Garantia: só avisa quando é acionável
+
+`estadoGarantia` devolve `sem | vencida | vencendo | vigente`, com janela de
+aviso de **90 dias** — tempo hábil para acionar a assistência antes de acabar.
+Garantia vigente não vira badge: alerta que aparece sempre é ruído e deixa de
+ser lido.
+
+### Datas ao meio-dia UTC
+
+Datas de aquisição/garantia vêm de `<input type="date"]` como `"2026-08-06"` e
+são gravadas como `2026-08-06T12:00:00Z`. Com `00:00Z`, todo Brasil (fuso
+negativo) leria **o dia anterior** ao exibir.
+
+### Valores aceitam o formato que o TI digita
+
+`valorCompra` e `custo` aceitam `"3.450,90"` (vírgula decimal) além de número
+puro. Recusar o formato brasileiro seria implicância com quem só quer registrar
+uma nota fiscal.
+
+### Manutenção ligada ao chamado
+
+`Manutencao.chamadoId` fecha o ciclo **suporte → conserto**: no chamado com
+equipamento, o admin manda para manutenção e o registro já nasce vinculado.
+`onDelete: SetNull` — a manutenção (e o custo dela) sobrevive ao chamado.
+
+### Reflexo no resto do sistema
+
+Filtro por situação na lista de computadores; badges de situação e de garantia
+nos cards; KPIs de **no conserto**, **garantia acabando** e **descartados** no
+Dashboard (só aparecem quando há algo a decidir); no Excel, colunas de ciclo de
+vida nas abas Inventário e Celulares, bloco "Ciclo de vida dos equipamentos" no
+Dashboard e a aba nova **"Manutenções"** com custo total.

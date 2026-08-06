@@ -22,6 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  CamposCicloVida,
+  CICLO_VIDA_VAZIO,
+  paraInputData,
+  type ValoresCicloVida,
+} from "@/components/ativos/campos-ciclo-vida";
 import type { Celular, Funcionario } from "./types";
 
 const SEM_FUNC = "__sem__";
@@ -48,6 +54,7 @@ export function CelularDialog({
   const [imei, setImei] = React.useState("");
   const [observacoes, setObservacoes] = React.useState("");
   const [celFunc, setCelFunc] = React.useState<string>(SEM_FUNC);
+  const [ciclo, setCiclo] = React.useState<ValoresCicloVida>(CICLO_VIDA_VAZIO);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
@@ -60,6 +67,13 @@ export function CelularDialog({
     setNumero(celular?.numero ?? "");
     setOperadora(celular?.operadora ?? "");
     setImei(celular?.imei ?? "");
+    setCiclo({
+      situacao: celular?.situacao ?? "ativo",
+      dataAquisicao: paraInputData(celular?.dataAquisicao),
+      notaFiscal: celular?.notaFiscal ?? "",
+      garantiaAte: paraInputData(celular?.garantiaAte),
+      valorCompra: celular?.valorCompra != null ? String(celular.valorCompra) : "",
+    });
     setObservacoes(celular?.observacoes ?? "");
     setCelFunc(celular?.funcionarioId ?? SEM_FUNC);
   }, [aberto, celular]);
@@ -84,6 +98,7 @@ export function CelularDialog({
       imei,
       observacoes,
       funcionarioId: celFunc === SEM_FUNC ? null : celFunc,
+      ...ciclo,
       // Concorrência otimista: na edição, informamos a versão que carregamos.
       ...(celular ? { esperaAtualizadoEm: celular.atualizadoEm } : {}),
     };
@@ -183,6 +198,11 @@ export function CelularDialog({
               </div>
             </div>
           </div>
+          <CamposCicloVida
+            valores={ciclo}
+            onChange={setCiclo}
+            desabilitaSituacao={celular?.situacao === "manutencao"}
+          />
           <div className="space-y-1.5">
             <Label htmlFor="obs">Observações (opcional)</Label>
             <Textarea

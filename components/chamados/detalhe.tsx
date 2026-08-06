@@ -12,6 +12,7 @@ import {
   Send,
   Smartphone,
   UserCheck,
+  Wrench,
 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ import {
   STATUS,
 } from "@/lib/chamados";
 import { cn } from "@/lib/utils";
+import { ManutencaoDialog } from "@/components/manutencoes/manutencao-dialog";
 import { PrioridadeBadge, StatusBadge, dataHora } from "./badges";
 import type { ChamadoDetalhe, UsuarioResumo } from "./types";
 
@@ -55,6 +57,7 @@ export function DetalheChamado({ chamadoId, papel, usuarioId }: Props) {
   const [enviando, setEnviando] = React.useState(false);
   const [acaoErro, setAcaoErro] = React.useState<string | null>(null);
   const [salvando, setSalvando] = React.useState(false);
+  const [manutencaoAberta, setManutencaoAberta] = React.useState(false);
 
   const carregar = React.useCallback(
     async (silencioso = false) => {
@@ -358,6 +361,17 @@ export function DetalheChamado({ chamadoId, papel, usuarioId }: Props) {
                       <UserCheck /> Assumir chamado
                     </Button>
                   )}
+                  {/* Fecha o ciclo suporte → manutenção: o conserto que nasce
+                      deste chamado já fica ligado a ele. */}
+                  {(chamado.computador || chamado.celular) && (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setManutencaoAberta(true)}
+                    >
+                      <Wrench /> Mandar para manutenção
+                    </Button>
+                  )}
                   <div className="space-y-1.5">
                     <Label>Situação</Label>
                     <Select
@@ -469,6 +483,21 @@ export function DetalheChamado({ chamadoId, papel, usuarioId }: Props) {
           </Card>
         </aside>
       </div>
+
+      {admin && (chamado.computador || chamado.celular) && (
+        <ManutencaoDialog
+          aberto={manutencaoAberta}
+          onOpenChange={setManutencaoAberta}
+          manutencao={null}
+          equipamentoInicial={
+            chamado.computador
+              ? `pc:${chamado.computador.id}`
+              : `cel:${chamado.celular!.id}`
+          }
+          chamadoId={chamado.id}
+          onSalvo={() => carregar(true)}
+        />
+      )}
     </div>
   );
 }

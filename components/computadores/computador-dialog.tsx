@@ -22,6 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  CamposCicloVida,
+  CICLO_VIDA_VAZIO,
+  paraInputData,
+  type ValoresCicloVida,
+} from "@/components/ativos/campos-ciclo-vida";
 import type { Computador, Funcionario, Sala } from "./types";
 
 const SEM_FUNC = "__sem__";
@@ -57,6 +63,7 @@ export function ComputadorDialog({
   const [temHeadset, setTemHeadset] = React.useState(false);
   const [pcFunc, setPcFunc] = React.useState<string>(SEM_FUNC);
   const [pcSala, setPcSala] = React.useState<string>(SEM_SALA);
+  const [ciclo, setCiclo] = React.useState<ValoresCicloVida>(CICLO_VIDA_VAZIO);
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
 
@@ -77,6 +84,14 @@ export function ComputadorDialog({
     setTemHeadset(computador?.temHeadset ?? false);
     setPcFunc(computador?.funcionarioId ?? SEM_FUNC);
     setPcSala(computador?.salaId ?? SEM_SALA);
+    setCiclo({
+      situacao: computador?.situacao ?? "ativo",
+      dataAquisicao: paraInputData(computador?.dataAquisicao),
+      notaFiscal: computador?.notaFiscal ?? "",
+      garantiaAte: paraInputData(computador?.garantiaAte),
+      valorCompra:
+        computador?.valorCompra != null ? String(computador.valorCompra) : "",
+    });
   }, [aberto, computador]);
 
   // Só funcionários ativos podem receber computador. Na edição, mantemos o dono
@@ -125,6 +140,7 @@ export function ComputadorDialog({
       temHeadset,
       funcionarioId: pcFunc === SEM_FUNC ? null : pcFunc,
       salaId: pcSala === SEM_SALA ? null : pcSala,
+      ...ciclo,
       // Concorrência otimista: na edição, informamos a versão que carregamos.
       ...(computador ? { esperaAtualizadoEm: computador.atualizadoEm } : {}),
     };
@@ -301,6 +317,13 @@ export function ComputadorDialog({
               </Button>
             </div>
           </div>
+          <CamposCicloVida
+            valores={ciclo}
+            onChange={setCiclo}
+            // A situação "manutencao" é consequência de uma manutenção aberta:
+            // mexer nela aqui deixaria estado e evento em desacordo.
+            desabilitaSituacao={computador?.situacao === "manutencao"}
+          />
           <div className="space-y-1.5">
             <Label htmlFor="obs">Observações (opcional)</Label>
             <Textarea

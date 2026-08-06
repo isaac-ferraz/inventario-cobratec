@@ -3,6 +3,7 @@
 import { Loader2, PackageOpen, Pencil, Smartphone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { GarantiaBadge, SituacaoBadge } from "@/components/ativos/badges";
 import { cn } from "@/lib/utils";
 import type { Celular } from "./types";
 
@@ -84,8 +85,8 @@ export function CelularCard({ celular: c, removendoId, onEditar, onRemover }: Pr
           </div>
         </div>
 
-        {/* Dono / estoque */}
-        <div>
+        {/* Dono / estoque · ciclo de vida */}
+        <div className="flex flex-wrap gap-1.5">
           {c.funcionario ? (
             <Badge variant="secondary">
               {c.funcionario.nome} · {c.funcionario.cargo}
@@ -95,6 +96,8 @@ export function CelularCard({ celular: c, removendoId, onEditar, onRemover }: Pr
               <PackageOpen className="mr-1 h-3 w-3" /> Sem funcionário (estoque)
             </Badge>
           )}
+          <SituacaoBadge situacao={c.situacao} />
+          <GarantiaBadge garantiaAte={c.garantiaAte} />
         </div>
 
         {/* Data sheet (em monospace) */}

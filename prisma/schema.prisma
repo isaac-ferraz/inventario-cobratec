@@ -104,7 +104,8 @@ model Chamado {
   atualizadoEm DateTime  @updatedAt
   resolvidoEm  DateTime?
 
-  mensagens ChamadoMensagem[]
+  mensagens   ChamadoMensagem[]
+  manutencoes Manutencao[]
 
   @@index([status])
   @@index([solicitanteId])
@@ -161,14 +162,25 @@ model Celular {
   operadora     String? // Vivo, Claro, Tim... texto livre
   imei          String? // IMEI do aparelho
   observacoes   String?
+  // --- Ciclo de vida do ativo (decisão 21) ---
+  // `situacao` é o estado do EQUIPAMENTO, independente de ter dono: uma máquina
+  // pode estar em manutenção e continuar atribuída a alguém.
+  // ativo | manutencao | reserva | descartado
+  situacao      String       @default("ativo")
+  dataAquisicao DateTime?
+  notaFiscal    String?
+  garantiaAte   DateTime?
+  valorCompra   Float?
   funcionarioId String?
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id])
   chamados      Chamado[]
+  manutencoes   Manutencao[]
   criadoEm      DateTime     @default(now())
   atualizadoEm  DateTime     @updatedAt
 
   // SQLite não cria índice de FK automaticamente; ajuda os filtros por dono.
   @@index([funcionarioId])
+  @@index([situacao])
 }
 
 model Computador {
@@ -187,6 +199,16 @@ model Computador {
   temMouse   Boolean @default(true)
   temTeclado Boolean @default(true)
   temHeadset Boolean @default(false)
+
+  // --- Ciclo de vida do ativo (decisão 21) ---
+  // `situacao` é o estado do EQUIPAMENTO, independente de ter dono: uma máquina
+  // pode estar em manutenção e continuar atribuída a alguém.
+  // ativo | manutencao | reserva | descartado
+  situacao      String       @default("ativo")
+  dataAquisicao DateTime?
+  notaFiscal    String?
+  garantiaAte   DateTime?
+  valorCompra   Float?
   funcionarioId String?
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id])
   // Onde a máquina está fisicamente. Independe do dono: um PC em estoque
@@ -195,12 +217,14 @@ model Computador {
   sala          Sala?        @relation(fields: [salaId], references: [id])
   componentes   Componente[]
   chamados      Chamado[]
+  manutencoes   Manutencao[]
   criadoEm      DateTime     @default(now())
   atualizadoEm  DateTime     @updatedAt
 
   // SQLite não cria índice de FK automaticamente; ajuda os filtros por dono/sala.
   @@index([funcionarioId])
   @@index([salaId])
+  @@index([situacao])
 }
 
 // Item do depósito = suprimento avulso guardado em caixas (cabos, mouses,
@@ -218,6 +242,38 @@ model ItemDeposito {
   atualizadoEm     DateTime @updatedAt
 
   @@index([categoria])
+}
+
+// Manutenção = uma ida do equipamento para conserto ou revisão. É um EVENTO com
+// começo e fim, não um estado — o estado fica em `Computador.situacao` /
+// `Celular.situacao`. Separar os dois permite ter histórico ("já foi 3 vezes
+// para o conserto") sem perder a leitura rápida de onde a máquina está hoje.
+model Manutencao {
+  id           String      @id @default(cuid())
+  // Um dos dois é preenchido (computador OU celular). A API valida isso; o
+  // SQLite não tem CHECK constraint expressável no Prisma.
+  computadorId String?
+  computador   Computador? @relation(fields: [computadorId], references: [id], onDelete: Cascade)
+  celularId    String?
+  celular      Celular?    @relation(fields: [celularId], references: [id], onDelete: Cascade)
+
+  tipo        String // "corretiva" (quebrou) | "preventiva" (revisão)
+  descricao   String
+  fornecedor  String? // assistência técnica, loja...
+  custo       Float?
+  // Chamado que originou o conserto, quando veio de um. Fecha o ciclo
+  // suporte → manutenção. SetNull: a manutenção sobrevive ao chamado.
+  chamadoId   String?
+  chamado     Chamado? @relation(fields: [chamadoId], references: [id], onDelete: SetNull)
+
+  abertaEm     DateTime  @default(now())
+  concluidaEm  DateTime? // null = ainda no conserto
+  observacoes  String?
+
+  @@index([computadorId])
+  @@index([celularId])
+  @@index([chamadoId])
+  @@index([concluidaEm])
 }
 
 // Catálogo EDITÁVEL de tipos de componente (CPU, RAM, SSD, GPU, Monitor...).

@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ROTULO_SITUACAO, SITUACOES } from "@/lib/ativos";
 import type { Funcionario, Sala } from "./types";
 
 type Props = {
@@ -23,6 +24,8 @@ type Props = {
   setFiltroCargo: (v: string) => void;
   filtroSala: string;
   setFiltroSala: (v: string) => void;
+  filtroSituacao: string;
+  setFiltroSituacao: (v: string) => void;
   funcionarios: Funcionario[];
   salas: Sala[];
   cargos: string[];
@@ -38,6 +41,8 @@ export function Filtros({
   setFiltroCargo,
   filtroSala,
   setFiltroSala,
+  filtroSituacao,
+  setFiltroSituacao,
   funcionarios,
   salas,
   cargos,
@@ -47,7 +52,8 @@ export function Filtros({
     busca !== "" ||
     filtroFunc !== "todos" ||
     filtroCargo !== "todos" ||
-    filtroSala !== "todos";
+    filtroSala !== "todos" ||
+    filtroSituacao !== "todas";
 
   return (
     <Card>
@@ -115,6 +121,22 @@ export function Filtros({
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-1.5">
+          <Label>Situação</Label>
+          <Select value={filtroSituacao} onValueChange={setFiltroSituacao}>
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas</SelectItem>
+              {SITUACOES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {ROTULO_SITUACAO[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {algumFiltro && (
           <Button
             variant="ghost"
@@ -123,6 +145,7 @@ export function Filtros({
               setFiltroFunc("todos");
               setFiltroCargo("todos");
               setFiltroSala("todos");
+              setFiltroSituacao("todas");
             }}
           >
             Limpar filtros

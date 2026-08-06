@@ -17,5 +17,11 @@ export type Celular = {
   observacoes: string | null;
   funcionarioId: string | null;
   funcionario: Funcionario | null;
+  // Ciclo de vida
+  situacao: string;
+  dataAquisicao: string | null;
+  notaFiscal: string | null;
+  garantiaAte: string | null;
+  valorCompra: number | null;
   atualizadoEm: string; // usado para concorrência otimista na edição
 };

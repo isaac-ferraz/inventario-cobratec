@@ -45,6 +45,13 @@ export type Computador = {
   funcionario: Funcionario | null;
   salaId: string | null;
   sala: Sala | null;
+  // Ciclo de vida
+  situacao: string;
+  dataAquisicao: string | null;
+  notaFiscal: string | null;
+  garantiaAte: string | null;
+  valorCompra: number | null;
+  manutencoes?: { id: string; tipo: string; descricao: string; abertaEm: string }[];
   componentes: Componente[];
   atualizadoEm: string; // usado para concorrência otimista na edição
 };

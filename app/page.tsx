@@ -9,9 +9,13 @@ import {
   UserX,
   CheckCircle2,
   AlarmClock,
+  Wrench,
+  ShieldAlert,
+  Trash2,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { STATUS_ABERTOS } from "@/lib/chamados";
+import { DIAS_AVISO_GARANTIA } from "@/lib/ativos";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButton } from "@/components/export-button";
 import { cn } from "@/lib/utils";
@@ -116,6 +120,24 @@ export default async function DashboardPage() {
   const tipoData = [...porTipo.entries()]
     .map(([label, valor]) => ({ label, valor }))
     .sort((a, b) => b.valor - a.valor);
+
+  // Ciclo de vida: o que exige uma decisão do TI nas próximas semanas.
+  const limiteGarantia = new Date(
+    Date.now() + DIAS_AVISO_GARANTIA * 24 * 60 * 60 * 1000,
+  );
+  const emManutencao = [...computadores, ...celulares].filter(
+    (e) => e.situacao === "manutencao",
+  ).length;
+  const descartados = [...computadores, ...celulares].filter(
+    (e) => e.situacao === "descartado",
+  ).length;
+  const garantiaVencendo = [...computadores, ...celulares].filter(
+    (e) =>
+      e.garantiaAte &&
+      e.garantiaAte <= limiteGarantia &&
+      e.garantiaAte >= new Date() &&
+      e.situacao !== "descartado",
+  ).length;
 
   // Pendências de licença/conta: quantos computadores estão sem cada item.
   const pendencias = [
@@ -269,6 +291,81 @@ export default async function DashboardPage() {
           </Card>
         </div>
       </section>
+
+      {/* Ciclo de vida: só aparece quando há algo a decidir. */}
+      {(emManutencao > 0 || garantiaVencendo > 0 || descartados > 0) && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="eyebrow">ciclo de vida</h2>
+            <Link
+              href="/manutencoes"
+              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              ver manutenções →
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Link href="/manutencoes" className="focus-visible:outline-none">
+              <Card className="relative h-full overflow-hidden transition-shadow hover:shadow-md">
+                <span
+                  aria-hidden
+                  className="absolute inset-x-0 top-0 h-0.5 bg-amber-500"
+                />
+                <CardContent className="pt-5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      No conserto
+                    </span>
+                    <Wrench className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="mt-2 font-display text-3xl font-bold tabular-nums text-amber-600">
+                    {emManutencao}
+                  </div>
+                  <div className="eyebrow mt-1">equipamentos parados</div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Card className="relative overflow-hidden">
+              <span
+                aria-hidden
+                className="absolute inset-x-0 top-0 h-0.5 bg-amber-500"
+              />
+              <CardContent className="pt-5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    Garantia acabando
+                  </span>
+                  <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="mt-2 font-display text-3xl font-bold tabular-nums text-amber-600">
+                  {garantiaVencendo}
+                </div>
+                <div className="eyebrow mt-1">
+                  nos próximos {DIAS_AVISO_GARANTIA} dias
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="relative overflow-hidden">
+              <span
+                aria-hidden
+                className="absolute inset-x-0 top-0 h-0.5 bg-muted-foreground/40"
+              />
+              <CardContent className="pt-5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    Descartados
+                  </span>
+                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="mt-2 font-display text-3xl font-bold tabular-nums text-muted-foreground">
+                  {descartados}
+                </div>
+                <div className="eyebrow mt-1">fora do parque</div>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+      )}
 
       <h2 className="eyebrow">parque de equipamentos</h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -39,6 +39,11 @@ export async function GET(req: Request): Promise<NextResponse> {
       funcionario: true,
       sala: true,
       componentes: { include: { tipo: true }, orderBy: { criadoEm: "asc" } },
+      // Só as manutenções EM ABERTO: é o que o card precisa sinalizar.
+      manutencoes: {
+        where: { concluidaEm: null },
+        select: { id: true, tipo: true, descricao: true, abertaEm: true },
+      },
     },
     orderBy: { identificador: "asc" },
   });
@@ -68,6 +73,11 @@ export async function POST(req: Request): Promise<NextResponse> {
         temMouse: r.data.temMouse,
         temTeclado: r.data.temTeclado,
         temHeadset: r.data.temHeadset,
+        situacao: r.data.situacao,
+        dataAquisicao: r.data.dataAquisicao,
+        notaFiscal: r.data.notaFiscal,
+        garantiaAte: r.data.garantiaAte,
+        valorCompra: r.data.valorCompra,
         funcionarioId: r.data.funcionarioId || null,
         salaId: r.data.salaId || null,
       },

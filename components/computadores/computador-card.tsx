@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { GarantiaBadge, SituacaoBadge } from "@/components/ativos/badges";
 import type { Componente, Computador } from "./types";
 
 type Props = {
@@ -86,7 +87,13 @@ export function ComputadorCard({
         aria-hidden
         className={cn(
           "absolute inset-y-0 left-0 w-1",
-          emUso ? "bg-emerald-500" : "bg-amber-500",
+          c.situacao === "descartado"
+            ? "bg-muted-foreground/40"
+            : c.situacao === "manutencao"
+              ? "bg-amber-500"
+              : emUso
+                ? "bg-emerald-500"
+                : "bg-amber-500",
         )}
       />
       <div className="space-y-3 p-4 pl-5">
@@ -149,6 +156,8 @@ export function ComputadorCard({
               <PackageOpen className="mr-1 h-3 w-3" /> Sem funcionário (estoque)
             </Badge>
           )}
+          <SituacaoBadge situacao={c.situacao} />
+          <GarantiaBadge garantiaAte={c.garantiaAte} />
           {c.sala && (
             // A sala é clicável: leva para a página com tudo que está nela.
             <Link

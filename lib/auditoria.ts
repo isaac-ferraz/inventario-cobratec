@@ -18,7 +18,8 @@ type Entrada = {
     | "ItemDeposito"
     | "Sala"
     | "Usuario"
-    | "Chamado";
+    | "Chamado"
+    | "Manutencao";
   entidadeId?: string | null;
   descricao: string;
   // Ator informado pelo próprio chamador. Usado no LOGIN: naquele instante o
