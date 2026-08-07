@@ -28,6 +28,12 @@
     --input: 185 13% 86%;
     --ring: 174 80% 30%;
     --radius: 0.35rem; /* cantos precisos, técnicos */
+    /*
+      Azul oficial da marca Cobratec (amostrado do logo). Fica FORA do sistema
+      de tokens do produto de propósito: é cor de marca, não papel semântico —
+      não deve ser reaproveitado para botão, link ou estado.
+    */
+    --brand-blue: #025297;
   }
 
   .dark {
@@ -50,6 +56,12 @@
     --border: 200 16% 20%;
     --input: 200 16% 22%;
     --ring: 173 65% 45%;
+    /*
+      No escuro o azul oficial não tem contraste (fica quase invisível sobre o
+      fundo de rack). Clareia aqui, e não no componente: assim quem usa a Logo
+      não precisa saber qual tema está ativo.
+    */
+    --brand-blue: #7FB9EC;
   }
 }
 

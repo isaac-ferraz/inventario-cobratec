@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
 import {
   Boxes,
-  Cpu,
   DoorOpen,
   Gauge,
   KeyRound,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import { apiSend } from "@/lib/fetcher";
 import { AlternarTema } from "@/components/ui/tema";
+import { Logo } from "@/components/brand/Logo";
 import { cn } from "@/lib/utils";
 
 export type Papel = "ADMIN" | "OPERADOR";
@@ -51,17 +51,22 @@ function ativo(pathname: string, href: string) {
 
 function Marca({ compact = false }: { compact?: boolean }) {
   return (
-    <Link href="/" className="flex items-center gap-2.5">
-      <div className="grid h-8 w-8 place-items-center rounded-md bg-primary text-primary-foreground">
-        <Cpu className="h-4 w-4" />
-      </div>
-      {!compact && (
-        <div className="leading-none">
-          <div className="font-display text-sm font-bold tracking-tight">
-            COBRATEC<span className="text-primary">·TI</span>
-          </div>
-          <div className="eyebrow mt-1">inventário de hardware</div>
-        </div>
+    <Link
+      href="/"
+      aria-label="Cobratec — inventário de hardware"
+      className="flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {/* No mobile só o símbolo: o wordmark não cabe ao lado da navegação. */}
+      {compact ? (
+        <Logo markOnly className="h-7" />
+      ) : (
+        <>
+          <Logo markOnly className="h-8" />
+          <span className="leading-none">
+            <Logo wordOnly className="block h-3.5" />
+            <span className="eyebrow mt-1.5 block">inventário de hardware</span>
+          </span>
+        </>
       )}
     </Link>
   );

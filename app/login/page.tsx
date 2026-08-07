@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Cpu, Loader2, LogIn } from "lucide-react";
+import { Loader2, LogIn } from "lucide-react";
+import { Logo } from "@/components/brand/Logo";
 import { apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,15 +89,8 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="grid h-12 w-12 place-items-center rounded-md bg-primary text-primary-foreground">
-            <Cpu className="h-6 w-6" />
-          </div>
-          <div>
-            <div className="font-display text-xl font-bold tracking-tight">
-              COBRATEC<span className="text-primary">·TI</span>
-            </div>
-            <div className="eyebrow mt-1">inventário de hardware</div>
-          </div>
+          <Logo className="h-12" />
+          <div className="eyebrow">inventário de hardware</div>
         </div>
 
         <Card>
