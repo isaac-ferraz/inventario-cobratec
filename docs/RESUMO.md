@@ -137,8 +137,9 @@ o Excel é só relatório de saída.
 
 ## Repositório
 - **URL**: https://github.com/isaac-ferraz/inventario-cobratec (privado)
-- **Branches**: `main` (estável), `develop` (integração),
-  `feat/celulares-e-deposito`, `feat/salas` e `feat/auth-usuarios` (últimas)
+- **Branches**: `main` (estável) e `develop` (integração) caminham juntas com a
+  última feature entregue. Histórico linear: `feat/salas` → `feat/auth-usuarios`
+  → `feat/chamados` → `feat/ciclo-vida`, cada uma partindo da anterior.
 
 ## Como rodar
 **Local:**
