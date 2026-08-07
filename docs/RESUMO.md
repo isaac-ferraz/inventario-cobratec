@@ -178,9 +178,19 @@ do PC, licenças) em texto — é o propósito dele, e agora está atrás de log
 Ainda assim: restringir acesso ao servidor e proteger os **backups**.
 
 ## Roadmap
-Plano de continuação em 5 fases (aprovado): **1. Salas** (feito — branch
-`feat/salas`), **2. Login com papéis** (feito — branch `feat/auth-usuarios`),
-**3. Chamados** (feito — branch `feat/chamados`),
-**4. Ciclo de vida do ativo** (feito — branch `feat/ciclo-vida`),
-**5. Polimento** (toast/confirm próprios, testes de API/autorização, paginação,
-dark mode, backup agendado).
+O plano de 5 fases está **concluído**: **1. Salas** (`feat/salas`),
+**2. Login com papéis** (`feat/auth-usuarios`), **3. Chamados**
+(`feat/chamados`), **4. Ciclo de vida do ativo** (`feat/ciclo-vida`) e
+**5. Polimento** (`feat/polimento`) — toast/confirm próprios, testes de
+API/autorização, paginação, tema claro/escuro e backup agendado.
+
+Na mesma branch `feat/polimento` entrou a **interatividade**: filtros na URL,
+drill-down do Dashboard (todo número leva à lista por trás dele), perfil do
+funcionário em `/funcionarios/[id]` e a logo oficial da Cobratec no topo.
+Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
+
+### O que sobrou para depois
+- **Deploy**: `docs/deploy.md` está escrito (Oracle Always Free + Docker), mas o
+  sistema ainda roda só em LAN — falta escolher e provisionar o host.
+- **Agendar o backup de verdade**: o mecanismo e o passo a passo estão prontos
+  em [`backup.md`](./backup.md); o cron/systemd depende de onde o app for morar.

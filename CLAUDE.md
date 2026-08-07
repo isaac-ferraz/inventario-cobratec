@@ -231,9 +231,36 @@ remover/mover) das quatro entidades, com ator (via sessão), API
 (decisão 13). Eventos podem ser apagados manualmente pelo TI
 (`DELETE /api/auditoria/:id`, botão na tela).
 
-**Qualidade/processo:** **testes** com vitest (`lib/*.test.ts`, funções puras);
-**ESLint** configurado; **CI** no GitHub Actions (lint + testes + build em
-push/PR para `main` e `develop`).
+**Qualidade/processo:** **testes** com vitest em duas frentes — funções puras
+(`lib/*.test.ts`) e **rotas de API contra um SQLite descartável**
+(`tests/api/*.test.ts`): 401/403/404, revogação de acesso, nota interna filtrada,
+travas do último admin e 409 de concorrência. **ESLint** configurado; **CI** no
+GitHub Actions (lint + testes + build em push/PR para `main` e `develop`).
+
+**Polimento (fase 5, decisões 22–23):**
+- **Toast e confirmação próprios** (`components/ui/toast.tsx`,
+  `confirmar-dialog.tsx`) no lugar de `alert()`/`confirm()` nativos. A
+  confirmação devolve `Promise<boolean>`, então cada uso cabe em uma linha.
+- **Paginação** só onde a lista cresce sem teto — chamados, manutenções e
+  auditoria (`lib/paginacao.ts` + `hooks/use-lista-paginada.ts`). Totais e KPIs
+  vêm do servidor sobre o conjunto inteiro, nunca da página carregada.
+- **Tema claro/escuro** com três estados (claro/escuro/sistema), provider próprio
+  e script anti-flash no `<head>`. Pares de cor de estado vivem em classes
+  semânticas (`.tom-alerta`, `.tom-ok`, `.num-alerta`…) em `globals.css`.
+- **Backup agendado**: rotação por `BACKUP_DIAS`, recusa de backup vazio e
+  cron/systemd prontos em [`docs/backup.md`](./docs/backup.md).
+
+**Interatividade (decisão 23):** os filtros das telas vivem na **URL**
+(`hooks/use-filtro-url.ts`), o que torna todo número do Dashboard um link para a
+lista naquele recorte — KPIs, barras (cargo, sala, tipo de componente) e cards de
+pendência. As pendências são um catálogo único (`lib/pendencias.ts`) usado tanto
+para contar quanto para filtrar, para o card e a lista nunca discordarem. O nome
+do funcionário virou link para **`/funcionarios/[id]`**, o perfil com
+computadores (e hardware), celulares, credenciais e chamados da pessoa.
+
+**Marca:** logo oficial da Cobratec (símbolo + wordmark vetorizados em
+`components/brand/`) na navegação e no login; o token `--brand-blue` clareia
+sozinho no tema escuro.
 
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
