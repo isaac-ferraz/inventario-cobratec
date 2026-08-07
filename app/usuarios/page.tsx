@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   Plus,
   Pencil,
@@ -246,9 +247,16 @@ export default function UsuariosPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {u.funcionario
-                        ? `${u.funcionario.nome} · ${u.funcionario.cargo}`
-                        : "—"}
+                      {u.funcionario ? (
+                        <Link
+                          href={`/funcionarios/${u.funcionario.id}`}
+                          className="hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {u.funcionario.nome} · {u.funcionario.cargo}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {quando(u.ultimoAcessoEm)}

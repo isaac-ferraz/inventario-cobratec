@@ -267,7 +267,14 @@ export default function FuncionariosPage() {
               <TableBody>
                 {filtrados.map((f) => (
                   <TableRow key={f.id}>
-                    <TableCell className="font-medium">{f.nome}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link
+                        href={`/funcionarios/${f.id}`}
+                        className="hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {f.nome}
+                      </Link>
+                    </TableCell>
                     <TableCell>{f.cargo}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {f.sala ? (

@@ -8,6 +8,56 @@ import { exigirAdmin } from "@/lib/autorizacao";
 
 type Params = { params: { id: string } };
 
+// GET /api/funcionarios/[id] — o perfil: a pessoa e tudo que está na mão dela.
+//
+// Junta numa chamada só o que antes exigia caçar em três telas: computadores
+// com o hardware, celulares, sala e os chamados que ela abriu.
+export async function GET(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
+
+  const funcionario = await prisma.funcionario.findUnique({
+    where: { id: params.id },
+    include: {
+      sala: true,
+      computadores: {
+        orderBy: { identificador: "asc" },
+        include: {
+          sala: true,
+          componentes: { include: { tipo: true }, orderBy: { criadoEm: "asc" } },
+        },
+      },
+      celulares: { orderBy: { identificador: "asc" } },
+      // Só os usuários ligados a esta pessoa — sem hash de senha, que não tem
+      // por que sair do banco.
+      usuarios: {
+        select: { id: true, login: true, papel: true, ativo: true },
+      },
+    },
+  });
+  if (!funcionario) return erro("Funcionário não encontrado.", 404);
+
+  // Chamados abertos por qualquer conta vinculada a este funcionário.
+  const idsUsuario = funcionario.usuarios.map((u) => u.id);
+  const chamados = idsUsuario.length
+    ? await prisma.chamado.findMany({
+        where: { solicitanteId: { in: idsUsuario } },
+        orderBy: [{ status: "asc" }, { criadoEm: "desc" }],
+        take: 10,
+        select: {
+          id: true,
+          numero: true,
+          titulo: true,
+          status: true,
+          prioridade: true,
+          criadoEm: true,
+        },
+      })
+    : [];
+
+  return NextResponse.json({ ...funcionario, chamados });
+}
+
 export async function PATCH(req: Request, { params }: Params) {
   const auth = await exigirAdmin(req);
   if ("resposta" in auth) return auth.resposta;

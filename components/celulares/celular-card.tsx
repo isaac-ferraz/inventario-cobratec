@@ -1,6 +1,14 @@
 "use client";
 
-import { Loader2, PackageOpen, Pencil, Smartphone, Trash2 } from "lucide-react";
+import Link from "next/link";
+import {
+  Loader2,
+  PackageOpen,
+  Pencil,
+  Smartphone,
+  Trash2,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GarantiaBadge, SituacaoBadge } from "@/components/ativos/badges";
@@ -88,9 +96,17 @@ export function CelularCard({ celular: c, removendoId, onEditar, onRemover }: Pr
         {/* Dono / estoque · ciclo de vida */}
         <div className="flex flex-wrap gap-1.5">
           {c.funcionario ? (
-            <Badge variant="secondary">
-              {c.funcionario.nome} · {c.funcionario.cargo}
-            </Badge>
+            // O dono é clicável: leva ao perfil com tudo que está na mão dele.
+            <Link
+              href={`/funcionarios/${c.funcionario.id}`}
+              title={`Abrir o perfil de ${c.funcionario.nome}`}
+              className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Badge variant="secondary" className="hover:bg-secondary/70">
+                <User className="mr-1 h-3 w-3" />
+                {c.funcionario.nome} · {c.funcionario.cargo}
+              </Badge>
+            </Link>
           ) : (
             <Badge variant="warning">
               <PackageOpen className="mr-1 h-3 w-3" /> Sem funcionário (estoque)

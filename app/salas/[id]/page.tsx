@@ -308,15 +308,27 @@ export default function SalaPage({ params }: { params: { id: string } }) {
                           </span>
                         </span>
                       </label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        title="Tirar desta sala (leva os computadores dele junto)"
-                        disabled={movendo}
-                        onClick={() => mover(null, { funcionarioIds: [f.id] })}
-                      >
-                        <LogOut /> Tirar
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {/* Fora do <label>: dentro dele, o clique marcaria a
+                            caixa de seleção em vez de abrir o perfil. */}
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link
+                            href={`/funcionarios/${f.id}`}
+                            title={`Abrir o perfil de ${f.nome}`}
+                          >
+                            <User /> Perfil
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Tirar desta sala (leva os computadores dele junto)"
+                          disabled={movendo}
+                          onClick={() => mover(null, { funcionarioIds: [f.id] })}
+                        >
+                          <LogOut /> Tirar
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="space-y-1.5">
@@ -439,12 +451,18 @@ export default function SalaPage({ params }: { params: { id: string } }) {
                         </span>
                       </label>
                       {c.funcionario ? (
-                        <Badge variant="secondary">
-                          {c.funcionario.nome}
-                          {c.funcionario.sala
-                            ? ` · senta em ${c.funcionario.sala.nome}`
-                            : " · sem sala"}
-                        </Badge>
+                        <Link
+                          href={`/funcionarios/${c.funcionario.id}`}
+                          title={`Abrir o perfil de ${c.funcionario.nome}`}
+                          className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <Badge variant="secondary" className="hover:bg-secondary/70">
+                            {c.funcionario.nome}
+                            {c.funcionario.sala
+                              ? ` · senta em ${c.funcionario.sala.nome}`
+                              : " · sem sala"}
+                          </Badge>
+                        </Link>
                       ) : (
                         <Badge variant="warning">
                           <PackageOpen className="mr-1 h-3 w-3" /> Estoque
