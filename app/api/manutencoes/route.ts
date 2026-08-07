@@ -5,6 +5,7 @@ import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { exigirAdmin } from "@/lib/autorizacao";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { situacaoAoAbrirManutencao } from "@/lib/ativos";
+import { lerPaginacao, montarPagina } from "@/lib/paginacao";
 
 const CAMPOS = {
   id: true,
@@ -36,13 +37,26 @@ export async function GET(req: Request): Promise<NextResponse> {
     where.OR = [{ computadorId: equipamento }, { celularId: equipamento }];
   }
 
-  const manutencoes = await prisma.manutencao.findMany({
-    where,
-    select: CAMPOS,
-    // Em aberto primeiro (é a fila de trabalho), depois as mais recentes.
-    orderBy: [{ concluidaEm: "asc" }, { abertaEm: "desc" }],
+  const p = lerPaginacao(url.searchParams);
+  // O resumo é do conjunto FILTRADO INTEIRO, não da página: "custo somado" que
+  // contasse só o que está na tela seria um número errado com cara de certo.
+  const [manutencoes, total, emAberto, custo] = await Promise.all([
+    prisma.manutencao.findMany({
+      where,
+      select: CAMPOS,
+      // Em aberto primeiro (é a fila de trabalho), depois as mais recentes.
+      orderBy: [{ concluidaEm: "asc" }, { abertaEm: "desc" }],
+      skip: p.pular,
+      take: p.limite,
+    }),
+    prisma.manutencao.count({ where }),
+    prisma.manutencao.count({ where: { ...where, concluidaEm: null } }),
+    prisma.manutencao.aggregate({ where, _sum: { custo: true } }),
+  ]);
+  return NextResponse.json({
+    ...montarPagina(manutencoes, total, p),
+    resumo: { emAberto, custoTotal: custo._sum.custo ?? 0 },
   });
-  return NextResponse.json(manutencoes);
 }
 
 // POST /api/manutencoes — mandar um equipamento para conserto.

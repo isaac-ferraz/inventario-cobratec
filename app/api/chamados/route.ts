@@ -5,6 +5,7 @@ import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { exigirSessao } from "@/lib/autorizacao";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { STATUS_ABERTOS } from "@/lib/chamados";
+import { lerPaginacao, montarPagina } from "@/lib/paginacao";
 
 // Resumo para a lista — sem o corpo das mensagens (que só o detalhe carrega).
 const CAMPOS_LISTA = {
@@ -54,12 +55,18 @@ export async function GET(req: Request): Promise<NextResponse> {
     where.responsavelId = responsavelId === "sem" ? null : responsavelId;
   }
 
-  const chamados = await prisma.chamado.findMany({
-    where,
-    select: CAMPOS_LISTA,
-    orderBy: [{ status: "asc" }, { criadoEm: "desc" }],
-  });
-  return NextResponse.json(chamados);
+  const p = lerPaginacao(url.searchParams);
+  const [chamados, total] = await Promise.all([
+    prisma.chamado.findMany({
+      where,
+      select: CAMPOS_LISTA,
+      orderBy: [{ status: "asc" }, { criadoEm: "desc" }],
+      skip: p.pular,
+      take: p.limite,
+    }),
+    prisma.chamado.count({ where }),
+  ]);
+  return NextResponse.json(montarPagina(chamados, total, p));
 }
 
 // POST /api/chamados — abrir chamado (o gesto do operador).

@@ -12,7 +12,8 @@ import {
   Smartphone,
   UserCheck,
 } from "lucide-react";
-import { apiGet, mensagem } from "@/lib/fetcher";
+import { useListaPaginada } from "@/hooks/use-lista-paginada";
+import { CarregarMais } from "@/components/ui/carregar-mais";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,35 +35,32 @@ type Props = { papel: "ADMIN" | "OPERADOR" };
 
 export function ListaChamados({ papel }: Props) {
   const admin = papel === "ADMIN";
-  const [lista, setLista] = React.useState<ChamadoLista[]>([]);
-  const [carregando, setCarregando] = React.useState(true);
-  const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
   const [abrirDialog, setAbrirDialog] = React.useState(false);
   // O TI abre o dia querendo ver o que está pendente; o operador quer ver tudo
   // que já pediu.
   const [filtroStatus, setFiltroStatus] = React.useState(admin ? "abertos" : "todos");
   const [filtroPrioridade, setFiltroPrioridade] = React.useState("todas");
 
-  const carregar = React.useCallback(async () => {
-    setCarregando(true);
-    setCarregaErro(null);
-    const params = new URLSearchParams();
-    if (filtroStatus !== "todos") params.set("status", filtroStatus);
-    if (filtroPrioridade !== "todas") params.set("prioridade", filtroPrioridade);
-    try {
-      setLista(
-        await apiGet<ChamadoLista[]>(`/api/chamados?${params.toString()}`),
-      );
-    } catch (e) {
-      setCarregaErro(mensagem(e));
-    } finally {
-      setCarregando(false);
-    }
-  }, [filtroStatus, filtroPrioridade]);
+  const construirUrl = React.useCallback(
+    (pagina: number) => {
+      const params = new URLSearchParams({ pagina: String(pagina) });
+      if (filtroStatus !== "todos") params.set("status", filtroStatus);
+      if (filtroPrioridade !== "todas") params.set("prioridade", filtroPrioridade);
+      return `/api/chamados?${params.toString()}`;
+    },
+    [filtroStatus, filtroPrioridade],
+  );
 
-  React.useEffect(() => {
-    carregar();
-  }, [carregar]);
+  const {
+    itens: lista,
+    total,
+    temMais,
+    carregando,
+    carregandoMais,
+    erro: carregaErro,
+    recarregar: carregar,
+    carregarMais,
+  } = useListaPaginada<ChamadoLista>(construirUrl);
 
   return (
     <div className="space-y-6">
@@ -121,7 +119,7 @@ export function ListaChamados({ papel }: Props) {
             </div>
           )}
           <div className="ml-auto text-sm text-muted-foreground">
-            {lista.length} chamado(s)
+            {total} chamado(s)
           </div>
         </CardContent>
       </Card>
@@ -229,6 +227,17 @@ export function ListaChamados({ papel }: Props) {
             </li>
           ))}
         </ul>
+      )}
+
+      {!carregando && !carregaErro && (
+        <CarregarMais
+          mostrando={lista.length}
+          total={total}
+          temMais={temMais}
+          carregando={carregandoMais}
+          onCarregarMais={carregarMais}
+          rotulo="chamados"
+        />
       )}
 
       <AbrirChamadoDialog

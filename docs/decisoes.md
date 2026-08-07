@@ -599,3 +599,33 @@ nos cards; KPIs de **no conserto**, **garantia acabando** e **descartados** no
 Dashboard (só aparecem quando há algo a decidir); no Excel, colunas de ciclo de
 vida nas abas Inventário e Celulares, bloco "Ciclo de vida dos equipamentos" no
 Dashboard e a aba nova **"Manutenções"** com custo total.
+
+---
+
+## 22. Paginação só onde a lista cresce sem teto
+
+**Contexto:** as listas eram carregadas inteiras. Com o sistema em operação, três
+tabelas crescem para sempre — `Chamado`, `Manutencao` e `LogAuditoria` — e um ano
+de uso vira milhares de linhas numa resposta só.
+
+**Decisão:** paginar **apenas essas três**, com `?pagina=&limite=` (helper puro em
+`lib/paginacao.ts`, testado) e botão "carregar mais" no cliente
+(`hooks/use-lista-paginada.ts`).
+
+Computadores, celulares, funcionários, salas e tipos **continuam sem paginação, de
+propósito**: o teto deles é o tamanho do escritório (dezenas de registros), e a
+busca e os filtros dessas telas rodam no cliente sobre a lista completa. Paginá-las
+obrigaria a mover filtro e busca para o servidor — mais código, mais chamadas, sem
+ganho perceptível.
+
+**Offset e não cursor:** `chamados` ordena por `(status, criadoEm)`, que não é
+único nem estável para cursor. Com dezenas de páginas no pior caso, o custo do
+`skip` no SQLite é irrelevante, e a regra fica legível.
+
+**Consequência — totais não saem da página:** o rodapé mostra `total` vindo do
+servidor, e os KPIs de manutenção (**no conserto**, **custo somado**) passaram a
+ser calculados por `count`/`aggregate` sobre o conjunto filtrado inteiro, num campo
+`resumo` fora da lista. Somar só a página carregada daria um número errado com cara
+de certo. Pelo mesmo motivo, o `total` dos chamados respeita o escopo por papel: se
+viesse cru, o operador descobriria quantos chamados existem na empresa olhando o
+rodapé.

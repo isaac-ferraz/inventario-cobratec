@@ -93,7 +93,31 @@ describe("chamado alheio", () => {
         await requisicao("GET", "/api/chamados", { usuario: bruno }),
       ),
     );
-    expect(corpo).toHaveLength(0);
+    expect(corpo.itens).toHaveLength(0);
+    // O total também é escopado: senão o operador descobriria quantos chamados
+    // existem na empresa só olhando o rodapé da lista.
+    expect(corpo.total).toBe(0);
+  });
+
+  it("o escopo sobrevive à paginação", async () => {
+    const { corpo } = await ler(
+      await listar(
+        await requisicao("GET", "/api/chamados?pagina=1&limite=100", {
+          usuario: bruno,
+        }),
+      ),
+    );
+    expect(corpo.itens).toHaveLength(0);
+    expect(corpo.temMais).toBe(false);
+  });
+
+  it("a página do administrador traz o chamado e o total", async () => {
+    const { corpo } = await ler(
+      await listar(await requisicao("GET", "/api/chamados", { usuario: admin })),
+    );
+    expect(corpo.itens).toHaveLength(1);
+    expect(corpo.total).toBe(1);
+    expect(corpo.temMais).toBe(false);
   });
 });
 

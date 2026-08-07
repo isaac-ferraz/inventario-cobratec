@@ -2,8 +2,10 @@
 
 import * as React from "react";
 import { Loader2, Trash2 } from "lucide-react";
-import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
+import { apiSend, mensagem } from "@/lib/fetcher";
+import { useListaPaginada } from "@/hooks/use-lista-paginada";
 import { Button } from "@/components/ui/button";
+import { CarregarMais } from "@/components/ui/carregar-mais";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -59,28 +61,29 @@ const VARIANTE_ACAO: Record<
 export default function AuditoriaPage() {
   const { toast, toastErro } = useToast();
   const confirmar = useConfirmar();
-  const [logs, setLogs] = React.useState<Log[]>([]);
-  const [carregando, setCarregando] = React.useState(true);
-  const [erro, setErro] = React.useState<string | null>(null);
   const [filtro, setFiltro] = React.useState<string>("todas");
   const [removendoId, setRemovendoId] = React.useState<string | null>(null);
 
-  const carregar = React.useCallback(async () => {
-    setCarregando(true);
-    setErro(null);
-    try {
-      const q = filtro === "todas" ? "" : `?entidade=${filtro}`;
-      setLogs(await apiGet<Log[]>(`/api/auditoria${q}`));
-    } catch (e) {
-      setErro(mensagem(e));
-    } finally {
-      setCarregando(false);
-    }
-  }, [filtro]);
+  const construirUrl = React.useCallback(
+    (pagina: number) => {
+      const p = new URLSearchParams({ pagina: String(pagina) });
+      if (filtro !== "todas") p.set("entidade", filtro);
+      return `/api/auditoria?${p.toString()}`;
+    },
+    [filtro],
+  );
 
-  React.useEffect(() => {
-    carregar();
-  }, [carregar]);
+  const {
+    itens: logs,
+    total,
+    temMais,
+    carregando,
+    carregandoMais,
+    erro,
+    recarregar: carregar,
+    carregarMais,
+    setItens: setLogs,
+  } = useListaPaginada<Log>(construirUrl);
 
   async function remover(l: Log) {
     const ok = await confirmar({
@@ -193,6 +196,16 @@ export default function AuditoriaPage() {
                 ))}
               </TableBody>
             </Table>
+          )}
+          {!carregando && !erro && (
+            <CarregarMais
+              mostrando={logs.length}
+              total={total}
+              temMais={temMais}
+              carregando={carregandoMais}
+              onCarregarMais={carregarMais}
+              rotulo="eventos"
+            />
           )}
         </CardContent>
       </Card>

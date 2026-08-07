@@ -12,10 +12,12 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
+import { apiSend, mensagem } from "@/lib/fetcher";
+import { useListaPaginada } from "@/hooks/use-lista-paginada";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
+import { CarregarMais } from "@/components/ui/carregar-mais";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -26,11 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  ROTULO_TIPO_MANUTENCAO,
-  formatarMoeda,
-  somarCustos,
-} from "@/lib/ativos";
+import { ROTULO_TIPO_MANUTENCAO, formatarMoeda } from "@/lib/ativos";
 import { cn } from "@/lib/utils";
 import { ManutencaoDialog } from "@/components/manutencoes/manutencao-dialog";
 import type { Manutencao } from "@/components/manutencoes/types";
@@ -39,12 +37,12 @@ function data(iso: string | null) {
   return iso ? new Date(iso).toLocaleDateString("pt-BR") : "—";
 }
 
+// Números do conjunto filtrado inteiro, calculados no servidor — não da página.
+type Resumo = { emAberto: number; custoTotal: number };
+
 export default function ManutencoesPage() {
   const { toast, toastErro } = useToast();
   const confirmar = useConfirmar();
-  const [lista, setLista] = React.useState<Manutencao[]>([]);
-  const [carregando, setCarregando] = React.useState(true);
-  const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
   const [filtro, setFiltro] = React.useState("abertas");
   const [dialog, setDialog] = React.useState<{
     aberto: boolean;
@@ -52,22 +50,26 @@ export default function ManutencoesPage() {
   }>({ aberto: false, manutencao: null });
   const [ocupadoId, setOcupadoId] = React.useState<string | null>(null);
 
-  const carregar = React.useCallback(async () => {
-    setCarregando(true);
-    setCarregaErro(null);
-    const q = filtro === "todas" ? "" : `?situacao=${filtro}`;
-    try {
-      setLista(await apiGet<Manutencao[]>(`/api/manutencoes${q}`));
-    } catch (e) {
-      setCarregaErro(mensagem(e));
-    } finally {
-      setCarregando(false);
-    }
-  }, [filtro]);
+  const construirUrl = React.useCallback(
+    (pagina: number) => {
+      const p = new URLSearchParams({ pagina: String(pagina) });
+      if (filtro !== "todas") p.set("situacao", filtro);
+      return `/api/manutencoes?${p.toString()}`;
+    },
+    [filtro],
+  );
 
-  React.useEffect(() => {
-    carregar();
-  }, [carregar]);
+  const {
+    itens: lista,
+    total,
+    temMais,
+    carregando,
+    carregandoMais,
+    erro: carregaErro,
+    recarregar: carregar,
+    carregarMais,
+    extra,
+  } = useListaPaginada<Manutencao, { resumo: Resumo }>(construirUrl);
 
   async function concluir(m: Manutencao) {
     setOcupadoId(m.id);
@@ -104,8 +106,8 @@ export default function ManutencoesPage() {
     }
   }
 
-  const emAberto = lista.filter((m) => !m.concluidaEm);
-  const custoTotal = somarCustos(lista);
+  const emAberto = extra?.resumo.emAberto ?? 0;
+  const custoTotal = extra?.resumo.custoTotal ?? 0;
 
   return (
     <div className="space-y-6">
@@ -144,7 +146,7 @@ export default function ManutencoesPage() {
             <div>
               <div className="eyebrow">no conserto</div>
               <div className="font-display text-xl font-bold tabular-nums">
-                {emAberto.length}
+                {emAberto}
               </div>
             </div>
             <div>
@@ -279,6 +281,17 @@ export default function ManutencoesPage() {
             );
           })}
         </ul>
+      )}
+
+      {!carregando && !carregaErro && (
+        <CarregarMais
+          mostrando={lista.length}
+          total={total}
+          temMais={temMais}
+          carregando={carregandoMais}
+          onCarregarMais={carregarMais}
+          rotulo="manutenções"
+        />
       )}
 
       <ManutencaoDialog
