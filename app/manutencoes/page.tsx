@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -38,6 +40,8 @@ function data(iso: string | null) {
 }
 
 export default function ManutencoesPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [lista, setLista] = React.useState<Manutencao[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
@@ -71,9 +75,10 @@ export default function ManutencoesPage() {
       await apiSend(`/api/manutencoes/${m.id}`, "PATCH", {
         concluidaEm: new Date().toISOString().slice(0, 10),
       });
+      toast({ descricao: "Manutenção concluída.", variante: "sucesso" });
       carregar();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setOcupadoId(null);
     }
@@ -81,20 +86,19 @@ export default function ManutencoesPage() {
 
   async function remover(m: Manutencao) {
     const equip = m.computador?.identificador ?? m.celular?.identificador ?? "";
-    if (
-      !confirm(
-        `Remover este registro de manutenção de "${equip}"?${
-          m.concluidaEm ? "" : " O equipamento volta para “Ativo”."
-        }`,
-      )
-    )
-      return;
+    const ok = await confirmar({
+      titulo: `Remover este registro de manutenção de "${equip}"?`,
+      descricao: m.concluidaEm ? undefined : "O equipamento volta para “Ativo”.",
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     setOcupadoId(m.id);
     try {
       await apiSend(`/api/manutencoes/${m.id}`, "DELETE");
+      toast({ descricao: "Registro de manutenção removido.", variante: "sucesso" });
       carregar();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setOcupadoId(null);
     }

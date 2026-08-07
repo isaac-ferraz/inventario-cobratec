@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Space_Grotesk, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { Sidebar, TopBar } from "@/components/shell/nav";
+import { ToastProvider } from "@/components/ui/toast";
+import { ConfirmarProvider } from "@/components/ui/confirmar-dialog";
 import { sessaoAtual } from "@/lib/sessao-servidor";
 import { COOKIE_SESSAO } from "@/lib/sessao";
 import { cn } from "@/lib/utils";
@@ -74,7 +76,9 @@ export default async function RootLayout({
           "font-sans",
         )}
       >
-        {corpo}
+        <ToastProvider>
+          <ConfirmarProvider>{corpo}</ConfirmarProvider>
+        </ToastProvider>
       </body>
     </html>
   );

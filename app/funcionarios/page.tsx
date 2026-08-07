@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +60,8 @@ type Funcionario = {
 const SEM_SALA = "__sem_sala__";
 
 export default function FuncionariosPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [lista, setLista] = React.useState<Funcionario[]>([]);
   const [salas, setSalas] = React.useState<Sala[]>([]);
   const [filtroSala, setFiltroSala] = React.useState<string>("todos");
@@ -164,19 +168,24 @@ export default function FuncionariosPage() {
     const pcs = f._count.computadores;
     const cels = f._count.celulares;
     const temVinculo = pcs + cels > 0;
-    const msg = temVinculo
-      ? `${f.nome} possui ${pcs} computador(es) e ${cels} celular(es). Eles ficarão SEM funcionário (estoque). Remover assim mesmo?`
-      : `Remover ${f.nome}?`;
-    if (!confirm(msg)) return;
+    const ok = await confirmar({
+      titulo: `Remover ${f.nome}?`,
+      descricao: temVinculo
+        ? `${f.nome} possui ${pcs} computador(es) e ${cels} celular(es). Eles ficarão SEM funcionário (estoque).`
+        : undefined,
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     setRemovendoId(f.id);
     try {
       await apiSend(
         `/api/funcionarios/${f.id}${temVinculo ? "?liberar=1" : ""}`,
         "DELETE",
       );
+      toast({ descricao: `${f.nome} removido(a).`, variante: "sucesso" });
       carregar();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setRemovendoId(null);
     }

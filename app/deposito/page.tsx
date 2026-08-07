@@ -4,6 +4,8 @@ import * as React from "react";
 import { Boxes, Loader2, PackageX, Plus, Search, TriangleAlert } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +22,8 @@ import { situacao, type ItemDeposito } from "@/components/deposito/types";
 import { cn } from "@/lib/utils";
 
 export default function DepositoPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [itens, setItens] = React.useState<ItemDeposito[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
@@ -99,19 +103,24 @@ export default function DepositoPage() {
         atual.map((x) => (x.id === salvo.id ? { ...x, ...salvo } : x)),
       );
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
       carregar(); // desfaz o otimismo recarregando o estado real
     }
   }
 
   async function remover(item: ItemDeposito) {
-    if (!confirm(`Remover o item "${item.nome}" do depósito?`)) return;
+    const ok = await confirmar({
+      titulo: `Remover o item "${item.nome}" do depósito?`,
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     setRemovendoId(item.id);
     try {
       await apiSend(`/api/deposito/${item.id}`, "DELETE");
+      toast({ descricao: `"${item.nome}" removido do depósito.`, variante: "sucesso" });
       setItens((atual) => atual.filter((x) => x.id !== item.id));
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setRemovendoId(null);
     }

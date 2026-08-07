@@ -4,6 +4,8 @@ import * as React from "react";
 import { Loader2, Plus } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Filtros } from "@/components/computadores/filtros";
 import { ComputadorCard } from "@/components/computadores/computador-card";
 import { ComputadorDialog } from "@/components/computadores/computador-dialog";
@@ -17,6 +19,8 @@ import type {
 } from "@/components/computadores/types";
 
 export default function ComputadoresPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [computadores, setComputadores] = React.useState<Computador[]>([]);
   const [funcionarios, setFuncionarios] = React.useState<Funcionario[]>([]);
   const [salas, setSalas] = React.useState<Sala[]>([]);
@@ -109,31 +113,37 @@ export default function ComputadoresPage() {
   });
 
   async function removerPc(c: Computador) {
-    if (
-      !confirm(
-        `Remover o computador "${c.identificador}"? Os ${c.componentes.length} componente(s) serão removidos junto.`,
-      )
-    )
-      return;
+    const ok = await confirmar({
+      titulo: `Remover o computador "${c.identificador}"?`,
+      descricao: `Os ${c.componentes.length} componente(s) serão removidos junto.`,
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     setRemovendoPcId(c.id);
     try {
       await apiSend(`/api/computadores/${c.id}`, "DELETE");
+      toast({ descricao: `Computador "${c.identificador}" removido.`, variante: "sucesso" });
       carregarTudo();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setRemovendoPcId(null);
     }
   }
 
   async function removerComp(comp: Componente) {
-    if (!confirm(`Remover o componente "${comp.descricao}"?`)) return;
+    const ok = await confirmar({
+      titulo: `Remover o componente "${comp.descricao}"?`,
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     setRemovendoCompId(comp.id);
     try {
       await apiSend(`/api/componentes/${comp.id}`, "DELETE");
+      toast({ descricao: "Componente removido.", variante: "sucesso" });
       carregarTudo();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setRemovendoCompId(null);
     }

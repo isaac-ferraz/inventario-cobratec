@@ -4,6 +4,8 @@ import * as React from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -55,6 +57,8 @@ const VARIANTE_ACAO: Record<
 };
 
 export default function AuditoriaPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [logs, setLogs] = React.useState<Log[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState<string | null>(null);
@@ -79,15 +83,19 @@ export default function AuditoriaPage() {
   }, [carregar]);
 
   async function remover(l: Log) {
-    if (!confirm("Apagar este evento de auditoria? Esta ação é definitiva.")) {
-      return;
-    }
+    const ok = await confirmar({
+      titulo: "Apagar este evento de auditoria?",
+      descricao: "Esta ação é definitiva.",
+      confirmar: "Apagar",
+    });
+    if (!ok) return;
     setRemovendoId(l.id);
     try {
       await apiSend(`/api/auditoria/${l.id}`, "DELETE");
+      toast({ descricao: "Evento apagado do histórico.", variante: "sucesso" });
       setLogs((atual) => atual.filter((x) => x.id !== l.id));
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setRemovendoId(null);
     }

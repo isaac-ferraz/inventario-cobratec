@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +57,8 @@ const VAZIO = {
 };
 
 export default function SalasPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [lista, setLista] = React.useState<Sala[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [aberto, setAberto] = React.useState(false);
@@ -122,12 +126,18 @@ export default function SalasPage() {
   }
 
   async function remover(s: Sala) {
-    if (!confirm(`Remover a sala "${s.nome}"?`)) return;
+    const ok = await confirmar({
+      titulo: `Remover a sala "${s.nome}"?`,
+      descricao: "Sala com computadores ou pessoas não pode ser removida — nesse caso, desative-a.",
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     try {
       await apiSend(`/api/salas/${s.id}`, "DELETE");
+      toast({ descricao: `Sala "${s.nome}" removida.`, variante: "sucesso" });
       carregar();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     }
   }
 

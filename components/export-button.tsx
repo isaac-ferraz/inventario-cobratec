@@ -3,8 +3,10 @@
 import * as React from "react";
 import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 
 export function ExportButton() {
+  const { toastErro } = useToast();
   const [carregando, setCarregando] = React.useState(false);
 
   async function exportar() {
@@ -23,7 +25,7 @@ export function ExportButton() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Não foi possível gerar o Excel. Tente novamente.");
+      toastErro("Não foi possível gerar o Excel. Tente novamente.");
     } finally {
       setCarregando(false);
     }

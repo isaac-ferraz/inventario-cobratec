@@ -4,6 +4,8 @@ import * as React from "react";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +39,8 @@ type Tipo = {
 };
 
 export default function TiposPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [lista, setLista] = React.useState<Tipo[]>([]);
   const [carregando, setCarregando] = React.useState(true);
   const [aberto, setAberto] = React.useState(false);
@@ -95,12 +99,18 @@ export default function TiposPage() {
   }
 
   async function remover(t: Tipo) {
-    if (!confirm(`Remover o tipo "${t.nome}"?`)) return;
+    const ok = await confirmar({
+      titulo: `Remover o tipo "${t.nome}"?`,
+      descricao: "Tipo em uso por algum componente não pode ser removido.",
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     try {
       await apiSend(`/api/tipos/${t.id}`, "DELETE");
+      toast({ descricao: `Tipo "${t.nome}" removido.`, variante: "sucesso" });
       carregar();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     }
   }
 

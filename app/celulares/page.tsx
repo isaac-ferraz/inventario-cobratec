@@ -4,12 +4,16 @@ import * as React from "react";
 import { Loader2, Plus } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Filtros } from "@/components/celulares/filtros";
 import { CelularCard } from "@/components/celulares/celular-card";
 import { CelularDialog } from "@/components/celulares/celular-dialog";
 import type { Celular, Funcionario } from "@/components/celulares/types";
 
 export default function CelularesPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [celulares, setCelulares] = React.useState<Celular[]>([]);
   const [funcionarios, setFuncionarios] = React.useState<Funcionario[]>([]);
   const [carregando, setCarregando] = React.useState(true);
@@ -81,13 +85,18 @@ export default function CelularesPage() {
   });
 
   async function remover(c: Celular) {
-    if (!confirm(`Remover o celular "${c.identificador}"?`)) return;
+    const ok = await confirmar({
+      titulo: `Remover o celular "${c.identificador}"?`,
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     setRemovendoId(c.id);
     try {
       await apiSend(`/api/celulares/${c.id}`, "DELETE");
+      toast({ descricao: `Celular "${c.identificador}" removido.`, variante: "sucesso" });
       carregarTudo();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setRemovendoId(null);
     }

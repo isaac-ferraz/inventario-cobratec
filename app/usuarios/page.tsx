@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -75,6 +77,8 @@ function quando(iso: string | null) {
 }
 
 export default function UsuariosPage() {
+  const { toast, toastErro } = useToast();
+  const confirmar = useConfirmar();
   const [lista, setLista] = React.useState<Usuario[]>([]);
   const [funcionarios, setFuncionarios] = React.useState<Funcionario[]>([]);
   const [carregando, setCarregando] = React.useState(true);
@@ -157,18 +161,20 @@ export default function UsuariosPage() {
   }
 
   async function remover(u: Usuario) {
-    if (
-      !confirm(
-        `Remover o usuário "${u.login}"? Ele perde o acesso imediatamente. O histórico de auditoria é preservado.`,
-      )
-    )
-      return;
+    const ok = await confirmar({
+      titulo: `Remover o usuário "${u.login}"?`,
+      descricao:
+        "Ele perde o acesso imediatamente. O histórico de auditoria é preservado.",
+      confirmar: "Remover",
+    });
+    if (!ok) return;
     setRemovendoId(u.id);
     try {
       await apiSend(`/api/usuarios/${u.id}`, "DELETE");
+      toast({ descricao: `Usuário "${u.login}" removido.`, variante: "sucesso" });
       carregar();
     } catch (e) {
-      alert(mensagem(e));
+      toastErro(mensagem(e));
     } finally {
       setRemovendoId(null);
     }
