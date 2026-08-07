@@ -4,11 +4,12 @@ import { computadorSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { expandirComponentes } from "@/lib/especificacoes";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirAdmin, exigirEscopo } from "@/lib/autorizacao";
+import { filtroComputador } from "@/lib/supervisao";
 
 // GET /api/computadores?funcionarioId=...&cargo=...&salaId=...
 export async function GET(req: Request): Promise<NextResponse> {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const url = new URL(req.url);
   const funcionarioId = url.searchParams.get("funcionarioId");
@@ -33,8 +34,13 @@ export async function GET(req: Request): Promise<NextResponse> {
     where.salaId = salaId;
   }
 
+  // O recorte do supervisor entra NO BANCO, e não depois: filtrar em memória
+  // já teria trazido o parque inteiro para o processo.
+  const escopo = filtroComputador(auth.escopo);
+  const consulta = escopo ? { AND: [where, escopo] } : where;
+
   const computadores = await prisma.computador.findMany({
-    where,
+    where: consulta,
     include: {
       funcionario: true,
       sala: true,
@@ -54,6 +60,8 @@ export async function GET(req: Request): Promise<NextResponse> {
   return NextResponse.json(resposta);
 }
 
+// Cadastrar máquina nova é entrada de patrimônio — segue só com o TI. O
+// supervisor edita e move o que já existe na sala dele (ver PATCH em [id]).
 export async function POST(req: Request): Promise<NextResponse> {
   const auth = await exigirAdmin(req);
   if ("resposta" in auth) return auth.resposta;

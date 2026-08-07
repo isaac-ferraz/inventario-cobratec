@@ -20,29 +20,37 @@ import {
 } from "lucide-react";
 import { apiSend } from "@/lib/fetcher";
 import { AlternarTema } from "@/components/ui/tema";
+import { ROTULO_PAPEL } from "@/lib/supervisao";
 import { Logo } from "@/components/brand/Logo";
 import { cn } from "@/lib/utils";
 
-export type Papel = "ADMIN" | "OPERADOR";
+export type { Papel } from "@/lib/supervisao";
+import type { Papel } from "@/lib/supervisao";
 
-// `operador: true` marca o que o OPERADOR também enxerga. O resto é só admin.
-// Espelha a lista PERMITIDO_OPERADOR do middleware — quem muda um, muda o outro.
+// `operador`/`supervisor` marcam o que cada papel também enxerga. O resto é só
+// admin. Espelha PERMITIDO_OPERADOR e PERMITIDO_SUPERVISOR do middleware —
+// quem muda um, muda o outro.
+//
+// Fora do supervisor de propósito: Depósito (suprimentos não têm sala), Tipos
+// (catálogo global), Usuários e Auditoria.
 const NAV = [
-  { href: "/", label: "Dashboard", icon: Gauge },
-  { href: "/chamados", label: "Chamados", icon: LifeBuoy, operador: true },
-  { href: "/computadores", label: "Computadores", icon: Monitor },
-  { href: "/celulares", label: "Celulares", icon: Smartphone },
-  { href: "/manutencoes", label: "Manutenções", icon: Wrench },
+  { href: "/", label: "Dashboard", icon: Gauge, supervisor: true },
+  { href: "/chamados", label: "Chamados", icon: LifeBuoy, operador: true, supervisor: true },
+  { href: "/computadores", label: "Computadores", icon: Monitor, supervisor: true },
+  { href: "/celulares", label: "Celulares", icon: Smartphone, supervisor: true },
+  { href: "/manutencoes", label: "Manutenções", icon: Wrench, supervisor: true },
   { href: "/deposito", label: "Depósito", icon: Boxes },
-  { href: "/funcionarios", label: "Funcionários", icon: Users },
-  { href: "/salas", label: "Salas", icon: DoorOpen },
+  { href: "/funcionarios", label: "Funcionários", icon: Users, supervisor: true },
+  { href: "/salas", label: "Salas", icon: DoorOpen, supervisor: true },
   { href: "/tipos", label: "Tipos", icon: Tags },
   { href: "/usuarios", label: "Usuários", icon: ShieldCheck },
   { href: "/auditoria", label: "Auditoria", icon: ScrollText },
 ];
 
 function itens(papel: Papel) {
-  return papel === "ADMIN" ? NAV : NAV.filter((i) => i.operador);
+  if (papel === "ADMIN") return NAV;
+  if (papel === "SUPERVISOR") return NAV.filter((i) => i.supervisor);
+  return NAV.filter((i) => i.operador);
 }
 
 function ativo(pathname: string, href: string) {
@@ -125,9 +133,7 @@ export function Sidebar({ papel, usuario }: { papel: Papel; usuario: string }) {
       <div className="space-y-2 border-t p-3">
         <div className="flex items-center justify-between gap-2 px-2">
           <div className="min-w-0">
-            <div className="eyebrow">
-              {papel === "ADMIN" ? "administrador" : "operador"}
-            </div>
+            <div className="eyebrow">{ROTULO_PAPEL[papel].toLowerCase()}</div>
             <div className="truncate text-sm font-medium">{usuario}</div>
           </div>
           <AlternarTema />

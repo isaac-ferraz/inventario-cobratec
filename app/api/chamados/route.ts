@@ -6,6 +6,8 @@ import { exigirSessao } from "@/lib/autorizacao";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { STATUS_ABERTOS } from "@/lib/chamados";
 import { lerPaginacao, montarPagina } from "@/lib/paginacao";
+import { filtroChamado } from "@/lib/supervisao";
+import { escopoDe } from "@/lib/sessao-servidor";
 
 // Resumo para a lista — sem o corpo das mensagens (que só o detalhe carrega).
 const CAMPOS_LISTA = {
@@ -40,10 +42,11 @@ export async function GET(req: Request): Promise<NextResponse> {
   const prioridade = url.searchParams.get("prioridade");
   const responsavelId = url.searchParams.get("responsavelId");
 
-  const where: Record<string, unknown> = {};
-  if (auth.usuario.papel !== "ADMIN") {
-    where.solicitanteId = auth.usuario.id;
-  }
+  // Escopo por papel aplicado no `where`, não na tela: o operador recebe só os
+  // dele, o supervisor os da sala dele, o admin todos. Não existe parâmetro
+  // capaz de fazer a consulta escapar disso.
+  const escopo = filtroChamado(escopoDe(auth.usuario));
+  const where: Record<string, unknown> = escopo ? { ...escopo } : {};
   if (status === "abertos") {
     where.status = { in: STATUS_ABERTOS };
   } else if (status) {

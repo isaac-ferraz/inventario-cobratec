@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { manutencaoSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirEscopo } from "@/lib/autorizacao";
+import {
+  alcancaCelular,
+  alcancaComputador,
+  filtroManutencao,
+} from "@/lib/supervisao";
+import { foraDoEscopo } from "@/lib/autorizacao";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { situacaoAoAbrirManutencao } from "@/lib/ativos";
 import { lerPaginacao, montarPagina } from "@/lib/paginacao";
@@ -23,7 +29,7 @@ const CAMPOS = {
 
 // GET /api/manutencoes?situacao=abertas|concluidas&equipamento=<id>
 export async function GET(req: Request): Promise<NextResponse> {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
 
   const url = new URL(req.url);
@@ -36,6 +42,9 @@ export async function GET(req: Request): Promise<NextResponse> {
   if (equipamento) {
     where.OR = [{ computadorId: equipamento }, { celularId: equipamento }];
   }
+
+  const escopoManutencao = filtroManutencao(auth.escopo);
+  if (escopoManutencao) Object.assign(where, escopoManutencao);
 
   const p = lerPaginacao(url.searchParams);
   // O resumo é do conjunto FILTRADO INTEIRO, não da página: "custo somado" que
@@ -61,7 +70,7 @@ export async function GET(req: Request): Promise<NextResponse> {
 
 // POST /api/manutencoes — mandar um equipamento para conserto.
 export async function POST(req: Request): Promise<NextResponse> {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
 
   const r = await validarCorpo(req, manutencaoSchema);
@@ -69,6 +78,23 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   const computadorId = r.data.computadorId || null;
   const celularId = r.data.celularId || null;
+
+  // Mandar equipamento para conserto só vale para o que é da sala dele.
+  if (computadorId) {
+    const pc = await prisma.computador.findUnique({
+      where: { id: computadorId },
+      select: { salaId: true, funcionario: { select: { salaId: true } } },
+    });
+    if (!pc) return foraDoEscopo("Computador");
+    if (!alcancaComputador(auth.escopo, pc)) return foraDoEscopo("Computador");
+  } else if (celularId) {
+    const cel = await prisma.celular.findUnique({
+      where: { id: celularId },
+      select: { funcionario: { select: { salaId: true } } },
+    });
+    if (!cel) return foraDoEscopo("Celular");
+    if (!alcancaCelular(auth.escopo, cel)) return foraDoEscopo("Celular");
+  }
 
   try {
     // Abrir manutenção muda a SITUAÇÃO do equipamento junto — as duas coisas

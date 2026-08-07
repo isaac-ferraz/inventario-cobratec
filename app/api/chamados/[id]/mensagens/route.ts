@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { chamadoMensagemSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { exigirSessao } from "@/lib/autorizacao";
-import { podeVerChamado } from "@/lib/chamados";
+import { alcancaChamado } from "@/lib/supervisao";
+import { escopoDe } from "@/lib/sessao-servidor";
 
 type Params = { params: { id: string } };
 
@@ -24,7 +25,7 @@ export async function POST(req: Request, { params }: Params) {
   });
   if (!chamado) return erro("Chamado não encontrado.", 404);
 
-  if (!podeVerChamado(auth.usuario.papel, auth.usuario.id, chamado.solicitanteId)) {
+  if (!alcancaChamado(escopoDe(auth.usuario), chamado)) {
     return erro("Chamado não encontrado.", 404);
   }
 

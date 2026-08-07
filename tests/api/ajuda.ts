@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { gerarHashSenha } from "@/lib/senha";
 import { assinarSessao, COOKIE_SESSAO } from "@/lib/sessao";
 
-export type Papel = "ADMIN" | "OPERADOR";
+export type { Papel } from "@/lib/supervisao";
+import type { Papel } from "@/lib/supervisao";
 
 export type UsuarioTeste = {
   id: string;
@@ -14,6 +15,7 @@ export type UsuarioTeste = {
 
 // Ordem importa: filho antes do pai, senão a FK barra.
 export async function limparBanco(): Promise<void> {
+  await prisma.supervisorSala.deleteMany();
   await prisma.chamadoMensagem.deleteMany();
   await prisma.chamado.deleteMany();
   await prisma.manutencao.deleteMany();

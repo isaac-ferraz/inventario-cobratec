@@ -11,7 +11,7 @@
 export type Sessao = {
   uid: string;
   login: string;
-  papel: "ADMIN" | "OPERADOR";
+  papel: "ADMIN" | "SUPERVISOR" | "OPERADOR";
   exp: number; // epoch em segundos
 };
 
@@ -110,7 +110,9 @@ export async function lerSessao(
     if (
       typeof sessao?.uid !== "string" ||
       typeof sessao?.login !== "string" ||
-      (sessao?.papel !== "ADMIN" && sessao?.papel !== "OPERADOR") ||
+      (sessao?.papel !== "ADMIN" &&
+        sessao?.papel !== "SUPERVISOR" &&
+        sessao?.papel !== "OPERADOR") ||
       typeof sessao?.exp !== "number"
     ) {
       return null;

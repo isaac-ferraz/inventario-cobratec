@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useListaPaginada } from "@/hooks/use-lista-paginada";
 import { useFiltroUrl } from "@/hooks/use-filtro-url";
+import type { Papel } from "@/lib/supervisao";
 import { CarregarMais } from "@/components/ui/carregar-mais";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +33,7 @@ import { AbrirChamadoDialog } from "./abrir-dialog";
 import { PrioridadeBadge, StatusBadge, decorrido } from "./badges";
 import type { ChamadoLista } from "./types";
 
-type Props = { papel: "ADMIN" | "OPERADOR" };
+type Props = { papel: Papel };
 
 export function ListaChamados({ papel }: Props) {
   const admin = papel === "ADMIN";

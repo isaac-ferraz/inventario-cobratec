@@ -3,7 +3,9 @@ import { moverParaSalaSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { moverParaSala, rotuloDestino } from "@/lib/mover-sala";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirEscopo } from "@/lib/autorizacao";
+import { prisma } from "@/lib/prisma";
+import { alcancaSala, ehSupervisor, podeMover } from "@/lib/supervisao";
 
 // POST /api/salas/mover
 // Um endpoint só cobre os três gestos da tela da sala: trazer para cá, tirar
@@ -13,7 +15,7 @@ import { exigirAdmin } from "@/lib/autorizacao";
 // A regra do conjunto (os computadores do funcionário vão junto com ele) vive
 // em lib/mover-sala.ts, compartilhada com a edição do funcionário.
 export async function POST(req: Request): Promise<NextResponse> {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, moverParaSalaSchema);
   if ("resposta" in r) return r.resposta;
@@ -23,6 +25,39 @@ export async function POST(req: Request): Promise<NextResponse> {
   // Destino precisa existir (id inválido viraria FK quebrada ou 500 obscuro).
   const destinoNome = await rotuloDestino(destinoSalaId);
   if (!destinoNome) return erro("Sala de destino não encontrada.", 404);
+
+  // Escopo do supervisor: cada item precisa SAIR de uma sala dele e CHEGAR em
+  // outra sala dele. Conferimos a origem real no banco — confiar no que a tela
+  // mandou permitiria forjar um id e arrastar equipamento de outra sala.
+  if (ehSupervisor(auth.escopo)) {
+    if (!alcancaSala(auth.escopo, destinoSalaId)) {
+      return erro(
+        "Você só pode mover para as salas pelas quais responde.",
+        403,
+      );
+    }
+    const [pcs, funcs] = await Promise.all([
+      prisma.computador.findMany({
+        where: { id: { in: r.data.computadorIds ?? [] } },
+        select: { id: true, salaId: true },
+      }),
+      prisma.funcionario.findMany({
+        where: { id: { in: r.data.funcionarioIds ?? [] } },
+        select: { id: true, salaId: true },
+      }),
+    ]);
+    const origens = [...pcs, ...funcs];
+    const fora = origens.filter(
+      (o) => !podeMover(auth.escopo, o.salaId, destinoSalaId),
+    );
+    if (fora.length > 0 || origens.length <
+        (r.data.computadorIds?.length ?? 0) + (r.data.funcionarioIds?.length ?? 0)) {
+      return erro(
+        "Há itens fora das salas pelas quais você responde.",
+        403,
+      );
+    }
+  }
 
   try {
     const resultado = await moverParaSala({

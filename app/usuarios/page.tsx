@@ -42,7 +42,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type Papel = "ADMIN" | "OPERADOR";
+import { cn } from "@/lib/utils";
+import type { Papel } from "@/lib/supervisao";
 
 type Usuario = {
   id: string;
@@ -54,9 +55,11 @@ type Usuario = {
   funcionarioId: string | null;
   funcionario: { id: string; nome: string; cargo: string } | null;
   ultimoAcessoEm: string | null;
+  supervisoes: { sala: { id: string; nome: string } }[];
 };
 
 type Funcionario = { id: string; nome: string; cargo: string; ativo: boolean };
+type Sala = { id: string; nome: string; ativa: boolean };
 
 const SEM_FUNC = "__sem__";
 
@@ -67,6 +70,7 @@ const VAZIO = {
   papel: "OPERADOR" as Papel,
   ativo: true,
   funcionarioId: SEM_FUNC,
+  salaIds: [] as string[],
 };
 
 function quando(iso: string | null) {
@@ -90,17 +94,20 @@ export default function UsuariosPage() {
   const [salvando, setSalvando] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
   const [removendoId, setRemovendoId] = React.useState<string | null>(null);
+  const [salas, setSalas] = React.useState<Sala[]>([]);
 
   async function carregar() {
     setCarregando(true);
     setCarregaErro(null);
     try {
-      const [u, f] = await Promise.all([
+      const [u, f, s] = await Promise.all([
         apiGet<Usuario[]>("/api/usuarios"),
         apiGet<Funcionario[]>("/api/funcionarios"),
+        apiGet<Sala[]>("/api/salas"),
       ]);
       setLista(u);
       setFuncionarios(f);
+      setSalas(s);
     } catch (e) {
       setCarregaErro(mensagem(e));
     } finally {
@@ -128,9 +135,19 @@ export default function UsuariosPage() {
       papel: u.papel,
       ativo: u.ativo,
       funcionarioId: u.funcionarioId ?? SEM_FUNC,
+      salaIds: u.supervisoes.map((s) => s.sala.id),
     });
     setErro(null);
     setAberto(true);
+  }
+
+  function alternarSala(id: string) {
+    setForm((f) => ({
+      ...f,
+      salaIds: f.salaIds.includes(id)
+        ? f.salaIds.filter((x) => x !== id)
+        : [...f.salaIds, id],
+    }));
   }
 
   async function salvar() {
@@ -140,6 +157,8 @@ export default function UsuariosPage() {
       login: form.login,
       nome: form.nome,
       papel: form.papel,
+      // Só vai quando é supervisor; a API zera o vínculo nos outros papéis.
+      salaIds: form.papel === "SUPERVISOR" ? form.salaIds : [],
       ativo: form.ativo,
       funcionarioId: form.funcionarioId === SEM_FUNC ? null : form.funcionarioId,
     };
@@ -191,6 +210,7 @@ export default function UsuariosPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Quem entra no sistema. <strong>Administrador</strong> faz tudo;{" "}
+            <strong>supervisor</strong> vê e edita o que está nas salas dele;{" "}
             <strong>operador</strong> só abre e acompanha chamados.
           </p>
         </div>
@@ -242,8 +262,21 @@ export default function UsuariosPage() {
                     <TableCell>
                       {u.papel === "ADMIN" ? (
                         <Badge>Administrador</Badge>
+                      ) : u.papel === "SUPERVISOR" ? (
+                        <Badge variant="warning">Supervisor</Badge>
                       ) : (
                         <Badge variant="secondary">Operador</Badge>
+                      )}
+                      {/* As salas ficam junto do papel: um supervisor sem sala
+                          não enxerga nada, e isso precisa saltar aos olhos. */}
+                      {u.papel === "SUPERVISOR" && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {u.supervisoes.length === 0 ? (
+                            <span className="num-alerta">nenhuma sala</span>
+                          ) : (
+                            u.supervisoes.map((s) => s.sala.nome).join(", ")
+                          )}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -372,6 +405,9 @@ export default function UsuariosPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="SUPERVISOR">
+                      Supervisor — as salas dele
+                    </SelectItem>
                     <SelectItem value="OPERADOR">
                       Operador — só chamados
                     </SelectItem>
@@ -381,6 +417,56 @@ export default function UsuariosPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* Salas só aparecem para supervisor: para os outros papéis o
+                  campo não significaria nada. */}
+              {form.papel === "SUPERVISOR" && (
+                <div className="space-y-1.5">
+                  <Label>Salas pelas quais responde</Label>
+                  {salas.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Nenhuma sala cadastrada ainda.
+                    </p>
+                  ) : (
+                    <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border p-2">
+                      {salas.map((s) => (
+                        <label
+                          key={s.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 text-sm hover:bg-muted"
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={form.salaIds.includes(s.id)}
+                            onChange={() => alternarSala(s.id)}
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            {s.nome}
+                            {!s.ativa && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                · desativada
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <p
+                    className={cn(
+                      "text-xs",
+                      form.salaIds.length === 0
+                        ? "num-alerta"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {form.salaIds.length === 0
+                      ? "Sem sala, o supervisor não enxerga nada além dos próprios chamados."
+                      : `${form.salaIds.length} sala(s) — sem limite de supervisores por sala.`}
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <Label>Funcionário vinculado</Label>
                 <Select

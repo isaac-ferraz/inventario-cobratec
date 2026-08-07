@@ -686,3 +686,64 @@ nova ao banco. O pop-up mostra até 30 itens e diz quantos ficaram de fora.
 **Filtros novos na lista de computadores** para sustentar os destinos:
 `pendencia`, `tipo` (componente) e `garantia`, mais a opção "com funcionário"
 (que é o KPI "Computadores em uso").
+
+---
+
+## 24. Supervisor de sala — o mesmo poder, sobre um recorte
+
+**Contexto:** o sistema tinha dois papéis extremos — o TI, que faz tudo, e o
+operador, que só abre chamado. Faltava quem responde por uma sala: precisa
+enxergar e cuidar do que está nela, sem alcançar o resto da empresa.
+
+**Decisão:** papel `SUPERVISOR`, ligado a **quantas salas precisar** por uma
+tabela `SupervisorSala` (e cada sala tem quantos supervisores precisar). O
+princípio é: o supervisor não tem "menos permissões que o admin" — tem **as
+mesmas permissões sobre um recorte**. Por isso toda regra em `lib/supervisao.ts`
+pergunta "isto pertence a alguma sala minha?", nunca "ele pode editar?".
+
+**O que é "da sala":**
+- **Computador** — a máquina está na sala **ou** o dono senta nela. Os dois
+  lados importam: máquina de estoque guardada na sala não tem dono, e a máquina
+  que viajou com a pessoa pode estar com a sala desatualizada. Cobrir só um lado
+  deixaria buraco justamente onde o cadastro está torto, que é quando o
+  supervisor mais precisa enxergar.
+- **Celular** — não tem sala (decisão 15): segue o dono.
+- **Funcionário** — senta na sala.
+- **Chamado** — é da sala, ou foi aberto por ele mesmo.
+- **Manutenção** — pelo equipamento envolvido.
+
+**Escolhas do TI nesta implantação** (decididas por quem opera o sistema):
+o supervisor **edita** o cadastro do que é dele e **enxerga o cofre de senhas**
+da própria equipe. Consequências assumidas: a auditoria passa a ser a principal
+rede de proteção sobre o inventário, e o cofre deixa de ser exclusivo do TI.
+
+**O que continua só com o TI:** cadastrar máquina/pessoa nova (entrada de
+patrimônio), remover registros, o catálogo de tipos, o depósito, os usuários, a
+auditoria e a exportação em Excel — a planilha sai com o parque inteiro, e
+recortá-la é outro trabalho. No helpdesk o supervisor **vê** os chamados da sala,
+mas age como operador: não define prioridade, responsável nem andamento, e não
+recebe nota interna. A fila de atendimento continua sendo do TI.
+
+**Travas que não são óbvias:**
+- **Mover exige origem E destino no escopo.** Sem a trava no destino, o
+  supervisor empurraria uma máquina para uma sala que não é dele e deixaria de
+  enxergá-la — perdendo o próprio equipamento de vista sem ninguém ter decidido
+  isso. Vale também para mover a pessoa, que leva os equipamentos junto.
+- **A origem é conferida no banco, não no que a tela mandou.** Confiar no corpo
+  da requisição permitiria forjar um id e arrastar equipamento de outra sala.
+- **Supervisor sem sala não enxerga nada** — e não tudo. O filtro devolve uma
+  condição que não casa com nada, em vez de sumir; um filtro ausente viraria
+  "sem restrição", que é o pior default possível. A tela de usuários avisa em
+  âmbar quando o supervisor está sem sala.
+- **Rebaixar de supervisor limpa os vínculos.** Deixá-los pendurados faria as
+  salas antigas voltarem a valer sozinhas se alguém o promovesse de novo meses
+  depois.
+- **Fora do escopo responde 404, não 403** — mesmo motivo do chamado alheio
+  (decisão 20): um 403 confirmaria que aquele patrimônio existe.
+
+**Onde a regra é aplicada:** o filtro entra no `where` do Prisma, para a consulta
+já sair recortada do banco. Filtrar depois de ler já teria trazido o parque
+inteiro para a memória do processo e, num descuido, para o JSON. O middleware
+segue sendo só o portão de navegação: ele não tem banco (roda no Edge) e por isso
+não sabe QUAIS registros são de quem — cada rota chama `exigirEscopo` e aplica o
+filtro por conta própria.

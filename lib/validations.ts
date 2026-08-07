@@ -53,11 +53,17 @@ export const usuarioSchema = z.object({
     .regex(/^[a-zA-Z0-9._-]+$/, "Use apenas letras, números, ponto, hífen ou _"),
   nome: z.string().trim().min(1, "Nome é obrigatório").max(200, "Nome muito longo"),
   senha: senhaNova.optional(), // ausente na edição = mantém a senha atual
-  papel: z.enum(["ADMIN", "OPERADOR"], {
-    errorMap: () => ({ message: "Papel deve ser ADMIN ou OPERADOR" }),
+  papel: z.enum(["ADMIN", "SUPERVISOR", "OPERADOR"], {
+    errorMap: () => ({
+      message: "Papel deve ser ADMIN, SUPERVISOR ou OPERADOR",
+    }),
   }),
   ativo: z.boolean().optional(),
   funcionarioId: relacaoOpcional,
+  // Salas pelas quais o supervisor responde. Sem limite de quantas, nem de
+  // quantos supervisores tem cada sala. Ausente = não mexe no vínculo atual;
+  // lista vazia = tira todas.
+  salaIds: z.array(z.string().min(1)).max(100).optional(),
 });
 
 export const trocaSenhaSchema = z.object({

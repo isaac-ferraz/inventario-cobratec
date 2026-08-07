@@ -34,6 +34,7 @@ import {
   STATUS,
 } from "@/lib/chamados";
 import { cn } from "@/lib/utils";
+import type { Papel } from "@/lib/supervisao";
 import { ManutencaoDialog } from "@/components/manutencoes/manutencao-dialog";
 import { PrioridadeBadge, StatusBadge, dataHora } from "./badges";
 import type { ChamadoDetalhe, UsuarioResumo } from "./types";
@@ -42,7 +43,7 @@ const SEM_RESP = "__sem__";
 
 type Props = {
   chamadoId: string;
-  papel: "ADMIN" | "OPERADOR";
+  papel: Papel;
   usuarioId: string;
 };
 

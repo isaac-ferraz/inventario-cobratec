@@ -3,10 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { tipoComponenteSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirAdmin, exigirEscopo } from "@/lib/autorizacao";
 
+// Leitura liberada ao supervisor: o formulário de componente precisa do
+// catálogo. Editar o catálogo continua sendo do TI (POST/PATCH/DELETE).
 export async function GET(req: Request): Promise<NextResponse> {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const tipos = await prisma.tipoComponente.findMany({
     orderBy: { nome: "asc" },

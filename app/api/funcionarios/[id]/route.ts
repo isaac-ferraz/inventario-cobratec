@@ -4,7 +4,8 @@ import { funcionarioSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { moverParaSala, rotuloDestino } from "@/lib/mover-sala";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirAdmin, exigirEscopo, foraDoEscopo } from "@/lib/autorizacao";
+import { alcancaFuncionario, podeMover } from "@/lib/supervisao";
 
 type Params = { params: { id: string } };
 
@@ -13,7 +14,7 @@ type Params = { params: { id: string } };
 // Junta numa chamada só o que antes exigia caçar em três telas: computadores
 // com o hardware, celulares, sala e os chamados que ela abriu.
 export async function GET(req: Request, { params }: Params) {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
 
   const funcionario = await prisma.funcionario.findUnique({
@@ -36,6 +37,10 @@ export async function GET(req: Request, { params }: Params) {
     },
   });
   if (!funcionario) return erro("Funcionário não encontrado.", 404);
+  // O perfil carrega o cofre de credenciais: fora do escopo, nem existe.
+  if (!alcancaFuncionario(auth.escopo, funcionario)) {
+    return foraDoEscopo("Funcionário");
+  }
 
   // Chamados abertos por qualquer conta vinculada a este funcionário.
   const idsUsuario = funcionario.usuarios.map((u) => u.id);
@@ -59,7 +64,7 @@ export async function GET(req: Request, { params }: Params) {
 }
 
 export async function PATCH(req: Request, { params }: Params) {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(req, funcionarioSchema.partial());
   if ("resposta" in r) return r.resposta;
@@ -70,16 +75,31 @@ export async function PATCH(req: Request, { params }: Params) {
   const { salaId, ...campos } = r.data;
   const mudaSala = "salaId" in r.data;
 
+  // Escopo antes de escrever: a pessoa precisa sentar numa sala dele.
+  const antesDoEscopo = await prisma.funcionario.findUnique({
+    where: { id: params.id },
+    select: { salaId: true },
+  });
+  if (!antesDoEscopo) return erro("Registro não encontrado.", 404);
+  if (!alcancaFuncionario(auth.escopo, antesDoEscopo)) {
+    return foraDoEscopo("Funcionário");
+  }
+
   try {
     if (mudaSala) {
-      const atual = await prisma.funcionario.findUnique({
-        where: { id: params.id },
-        select: { salaId: true },
-      });
-      if (!atual) return erro("Registro não encontrado.", 404);
+      const atual = antesDoEscopo;
 
       const destinoSalaId = salaId ?? null;
       if (atual.salaId !== destinoSalaId) {
+        // Mudar a pessoa de sala leva os equipamentos dela junto — por isso o
+        // destino também precisa ser do supervisor, senão a equipe inteira
+        // sairia do alcance dele de uma vez.
+        if (!podeMover(auth.escopo, atual.salaId, destinoSalaId)) {
+          return erro(
+            "Você só pode mover pessoas entre as salas pelas quais responde.",
+            403,
+          );
+        }
         const destinoNome = await rotuloDestino(destinoSalaId);
         if (!destinoNome) return erro("Sala de destino não encontrada.", 404);
 

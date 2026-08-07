@@ -3,11 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { funcionarioSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirAdmin, exigirEscopo } from "@/lib/autorizacao";
+import { filtroFuncionario } from "@/lib/supervisao";
 
 // GET /api/funcionarios?salaId=...  ("sem" = sem sala definida)
 export async function GET(req: Request): Promise<NextResponse> {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const salaId = new URL(req.url).searchParams.get("salaId");
 
@@ -18,8 +19,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     where.salaId = salaId;
   }
 
+  const escopo = filtroFuncionario(auth.escopo);
   const funcionarios = await prisma.funcionario.findMany({
-    where,
+    where: escopo ? { AND: [where, escopo] } : where,
     orderBy: { nome: "asc" },
     include: {
       sala: true,
@@ -29,6 +31,7 @@ export async function GET(req: Request): Promise<NextResponse> {
   return NextResponse.json(funcionarios);
 }
 
+// Cadastrar pessoa é do TI: quem entra na empresa não é decisão da sala.
 export async function POST(req: Request): Promise<NextResponse> {
   const auth = await exigirAdmin(req);
   if ("resposta" in auth) return auth.resposta;

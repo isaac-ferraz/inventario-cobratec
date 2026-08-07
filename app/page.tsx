@@ -9,7 +9,15 @@
 // celulares e chamados para calcular os números, então o detalhe sai de graça.
 import Link from "next/link";
 import { AlarmClock } from "lucide-react";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { escopoDe, sessaoAtual } from "@/lib/sessao-servidor";
+import {
+  ehSupervisor,
+  filtroCelular,
+  filtroChamado,
+  filtroComputador,
+} from "@/lib/supervisao";
 import { ROTULO_STATUS, STATUS_ABERTOS, type Status } from "@/lib/chamados";
 import {
   DIAS_AVISO_GARANTIA,
@@ -93,6 +101,18 @@ function detalhe(
 }
 
 export default async function DashboardPage() {
+  // O painel do supervisor mostra o parque DELE. Sem este recorte, o número
+  // grande na tela seria o da empresa inteira — e ele clicaria para abrir uma
+  // lista com menos itens do que o card prometeu.
+  const usuario = await sessaoAtual();
+  if (!usuario) redirect("/login");
+  const escopo = escopoDe(usuario);
+  const soDaSala = ehSupervisor(escopo);
+
+  const ondeComputador = filtroComputador(escopo) ?? {};
+  const ondeCelular = filtroCelular(escopo) ?? {};
+  const ondeChamado = filtroChamado(escopo) ?? {};
+
   const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const CAMPOS_CHAMADO = {
@@ -109,19 +129,24 @@ export default async function DashboardPage() {
   // mostra. O teto evita carregar a fila inteira de um ano no painel.
   const [abertos, semResponsavelLista, resolvidos] = await Promise.all([
     prisma.chamado.findMany({
-      where: { status: { in: STATUS_ABERTOS } },
+      where: { AND: [{ status: { in: STATUS_ABERTOS } }, ondeChamado] },
       orderBy: { criadoEm: "asc" },
       select: CAMPOS_CHAMADO,
       take: 200,
     }),
     prisma.chamado.findMany({
-      where: { status: { in: STATUS_ABERTOS }, responsavelId: null },
+      where: {
+        AND: [
+          { status: { in: STATUS_ABERTOS }, responsavelId: null },
+          ondeChamado,
+        ],
+      },
       orderBy: { criadoEm: "asc" },
       select: CAMPOS_CHAMADO,
       take: 200,
     }),
     prisma.chamado.findMany({
-      where: { resolvidoEm: { gte: seteDiasAtras } },
+      where: { AND: [{ resolvidoEm: { gte: seteDiasAtras } }, ondeChamado] },
       orderBy: { resolvidoEm: "desc" },
       select: CAMPOS_CHAMADO,
       take: 200,
@@ -143,6 +168,7 @@ export default async function DashboardPage() {
 
   const [computadores, celulares] = await Promise.all([
     prisma.computador.findMany({
+      where: ondeComputador,
       orderBy: { identificador: "asc" },
       include: {
         funcionario: true,
@@ -151,6 +177,7 @@ export default async function DashboardPage() {
       },
     }),
     prisma.celular.findMany({
+      where: ondeCelular,
       orderBy: { identificador: "asc" },
       include: { funcionario: true },
     }),
@@ -338,10 +365,15 @@ export default async function DashboardPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Clique em qualquer número para ver quais registros estão por trás
-            dele. O Excel reflete exatamente estes dados.
+            dele.{" "}
+            {soDaSala
+              ? "Este painel mostra apenas as salas pelas quais você responde."
+              : "O Excel reflete exatamente estes dados."}
           </p>
         </div>
-        <ExportButton />
+        {/* A planilha sai com o parque inteiro; recortá-la é outro trabalho.
+            Até lá, o botão é só do TI — coerente com /api/export. */}
+        {!soDaSala && <ExportButton />}
       </div>
 
       {/* Suporte vem primeiro: é o que pede ação hoje. */}

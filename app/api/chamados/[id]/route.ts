@@ -3,13 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { chamadoUpdateSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { exigirSessao } from "@/lib/autorizacao";
+import { alcancaChamado } from "@/lib/supervisao";
+import { escopoDe } from "@/lib/sessao-servidor";
 import { registrarAuditoria } from "@/lib/auditoria";
 import {
   calcularResolvidoEm,
   camposProibidos,
   filtrarMensagens,
   podeMudarStatus,
-  podeVerChamado,
   ROTULO_STATUS,
   type Status,
 } from "@/lib/chamados";
@@ -62,9 +63,7 @@ export async function GET(req: Request, { params }: Params) {
   });
   if (!chamado) return erro("Chamado não encontrado.", 404);
 
-  if (
-    !podeVerChamado(auth.usuario.papel, auth.usuario.id, chamado.solicitanteId)
-  ) {
+  if (!alcancaChamado(escopoDe(auth.usuario), chamado)) {
     // 404 e não 403: para quem não é dono, o chamado alheio simplesmente não
     // existe — um 403 confirmaria que aquele número é de alguém.
     return erro("Chamado não encontrado.", 404);
@@ -98,7 +97,7 @@ export async function PATCH(req: Request, { params }: Params) {
   });
   if (!atual) return erro("Chamado não encontrado.", 404);
 
-  if (!podeVerChamado(auth.usuario.papel, auth.usuario.id, atual.solicitanteId)) {
+  if (!alcancaChamado(escopoDe(auth.usuario), atual)) {
     return erro("Chamado não encontrado.", 404);
   }
 

@@ -28,7 +28,26 @@ model Sala {
   computadores Computador[]
   funcionarios Funcionario[]
   chamados     Chamado[]
+  supervisores SupervisorSala[]
   criadoEm     DateTime      @default(now())
+}
+
+// Quem responde por uma sala. Tabela de ligação explícita (e não relação
+// implícita do Prisma) por dois motivos: uma sala tem QUANTOS supervisores
+// precisar e um supervisor pode responder por mais de uma sala; e `criadoEm`
+// registra desde quando, que é o tipo de pergunta que aparece depois.
+model SupervisorSala {
+  id         String   @id @default(cuid())
+  usuarioId  String
+  usuario    Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  salaId     String
+  sala       Sala     @relation(fields: [salaId], references: [id], onDelete: Cascade)
+  criadoEm   DateTime @default(now())
+
+  // Uma pessoa não supervisiona a mesma sala duas vezes.
+  @@unique([usuarioId, salaId])
+  @@index([usuarioId])
+  @@index([salaId])
 }
 
 // Usuário = quem ENTRA no sistema. Tabela separada do Funcionario de propósito:
@@ -37,7 +56,13 @@ model Sala {
 // Nem todo funcionário precisa de login, e o TI pode ter login sem estar no
 // inventário. O vínculo é opcional, para o chamado saber de quem é o posto.
 //
-// papel: "ADMIN" (acesso total) | "OPERADOR" (só abre e acompanha chamados).
+// papel:
+//   "ADMIN"      — acesso total ao sistema.
+//   "SUPERVISOR" — responde por uma ou mais salas: vê e edita o que está nelas
+//                  (equipamentos, pessoas, chamados), inclusive o cofre de
+//                  senhas da própria equipe. Não alcança nada fora das salas
+//                  dele, nem as telas globais (usuários, tipos, auditoria).
+//   "OPERADOR"   — só abre e acompanha os próprios chamados.
 // Guardado como String, no mesmo espírito de `cargo`/`categoria` — o SQLite não
 // tem enum nativo e a lista é curta e estável.
 model Usuario {
@@ -60,6 +85,9 @@ model Usuario {
   chamadosAbertos    Chamado[]         @relation("solicitante")
   chamadosAtribuidos Chamado[]         @relation("responsavel")
   mensagens          ChamadoMensagem[]
+  // Salas pelas quais responde. Só faz sentido com papel SUPERVISOR; para os
+  // outros papéis a lista fica vazia.
+  supervisoes        SupervisorSala[]
 
   @@index([funcionarioId])
 }

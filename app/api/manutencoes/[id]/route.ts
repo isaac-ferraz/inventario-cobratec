@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { manutencaoUpdateSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirEscopo, foraDoEscopo } from "@/lib/autorizacao";
+import {
+  alcancaCelular,
+  alcancaComputador,
+  type Escopo,
+} from "@/lib/supervisao";
 import { registrarAuditoria } from "@/lib/auditoria";
 import {
   situacaoAoAbrirManutencao,
@@ -10,6 +15,24 @@ import {
 } from "@/lib/ativos";
 
 type Params = { params: { id: string } };
+
+// A manutenção alcança o supervisor pelo equipamento envolvido.
+async function manutencaoNoEscopo(id: string, escopo: Escopo) {
+  const m = await prisma.manutencao.findUnique({
+    where: { id },
+    select: {
+      computador: {
+        select: { salaId: true, funcionario: { select: { salaId: true } } },
+      },
+      celular: { select: { funcionario: { select: { salaId: true } } } },
+    },
+  });
+  if (!m) return false;
+  if (m.computador) return alcancaComputador(escopo, m.computador);
+  if (m.celular) return alcancaCelular(escopo, m.celular);
+  // Manutenção órfã (equipamento removido): só o TI mexe.
+  return escopo.papel === "ADMIN";
+}
 
 const CAMPOS = {
   id: true,
@@ -26,8 +49,11 @@ const CAMPOS = {
 } as const;
 
 export async function PATCH(req: Request, { params }: Params) {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
+  if (!(await manutencaoNoEscopo(params.id, auth.escopo))) {
+    return foraDoEscopo("Manutenção");
+  }
 
   const r = await validarCorpo(req, manutencaoUpdateSchema);
   if ("resposta" in r) return r.resposta;
@@ -121,8 +147,11 @@ export async function PATCH(req: Request, { params }: Params) {
 }
 
 export async function DELETE(req: Request, { params }: Params) {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
+  if (!(await manutencaoNoEscopo(params.id, auth.escopo))) {
+    return foraDoEscopo("Manutenção");
+  }
 
   const atual = await prisma.manutencao.findUnique({
     where: { id: params.id },

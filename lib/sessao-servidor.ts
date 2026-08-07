@@ -8,14 +8,21 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { COOKIE_SESSAO, lerSessao, type Sessao } from "@/lib/sessao";
+import type { Escopo, Papel } from "@/lib/supervisao";
 
 export type UsuarioSessao = {
   id: string;
   login: string;
   nome: string;
-  papel: "ADMIN" | "OPERADOR";
+  papel: Papel;
   senhaProvisoria: boolean;
   funcionarioId: string | null;
+  /**
+   * Salas pelas quais responde. Vem do banco a cada requisição, junto com o
+   * papel — nunca do cookie: tirar uma sala do supervisor precisa valer na
+   * requisição seguinte, e não quando a sessão dele expirar.
+   */
+  salaIds: string[];
 };
 
 async function confirmarNoBanco(
@@ -32,19 +39,39 @@ async function confirmarNoBanco(
       ativo: true,
       senhaProvisoria: true,
       funcionarioId: true,
+      supervisoes: { select: { salaId: true } },
     },
   });
   if (!usuario || !usuario.ativo) return null;
+
+  // O papel VALE O DO BANCO, não o do cookie: rebaixar alguém tem efeito na
+  // requisição seguinte, sem esperar a sessão expirar. Papel desconhecido cai
+  // no menos privilegiado — se alguém escrever lixo na coluna, o resultado é
+  // acesso de operador, nunca de admin.
+  const papel: Papel =
+    usuario.papel === "ADMIN"
+      ? "ADMIN"
+      : usuario.papel === "SUPERVISOR"
+        ? "SUPERVISOR"
+        : "OPERADOR";
+
   return {
     id: usuario.id,
     login: usuario.login,
     nome: usuario.nome,
-    // O papel VALE O DO BANCO, não o do cookie: rebaixar alguém tem efeito na
-    // requisição seguinte, sem esperar a sessão expirar.
-    papel: usuario.papel === "ADMIN" ? "ADMIN" : "OPERADOR",
+    papel,
     senhaProvisoria: usuario.senhaProvisoria,
     funcionarioId: usuario.funcionarioId,
+    // Só o supervisor usa isto; para os outros papéis a lista fica vazia mesmo
+    // que sobre algum vínculo antigo no banco.
+    salaIds:
+      papel === "SUPERVISOR" ? usuario.supervisoes.map((s) => s.salaId) : [],
   };
+}
+
+/** Escopo pronto para as regras de lib/supervisao.ts. */
+export function escopoDe(u: UsuarioSessao): Escopo {
+  return { id: u.id, papel: u.papel, salaIds: u.salaIds };
 }
 
 // Para páginas (Server Components) — lê o cookie da requisição atual.

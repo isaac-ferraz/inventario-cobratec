@@ -18,6 +18,7 @@ const CAMPOS_PUBLICOS = {
   funcionarioId: true,
   criadoEm: true,
   ultimoAcessoEm: true,
+  supervisoes: { select: { sala: { select: { id: true, nome: true } } } },
 } as const;
 
 // Trava anti-tranca: o sistema não pode ficar sem NENHUM administrador ativo,
@@ -37,6 +38,15 @@ async function deixariaSemAdmin(
     where: { papel: "ADMIN", ativo: true },
   });
   return adminsAtivos <= 1;
+}
+
+/** Papel gravado hoje — usado quando o PATCH mexe em salas sem mexer no papel. */
+async function papelAtual(id: string): Promise<string> {
+  const u = await prisma.usuario.findUnique({
+    where: { id },
+    select: { papel: true },
+  });
+  return u?.papel ?? "OPERADOR";
 }
 
 export async function PATCH(req: Request, { params }: Params) {
@@ -84,9 +94,33 @@ export async function PATCH(req: Request, { params }: Params) {
       dados.senhaProvisoria = true;
     }
 
+    // Salas do supervisor: trocar o conjunto inteiro é mais simples e mais
+    // seguro que casar diferenças — "estas são as salas dele agora".
+    //
+    // Rebaixar de SUPERVISOR limpa os vínculos: deixá-los pendurados faria as
+    // salas antigas voltarem a valer sozinhas se alguém promovesse a pessoa de
+    // novo meses depois, sem ninguém ter decidido isso.
+    const mexeEmSalas = "salaIds" in r.data || papelNovo !== undefined;
+    let salasNovas: string[] | null = null;
+    if (mexeEmSalas) {
+      const papelFinal = papelNovo ?? (await papelAtual(params.id));
+      salasNovas =
+        papelFinal === "SUPERVISOR" ? [...new Set(r.data.salaIds ?? [])] : [];
+    }
+
     const atualizado = await prisma.usuario.update({
       where: { id: params.id },
-      data: dados,
+      data: {
+        ...dados,
+        ...(salasNovas === null
+          ? {}
+          : {
+              supervisoes: {
+                deleteMany: {},
+                create: salasNovas.map((salaId) => ({ salaId })),
+              },
+            }),
+      },
       select: CAMPOS_PUBLICOS,
     });
 
@@ -94,6 +128,11 @@ export async function PATCH(req: Request, { params }: Params) {
       r.data.senha ? "senha redefinida" : null,
       papelNovo ? `papel = ${papelNovo}` : null,
       ativoNovo === false ? "inativado" : ativoNovo === true ? "reativado" : null,
+      salasNovas
+        ? `salas: ${
+            atualizado.supervisoes.map((s) => s.sala.nome).join(", ") || "nenhuma"
+          }`
+        : null,
     ].filter(Boolean);
 
     await registrarAuditoria(req, {

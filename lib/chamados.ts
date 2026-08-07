@@ -16,7 +16,10 @@ export type Status = (typeof STATUS)[number];
 export const PRIORIDADES = ["baixa", "normal", "alta", "urgente"] as const;
 export type Prioridade = (typeof PRIORIDADES)[number];
 
-export type Papel = "ADMIN" | "OPERADOR";
+// Papel vem de lib/supervisao.ts: uma definição só, para não existir a
+// possibilidade de os dois arquivos discordarem sobre quais papéis existem.
+export type { Papel } from "@/lib/supervisao";
+import type { Papel } from "@/lib/supervisao";
 
 export const ROTULO_STATUS: Record<Status, string> = {
   aberto: "Aberto",
@@ -40,17 +43,15 @@ export function estaEmAberto(status: string): boolean {
   return (STATUS_ABERTOS as string[]).includes(status);
 }
 
-// Só o dono do chamado ou um administrador podem vê-lo.
-export function podeVerChamado(
-  papel: Papel,
-  usuarioId: string,
-  solicitanteId: string,
-): boolean {
-  return papel === "ADMIN" || usuarioId === solicitanteId;
-}
+// A visibilidade do chamado mora em lib/supervisao.ts (`alcancaChamado`): quem
+// enxerga o quê é a mesma pergunta para chamado, computador e pessoa, e uma
+// regra só evita que elas se desencontrem. O SUPERVISOR vê os chamados das
+// salas dele; o resto das regras abaixo o trata como operador de propósito —
+// a fila de atendimento continua sendo do TI.
 
-// Nota interna é conversa do TI sobre o chamado: o solicitante nunca a recebe.
-// Filtrar aqui (e não só esconder na tela) evita que a nota vá no JSON.
+// Nota interna é conversa do TI sobre o chamado: nem o solicitante nem o
+// supervisor da sala a recebem. Filtrar aqui (e não só esconder na tela) evita
+// que a nota vá no JSON.
 export function filtrarMensagens<T extends { interna: boolean }>(
   papel: Papel,
   mensagens: T[],

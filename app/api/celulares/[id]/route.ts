@@ -4,12 +4,13 @@ import { z } from "zod";
 import { celularSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria, type AcaoAuditoria } from "@/lib/auditoria";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirAdmin, exigirEscopo, foraDoEscopo } from "@/lib/autorizacao";
+import { alcancaCelular, alcancaFuncionario, ehSupervisor } from "@/lib/supervisao";
 
 type Params = { params: { id: string } };
 
 export async function GET(req: Request, { params }: Params) {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const celular = await prisma.celular.findUnique({
     where: { id: params.id },
@@ -18,6 +19,7 @@ export async function GET(req: Request, { params }: Params) {
   if (!celular) {
     return NextResponse.json({ erro: "Não encontrado" }, { status: 404 });
   }
+  if (!alcancaCelular(auth.escopo, celular)) return foraDoEscopo("Celular");
   return NextResponse.json(celular);
 }
 
@@ -26,8 +28,19 @@ export async function GET(req: Request, { params }: Params) {
 // envia o `atualizadoEm` que carregou; se o registro mudou nesse meio-tempo,
 // devolvemos 409 em vez de sobrescrever a alteração de outra pessoa.
 export async function PATCH(req: Request, { params }: Params) {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
+
+  // Escopo antes de qualquer escrita: o aparelho precisa ser de alguém que
+  // senta numa sala dele.
+  const antesDoEscopo = await prisma.celular.findUnique({
+    where: { id: params.id },
+    select: { funcionario: { select: { salaId: true } } },
+  });
+  if (!antesDoEscopo) return erro("Registro não encontrado.", 404);
+  if (!alcancaCelular(auth.escopo, antesDoEscopo)) {
+    return foraDoEscopo("Celular");
+  }
   const r = await validarCorpo(
     req,
     celularSchema.partial().extend({

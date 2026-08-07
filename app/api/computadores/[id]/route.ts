@@ -5,12 +5,13 @@ import { computadorSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { expandirComponentes } from "@/lib/especificacoes";
 import { registrarAuditoria, type AcaoAuditoria } from "@/lib/auditoria";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirAdmin, exigirEscopo, foraDoEscopo } from "@/lib/autorizacao";
+import { alcancaComputador, podeMover } from "@/lib/supervisao";
 
 type Params = { params: { id: string } };
 
 export async function GET(req: Request, { params }: Params) {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const computador = await prisma.computador.findUnique({
     where: { id: params.id },
@@ -23,6 +24,11 @@ export async function GET(req: Request, { params }: Params) {
   if (!computador) {
     return NextResponse.json({ erro: "Não encontrado" }, { status: 404 });
   }
+  // Fora do escopo responde 404, não 403: um 403 confirmaria que aquele
+  // patrimônio existe.
+  if (!alcancaComputador(auth.escopo, computador)) {
+    return foraDoEscopo("Computador");
+  }
   return NextResponse.json({
     ...computador,
     componentes: expandirComponentes(computador.componentes),
@@ -34,7 +40,7 @@ export async function GET(req: Request, { params }: Params) {
 // envia o `atualizadoEm` que carregou; se o registro mudou nesse meio-tempo,
 // devolvemos 409 em vez de sobrescrever a alteração de outra pessoa.
 export async function PATCH(req: Request, { params }: Params) {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const r = await validarCorpo(
     req,
@@ -49,6 +55,33 @@ export async function PATCH(req: Request, { params }: Params) {
   // funcionarioId vazio ("") significa "sem funcionário" (null)
   if ("funcionarioId" in data) {
     data.funcionarioId = data.funcionarioId || null;
+  }
+
+  // Escopo do supervisor, antes de qualquer escrita.
+  const antesDoEscopo = await prisma.computador.findUnique({
+    where: { id: params.id },
+    select: {
+      salaId: true,
+      funcionario: { select: { salaId: true } },
+    },
+  });
+  if (!antesDoEscopo) return erro("Registro não encontrado.", 404);
+  if (!alcancaComputador(auth.escopo, antesDoEscopo)) {
+    return foraDoEscopo("Computador");
+  }
+  // Mudar de sala é mover: o destino também precisa ser dele, senão empurraria
+  // a máquina para fora do próprio alcance.
+  if ("salaId" in data) {
+    const destino = (data.salaId as string | null) || null;
+    if (
+      destino !== antesDoEscopo.salaId &&
+      !podeMover(auth.escopo, antesDoEscopo.salaId, destino)
+    ) {
+      return erro(
+        "Você só pode mover equipamentos entre as salas pelas quais responde.",
+        403,
+      );
+    }
   }
 
   if (esperaAtualizadoEm) {

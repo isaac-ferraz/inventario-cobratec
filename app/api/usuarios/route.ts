@@ -19,7 +19,16 @@ const CAMPOS_PUBLICOS = {
   criadoEm: true,
   ultimoAcessoEm: true,
   funcionario: { select: { id: true, nome: true, cargo: true } },
+  supervisoes: { select: { sala: { select: { id: true, nome: true } } } },
 } as const;
+
+// Vínculo com salas só faz sentido para SUPERVISOR. Guardar sala em admin ou
+// operador criaria um estado que não significa nada e que voltaria a valer se
+// o papel mudasse depois — melhor zerar na hora.
+function salasDoPapel(papel: string, salaIds: string[] | undefined): string[] {
+  if (papel !== "SUPERVISOR") return [];
+  return [...new Set(salaIds ?? [])];
+}
 
 export async function GET(req: Request): Promise<NextResponse> {
   const auth = await exigirAdmin(req);
@@ -55,6 +64,11 @@ export async function POST(req: Request): Promise<NextResponse> {
         senhaHash: await gerarHashSenha(r.data.senha),
         // Senha definida por outra pessoa nasce provisória: a UI cobra a troca.
         senhaProvisoria: true,
+        supervisoes: {
+          create: salasDoPapel(r.data.papel, r.data.salaIds).map((salaId) => ({
+            salaId,
+          })),
+        },
       },
       select: CAMPOS_PUBLICOS,
     });
@@ -63,7 +77,11 @@ export async function POST(req: Request): Promise<NextResponse> {
       acao: "criar",
       entidade: "Usuario",
       entidadeId: criado.id,
-      descricao: `Usuário "${criado.login}" criado como ${criado.papel}`,
+      descricao: `Usuário "${criado.login}" criado como ${criado.papel}${
+        criado.supervisoes.length
+          ? ` (salas: ${criado.supervisoes.map((s) => s.sala.nome).join(", ")})`
+          : ""
+      }`,
     });
 
     return NextResponse.json(criado, { status: 201 });

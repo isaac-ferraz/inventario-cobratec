@@ -3,11 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { celularSchema } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirAdmin, exigirEscopo } from "@/lib/autorizacao";
+import { filtroCelular } from "@/lib/supervisao";
 
 // GET /api/celulares?funcionarioId=...&cargo=...
 export async function GET(req: Request): Promise<NextResponse> {
-  const auth = await exigirAdmin(req);
+  const auth = await exigirEscopo(req);
   if ("resposta" in auth) return auth.resposta;
   const url = new URL(req.url);
   const funcionarioId = url.searchParams.get("funcionarioId");
@@ -25,14 +26,17 @@ export async function GET(req: Request): Promise<NextResponse> {
     where.funcionario = { cargo };
   }
 
+  // O celular não tem sala: o recorte do supervisor vem pelo dono (decisão 15).
+  const escopo = filtroCelular(auth.escopo);
   const celulares = await prisma.celular.findMany({
-    where,
+    where: escopo ? { AND: [where, escopo] } : where,
     include: { funcionario: true },
     orderBy: { identificador: "asc" },
   });
   return NextResponse.json(celulares);
 }
 
+// Cadastrar aparelho novo é entrada de patrimônio — segue só com o TI.
 export async function POST(req: Request): Promise<NextResponse> {
   const auth = await exigirAdmin(req);
   if ("resposta" in auth) return auth.resposta;

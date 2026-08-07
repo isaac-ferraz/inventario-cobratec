@@ -23,6 +23,31 @@ const PERMITIDO_OPERADOR = [
   "/api/senha",
 ];
 
+// Rotas que o SUPERVISOR de sala alcança. Ele enxerga e edita o inventário das
+// salas dele — mas QUAIS registros são dele o middleware não tem como saber
+// (roda no Edge, sem banco). Aqui é só a porta; o recorte por sala acontece em
+// cada rota, via exigirEscopo + os filtros de lib/supervisao.ts.
+//
+// Fora desta lista de propósito: /usuarios, /tipos (catálogo global),
+// /auditoria, /deposito (suprimentos não têm sala) e /api/export — a planilha
+// sai com o parque inteiro, e recortá-la é outro trabalho.
+const PERMITIDO_SUPERVISOR = [
+  ...PERMITIDO_OPERADOR,
+  "/", // dashboard, recortado pelas salas dele
+  "/computadores",
+  "/celulares",
+  "/funcionarios",
+  "/salas",
+  "/manutencoes",
+  "/api/computadores",
+  "/api/celulares",
+  "/api/componentes",
+  "/api/funcionarios",
+  "/api/salas",
+  "/api/manutencoes",
+  "/api/tipos", // leitura: o formulário de componente precisa do catálogo
+];
+
 function ehPublica(pathname: string): boolean {
   return (
     pathname === "/login" ||
@@ -33,10 +58,25 @@ function ehPublica(pathname: string): boolean {
   );
 }
 
-function operadorPode(pathname: string): boolean {
-  return PERMITIDO_OPERADOR.some(
-    (base) => pathname === base || pathname.startsWith(`${base}/`),
+function casa(lista: string[], pathname: string): boolean {
+  return lista.some(
+    (base) =>
+      pathname === base ||
+      // "/" é prefixo de tudo: sem esta guarda, liberar a raiz liberaria o site
+      // inteiro para quem só deveria ver o painel.
+      (base !== "/" && pathname.startsWith(`${base}/`)),
   );
+}
+
+function podeNavegar(papel: string, pathname: string): boolean {
+  if (papel === "ADMIN") return true;
+  if (papel === "SUPERVISOR") return casa(PERMITIDO_SUPERVISOR, pathname);
+  return casa(PERMITIDO_OPERADOR, pathname);
+}
+
+/** Para onde mandar quem bateu numa porta que não é dele. */
+function telaInicial(papel: string): string {
+  return papel === "SUPERVISOR" ? "/" : "/chamados";
 }
 
 export async function middleware(req: NextRequest) {
@@ -71,14 +111,14 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(destino);
   }
 
-  if (sessao.papel !== "ADMIN" && !operadorPode(pathname)) {
+  if (!podeNavegar(sessao.papel, pathname)) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
         { erro: "Acesso restrito ao administrador do sistema." },
         { status: 403 },
       );
     }
-    return NextResponse.redirect(new URL("/chamados", req.url));
+    return NextResponse.redirect(new URL(telaInicial(sessao.papel), req.url));
   }
 
   // Identidade confirmada segue para a trilha de auditoria.

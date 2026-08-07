@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  podeVerChamado,
   filtrarMensagens,
   podeMudarStatus,
   camposProibidos,
@@ -8,16 +7,9 @@ import {
   estaEmAberto,
 } from "./chamados";
 
-describe("visibilidade do chamado", () => {
-  it("admin vê qualquer chamado", () => {
-    expect(podeVerChamado("ADMIN", "u1", "outro")).toBe(true);
-  });
-
-  it("operador vê só o próprio", () => {
-    expect(podeVerChamado("OPERADOR", "u1", "u1")).toBe(true);
-    expect(podeVerChamado("OPERADOR", "u1", "u2")).toBe(false);
-  });
-});
+// A visibilidade do chamado mudou de casa: agora é `alcancaChamado`, em
+// lib/supervisao.test.ts, junto com a dos computadores e das pessoas — quem
+// enxerga o quê passou a ser uma pergunta só, com os três papéis.
 
 describe("nota interna", () => {
   const mensagens = [
