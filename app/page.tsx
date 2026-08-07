@@ -1,25 +1,31 @@
 // Dashboard — indicadores principais do inventário (mesma base do Excel).
+//
+// Todo indicador é clicável e abre um POP-UP com os registros por trás do
+// número: "Sem licença Windows: 7" responde "quais sete?" sem tirar o analista
+// do painel. O caminho para a tela completa (com edição e filtros) fica num link
+// pequeno no rodapé do pop-up — é a exceção, não o gesto principal.
+//
+// As listas são montadas aqui, no servidor: a página já carrega computadores,
+// celulares e chamados para calcular os números, então o detalhe sai de graça.
 import Link from "next/link";
-import {
-  Monitor,
-  Users,
-  PackageOpen,
-  Smartphone,
-  LifeBuoy,
-  UserX,
-  CheckCircle2,
-  AlarmClock,
-  Wrench,
-  ShieldAlert,
-  Trash2,
-} from "lucide-react";
+import { AlarmClock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { STATUS_ABERTOS } from "@/lib/chamados";
-import { DIAS_AVISO_GARANTIA } from "@/lib/ativos";
-import { contarPendencias } from "@/lib/pendencias";
+import { ROTULO_STATUS, STATUS_ABERTOS, type Status } from "@/lib/chamados";
+import {
+  DIAS_AVISO_GARANTIA,
+  ROTULO_SITUACAO,
+  type Situacao,
+} from "@/lib/ativos";
+import { PENDENCIAS } from "@/lib/pendencias";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButton } from "@/components/export-button";
-import { cn } from "@/lib/utils";
+import { BarList, CardPendencia, Kpi } from "@/components/dashboard/cards";
+import {
+  LIMITE_DETALHE,
+  type Barra,
+  type Detalhe,
+  type ItemDetalhe,
+} from "@/components/dashboard/tipos";
 
 export const dynamic = "force-dynamic";
 
@@ -28,257 +34,297 @@ export const dynamic = "force-dynamic";
 const SEM_DONO = "Sem funcionário (estoque)";
 const SEM_SALA = "Sem sala definida";
 
-// Cada barra leva para a lista daquele recorte — o número por si só não responde
-// "quais?", que é sempre a pergunta seguinte.
-type Barra = { label: string; valor: number; href?: string };
+type PcComRelacoes = {
+  id: string;
+  identificador: string;
+  apelido: string | null;
+  situacao: string;
+  funcionario: { id: string; nome: string; cargo: string } | null;
+  sala: { id: string; nome: string } | null;
+};
 
-function BarList({ dados, cor }: { dados: Barra[]; cor: string }) {
-  const max = Math.max(1, ...dados.map((d) => d.valor));
-  if (dados.length === 0) {
-    return <p className="text-sm text-muted-foreground">Sem dados ainda.</p>;
-  }
-  return (
-    <div className="space-y-2.5">
-      {dados.map((d) => {
-        const conteudo = (
-          <>
-            <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="truncate text-foreground">{d.label}</span>
-              <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                {d.valor}
-              </span>
-            </div>
-            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className={cn("h-full rounded-full", cor)}
-                style={{ width: `${(d.valor / max) * 100}%` }}
-              />
-            </div>
-          </>
-        );
-        return d.href ? (
-          <Link
-            key={d.label}
-            href={d.href}
-            title={`Ver os ${d.valor} computador(es): ${d.label}`}
-            className="block rounded-sm px-1 py-0.5 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {conteudo}
-          </Link>
-        ) : (
-          <div key={d.label} className="px-1 py-0.5">
-            {conteudo}
-          </div>
-        );
-      })}
-    </div>
-  );
+type CelComRelacoes = {
+  id: string;
+  identificador: string;
+  apelido: string | null;
+  numero: string | null;
+  situacao: string;
+  funcionario: { id: string; nome: string; cargo: string } | null;
+};
+
+// Um computador vira linha do pop-up: patrimônio, quem usa e onde fica.
+function itemPc(c: PcComRelacoes): ItemDetalhe {
+  return {
+    id: c.id,
+    titulo: c.identificador,
+    subtitulo:
+      [c.apelido, c.funcionario?.nome, c.sala?.nome].filter(Boolean).join(" · ") ||
+      null,
+    etiqueta: c.funcionario?.cargo ?? "estoque",
+    // Leva à própria máquina na lista, já buscada pelo patrimônio.
+    href: `/computadores?busca=${encodeURIComponent(c.identificador)}`,
+  };
 }
 
-// KPI clicável. O href é obrigatório de propósito: um card que não leva a lugar
-// nenhum é o problema que esta tela tinha.
-function Kpi({
-  titulo,
-  valor,
-  href,
-  Icone,
-  rodape,
-  tom = "neutro",
-}: {
-  titulo: string;
-  valor: number;
-  href: string;
-  Icone: typeof Monitor;
-  rodape?: React.ReactNode;
-  tom?: "neutro" | "alerta" | "ok" | "apagado";
-}) {
-  return (
-    <Link
-      href={href}
-      title={`${titulo}: ver a lista`}
-      className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Card className="relative h-full overflow-hidden transition-shadow hover:shadow-md">
-        <span
-          aria-hidden
-          className={cn(
-            "absolute inset-x-0 top-0 h-0.5",
-            tom === "alerta"
-              ? "bg-amber-500"
-              : tom === "ok"
-                ? "bg-emerald-500"
-                : tom === "apagado"
-                  ? "bg-muted-foreground/40"
-                  : "bg-primary",
-          )}
-        />
-        <CardContent className="pt-5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">{titulo}</span>
-            <Icone className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div
-            className={cn(
-              "mt-2 font-display text-3xl font-bold tabular-nums",
-              tom === "alerta" && "num-alerta",
-              tom === "ok" && "num-ok",
-              tom === "apagado" && "text-muted-foreground",
-            )}
-          >
-            {valor}
-          </div>
-          {rodape && <div className="eyebrow mt-1">{rodape}</div>}
-        </CardContent>
-      </Card>
-    </Link>
-  );
+function itemCel(c: CelComRelacoes): ItemDetalhe {
+  return {
+    id: c.id,
+    titulo: c.identificador,
+    subtitulo:
+      [c.apelido, c.numero, c.funcionario?.nome].filter(Boolean).join(" · ") ||
+      null,
+    etiqueta: c.funcionario?.cargo ?? "estoque",
+    href: `/celulares?busca=${encodeURIComponent(c.identificador)}`,
+  };
+}
+
+/** Monta o detalhe de um indicador a partir da lista completa dele. */
+function detalhe(
+  todos: ItemDetalhe[],
+  href: string,
+  descricao?: string,
+): Detalhe {
+  return {
+    itens: todos.slice(0, LIMITE_DETALHE),
+    total: todos.length,
+    href,
+    descricao,
+  };
 }
 
 export default async function DashboardPage() {
-  const [chamadosAbertos, chamadoMaisAntigo, semResponsavel, resolvidos7d] =
-    await Promise.all([
-      prisma.chamado.count({ where: { status: { in: STATUS_ABERTOS } } }),
-      prisma.chamado.findFirst({
-        where: { status: { in: STATUS_ABERTOS } },
-        orderBy: { criadoEm: "asc" },
-        select: { numero: true, titulo: true, criadoEm: true },
-      }),
-      prisma.chamado.count({
-        where: { status: { in: STATUS_ABERTOS }, responsavelId: null },
-      }),
-      prisma.chamado.count({
-        where: {
-          resolvidoEm: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-        },
-      }),
-    ]);
+  const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const CAMPOS_CHAMADO = {
+    id: true,
+    numero: true,
+    titulo: true,
+    status: true,
+    prioridade: true,
+    criadoEm: true,
+    responsavel: { select: { nome: true } },
+  } as const;
+
+  // Os chamados agora vêm como LISTA (e não só contagem): é ela que o pop-up
+  // mostra. O teto evita carregar a fila inteira de um ano no painel.
+  const [abertos, semResponsavelLista, resolvidos] = await Promise.all([
+    prisma.chamado.findMany({
+      where: { status: { in: STATUS_ABERTOS } },
+      orderBy: { criadoEm: "asc" },
+      select: CAMPOS_CHAMADO,
+      take: 200,
+    }),
+    prisma.chamado.findMany({
+      where: { status: { in: STATUS_ABERTOS }, responsavelId: null },
+      orderBy: { criadoEm: "asc" },
+      select: CAMPOS_CHAMADO,
+      take: 200,
+    }),
+    prisma.chamado.findMany({
+      where: { resolvidoEm: { gte: seteDiasAtras } },
+      orderBy: { resolvidoEm: "desc" },
+      select: CAMPOS_CHAMADO,
+      take: 200,
+    }),
+  ]);
+
+  const chamadosAbertos = abertos.length;
+  const semResponsavel = semResponsavelLista.length;
+  const resolvidos7d = resolvidos.length;
+  const chamadoMaisAntigo = abertos[0] ?? null;
+
+  const itemChamado = (c: (typeof abertos)[number]): ItemDetalhe => ({
+    id: c.id,
+    titulo: `#${c.numero} · ${c.titulo}`,
+    subtitulo: c.responsavel ? `com ${c.responsavel.nome}` : "sem responsável",
+    etiqueta: ROTULO_STATUS[c.status as Status] ?? c.status,
+    href: `/chamados/${c.id}`,
+  });
 
   const [computadores, celulares] = await Promise.all([
     prisma.computador.findMany({
+      orderBy: { identificador: "asc" },
       include: {
         funcionario: true,
         sala: true,
         componentes: { include: { tipo: true } },
       },
     }),
-    prisma.celular.findMany({ include: { funcionario: true } }),
+    prisma.celular.findMany({
+      orderBy: { identificador: "asc" },
+      include: { funcionario: true },
+    }),
   ]);
 
   const total = computadores.length;
-  const semFuncionario = computadores.filter((c) => !c.funcionario).length;
-  const emUso = total - semFuncionario;
+  const pcsSemDono = computadores.filter((c) => !c.funcionario);
+  const pcsComDono = computadores.filter((c) => c.funcionario);
+  const emUso = pcsComDono.length;
 
   const totalCelulares = celulares.length;
-  const celularesSemFunc = celulares.filter((c) => !c.funcionario).length;
+  const celsSemDono = celulares.filter((c) => !c.funcionario);
 
-  const porCargo = new Map<string, number>();
+  // ── Agrupamentos: guardam a lista junto com a contagem, para o pop-up ──
+  const porCargo = new Map<string, PcComRelacoes[]>();
   for (const c of computadores) {
     const cargo = c.funcionario?.cargo ?? SEM_DONO;
-    porCargo.set(cargo, (porCargo.get(cargo) ?? 0) + 1);
+    porCargo.set(cargo, [...(porCargo.get(cargo) ?? []), c]);
   }
 
-  // O id da sala é guardado junto com o nome porque a barra vira link para a
-  // página da sala — e o agrupamento é por nome.
-  const porSala = new Map<string, number>();
+  const porSala = new Map<string, PcComRelacoes[]>();
   const salaIdPorNome = new Map<string, string>();
   for (const c of computadores) {
     const sala = c.sala?.nome ?? SEM_SALA;
     if (c.sala) salaIdPorNome.set(c.sala.nome, c.sala.id);
-    porSala.set(sala, (porSala.get(sala) ?? 0) + 1);
+    porSala.set(sala, [...(porSala.get(sala) ?? []), c]);
   }
 
-  // Idem para o tipo de componente: o filtro da lista é por id, não por nome.
-  const porTipo = new Map<string, { valor: number; id: string }>();
+  // Por tipo de componente conta PEÇAS, mas o pop-up lista MÁQUINAS — é o que
+  // dá para abrir e conferir. A máquina com 2 pentes de RAM aparece uma vez.
+  const porTipo = new Map<string, { pecas: number; id: string; pcs: Set<string> }>();
+  const pcPorId = new Map(computadores.map((c) => [c.id, c]));
   for (const c of computadores) {
     for (const comp of c.componentes) {
       const atual = porTipo.get(comp.tipo.nome);
+      const pcs = atual?.pcs ?? new Set<string>();
+      pcs.add(c.id);
       porTipo.set(comp.tipo.nome, {
-        valor: (atual?.valor ?? 0) + 1,
+        pecas: (atual?.pecas ?? 0) + 1,
         id: comp.tipo.id,
+        pcs,
       });
     }
   }
 
   const cargoData: Barra[] = [...porCargo.entries()]
-    .map(([label, valor]) => ({
+    .map(([label, pcs]) => ({
       label,
-      valor,
-      // "Sem funcionário (estoque)" não é um cargo: vai para o filtro de dono.
-      href:
+      valor: pcs.length,
+      detalhe: detalhe(
+        pcs.map(itemPc),
         label === SEM_DONO
           ? "/computadores?funcionario=sem"
           : `/computadores?cargo=${encodeURIComponent(label)}`,
+        label === SEM_DONO
+          ? "Máquinas sem dono — estoque ou aguardando destino."
+          : `Computadores de quem ocupa o cargo “${label}”.`,
+      ),
     }))
     .sort((a, b) => b.valor - a.valor);
 
   const salaData: Barra[] = [...porSala.entries()]
-    .map(([label, valor]) => ({
+    .map(([label, pcs]) => ({
       label,
-      valor,
-      // Sala de verdade tem página própria; "sem sala" é um recorte da lista.
-      href: salaIdPorNome.has(label)
-        ? `/salas/${salaIdPorNome.get(label)}`
-        : "/computadores?sala=sem",
+      valor: pcs.length,
+      detalhe: detalhe(
+        pcs.map(itemPc),
+        salaIdPorNome.has(label)
+          ? `/salas/${salaIdPorNome.get(label)}`
+          : "/computadores?sala=sem",
+        salaIdPorNome.has(label)
+          ? `Computadores registrados na sala “${label}”.`
+          : "Máquinas sem sala registrada.",
+      ),
     }))
     .sort((a, b) => b.valor - a.valor);
 
   const tipoData: Barra[] = [...porTipo.entries()]
-    .map(([label, { valor, id }]) => ({
+    .map(([label, { pecas, id, pcs }]) => ({
       label,
-      valor,
-      href: `/computadores?tipo=${id}`,
+      valor: pecas,
+      detalhe: detalhe(
+        [...pcs].map((pcId) => itemPc(pcPorId.get(pcId)!)),
+        `/computadores?tipo=${id}`,
+        `${pecas} peça(s) de “${label}” em ${pcs.size} computador(es).`,
+      ),
     }))
     .sort((a, b) => b.valor - a.valor);
 
-  // Ciclo de vida: o que exige uma decisão do TI nas próximas semanas.
+  // ── Ciclo de vida: o que exige uma decisão do TI nas próximas semanas ──
   const limiteGarantia = new Date(
     Date.now() + DIAS_AVISO_GARANTIA * 24 * 60 * 60 * 1000,
   );
-  const emManutencao = [...computadores, ...celulares].filter(
-    (e) => e.situacao === "manutencao",
-  ).length;
-  const descartados = [...computadores, ...celulares].filter(
-    (e) => e.situacao === "descartado",
-  ).length;
-  const garantiaVencendo = [...computadores, ...celulares].filter(
-    (e) =>
-      e.garantiaAte &&
-      e.garantiaAte <= limiteGarantia &&
-      e.garantiaAte >= new Date() &&
-      e.situacao !== "descartado",
-  ).length;
+  const agora = new Date();
 
-  // Pendências: a contagem vem do MESMO catálogo que a lista usa para filtrar
-  // (lib/pendencias.ts). Se cada um tivesse a sua regra, o card diria "7" e o
-  // clique abriria 6.
-  const pendencias = contarPendencias(computadores);
+  const equipamentos = [
+    ...computadores.map((c) => ({ tipo: "pc" as const, e: c })),
+    ...celulares.map((c) => ({ tipo: "cel" as const, e: c })),
+  ];
 
-  // "Em estoque" mistura PCs e celulares, que moram em telas diferentes — o
-  // clique leva aos computadores, que é a maioria do parque.
+  const itemEquip = (x: (typeof equipamentos)[number]): ItemDetalhe => {
+    const base = x.tipo === "pc" ? itemPc(x.e) : itemCel(x.e);
+    return {
+      ...base,
+      etiqueta:
+        ROTULO_SITUACAO[x.e.situacao as Situacao] ?? base.etiqueta ?? null,
+    };
+  };
+
+  const emManutencao = equipamentos.filter((x) => x.e.situacao === "manutencao");
+  const descartados = equipamentos.filter((x) => x.e.situacao === "descartado");
+  const garantiaVencendo = equipamentos.filter(
+    (x) =>
+      x.e.garantiaAte &&
+      x.e.garantiaAte <= limiteGarantia &&
+      x.e.garantiaAte >= agora &&
+      x.e.situacao !== "descartado",
+  );
+
+  // ── Pendências: contagem e lista saem do MESMO catálogo que a tela filtra ──
+  const pendencias = PENDENCIAS.map((p) => {
+    const faltando = computadores.filter(p.falta);
+    return {
+      chave: p.chave,
+      rotulo: p.rotulo,
+      valor: faltando.length,
+      detalhe: detalhe(
+        faltando.map(itemPc),
+        `/computadores?pendencia=${p.chave}`,
+        `Computadores em que falta registrar: ${p.rotulo.toLowerCase()}.`,
+      ),
+    };
+  });
+
   const kpis = [
     {
       titulo: "Total de computadores",
       valor: total,
-      icon: Monitor,
-      href: "/computadores",
+      icone: "monitor" as const,
+      detalhe: detalhe(
+        computadores.map(itemPc),
+        "/computadores",
+        "Todo o parque de máquinas registrado.",
+      ),
     },
     {
       titulo: "Computadores em uso",
       valor: emUso,
-      icon: Users,
-      href: "/computadores?funcionario=com",
+      icone: "usuarios" as const,
+      detalhe: detalhe(
+        pcsComDono.map(itemPc),
+        "/computadores?funcionario=com",
+        "Máquinas com dono definido.",
+      ),
     },
     {
       titulo: "Total de celulares",
       valor: totalCelulares,
-      icon: Smartphone,
-      href: "/celulares",
+      icone: "celular" as const,
+      detalhe: detalhe(
+        celulares.map(itemCel),
+        "/celulares",
+        "Todos os aparelhos corporativos.",
+      ),
     },
     {
       titulo: "Em estoque (PCs + celulares)",
-      valor: semFuncionario + celularesSemFunc,
-      icon: PackageOpen,
-      href: "/computadores?funcionario=sem",
+      valor: pcsSemDono.length + celsSemDono.length,
+      icone: "estoque" as const,
+      detalhe: detalhe(
+        [...pcsSemDono.map(itemPc), ...celsSemDono.map(itemCel)],
+        "/computadores?funcionario=sem",
+        "Equipamentos sem dono — parados no estoque.",
+      ),
     },
   ];
 
@@ -291,8 +337,8 @@ export default async function DashboardPage() {
             Dashboard
           </h1>
           <p className="text-sm text-muted-foreground">
-            Visão geral do parque de hardware. O Excel reflete exatamente estes
-            dados.
+            Clique em qualquer número para ver quais registros estão por trás
+            dele. O Excel reflete exatamente estes dados.
           </p>
         </div>
         <ExportButton />
@@ -313,9 +359,13 @@ export default async function DashboardPage() {
           <Kpi
             titulo="Chamados em aberto"
             valor={chamadosAbertos}
-            href="/chamados?status=abertos"
-            Icone={LifeBuoy}
+            icone="suporte"
             tom={chamadosAbertos > 0 ? "alerta" : "ok"}
+            detalhe={detalhe(
+              abertos.map(itemChamado),
+              "/chamados?status=abertos",
+              "Do mais antigo para o mais recente.",
+            )}
             rodape={
               chamadoMaisAntigo && (
                 <span className="flex items-center gap-1">
@@ -328,9 +378,13 @@ export default async function DashboardPage() {
           <Kpi
             titulo="Sem responsável"
             valor={semResponsavel}
-            href="/chamados?status=abertos&responsavel=sem"
-            Icone={UserX}
+            icone="semResponsavel"
             tom={semResponsavel > 0 ? "alerta" : "ok"}
+            detalhe={detalhe(
+              semResponsavelLista.map(itemChamado),
+              "/chamados?status=abertos&responsavel=sem",
+              "Chamados em aberto que ninguém assumiu.",
+            )}
             rodape={
               semResponsavel > 0 ? "esperando alguém assumir" : "fila coberta"
             }
@@ -338,16 +392,22 @@ export default async function DashboardPage() {
           <Kpi
             titulo="Resolvidos (7 dias)"
             valor={resolvidos7d}
-            href="/chamados?status=resolvido"
-            Icone={CheckCircle2}
+            icone="resolvido"
             tom="ok"
+            detalhe={detalhe(
+              resolvidos.map(itemChamado),
+              "/chamados?status=resolvido",
+              "Resolvidos na última semana.",
+            )}
             rodape="na última semana"
           />
         </div>
       </section>
 
       {/* Ciclo de vida: só aparece quando há algo a decidir. */}
-      {(emManutencao > 0 || garantiaVencendo > 0 || descartados > 0) && (
+      {(emManutencao.length > 0 ||
+        garantiaVencendo.length > 0 ||
+        descartados.length > 0) && (
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="eyebrow">ciclo de vida</h2>
@@ -361,26 +421,38 @@ export default async function DashboardPage() {
           <div className="grid gap-3 sm:grid-cols-3">
             <Kpi
               titulo="No conserto"
-              valor={emManutencao}
-              href="/manutencoes?situacao=abertas"
-              Icone={Wrench}
+              valor={emManutencao.length}
+              icone="conserto"
               tom="alerta"
+              detalhe={detalhe(
+                emManutencao.map(itemEquip),
+                "/manutencoes?situacao=abertas",
+                "Equipamentos parados na assistência.",
+              )}
               rodape="equipamentos parados"
             />
             <Kpi
               titulo="Garantia acabando"
-              valor={garantiaVencendo}
-              href="/computadores?garantia=vencendo"
-              Icone={ShieldAlert}
+              valor={garantiaVencendo.length}
+              icone="garantia"
               tom="alerta"
+              detalhe={detalhe(
+                garantiaVencendo.map(itemEquip),
+                "/computadores?garantia=vencendo",
+                `Garantia termina nos próximos ${DIAS_AVISO_GARANTIA} dias — ainda dá tempo de acionar.`,
+              )}
               rodape={`nos próximos ${DIAS_AVISO_GARANTIA} dias`}
             />
             <Kpi
               titulo="Descartados"
-              valor={descartados}
-              href="/computadores?situacao=descartado"
-              Icone={Trash2}
+              valor={descartados.length}
+              icone="descarte"
               tom="apagado"
+              detalhe={detalhe(
+                descartados.map(itemEquip),
+                "/computadores?situacao=descartado",
+                "Fora do parque, mantidos para histórico.",
+              )}
               rodape="fora do parque"
             />
           </div>
@@ -394,8 +466,8 @@ export default async function DashboardPage() {
             key={k.titulo}
             titulo={k.titulo}
             valor={k.valor}
-            href={k.href}
-            Icone={k.icon}
+            icone={k.icone}
+            detalhe={k.detalhe}
           />
         ))}
       </div>
@@ -441,56 +513,15 @@ export default async function DashboardPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {pendencias.map((p) => {
-              const ok = p.valor === 0;
-              const conteudo = (
-                <>
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className={cn(
-                        "led",
-                        ok ? "text-emerald-500" : "text-amber-500",
-                      )}
-                    />
-                    <div className="text-xs text-muted-foreground">
-                      {p.rotulo}
-                    </div>
-                  </div>
-                  <div
-                    className={cn(
-                      "mt-1 font-display text-2xl font-bold tabular-nums",
-                      ok ? "num-ok" : "num-alerta",
-                    )}
-                  >
-                    {p.valor}
-                  </div>
-                  <div className="eyebrow">
-                    {total === 0
-                      ? "—"
-                      : ok
-                        ? "tudo registrado"
-                        : `de ${total} PCs · ver quais →`}
-                  </div>
-                </>
-              );
-
-              // Zero não vira link: não há lista para abrir, e um card clicável
-              // que abre o vazio frustra mais do que ajuda.
-              return ok ? (
-                <div key={p.chave} className="rounded-md border border-border p-3">
-                  {conteudo}
-                </div>
-              ) : (
-                <Link
-                  key={p.chave}
-                  href={`/computadores?pendencia=${p.chave}`}
-                  title={`Ver os ${p.valor} computador(es): ${p.rotulo.toLowerCase()}`}
-                  className="rounded-md border border-amber-300 bg-amber-50/50 p-3 transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-amber-800/60 dark:bg-amber-950/40"
-                >
-                  {conteudo}
-                </Link>
-              );
-            })}
+            {pendencias.map((p) => (
+              <CardPendencia
+                key={p.chave}
+                rotulo={p.rotulo}
+                valor={p.valor}
+                totalPcs={total}
+                detalhe={p.detalhe}
+              />
+            ))}
           </div>
         </CardContent>
       </Card>

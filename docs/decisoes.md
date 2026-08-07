@@ -655,8 +655,33 @@ Dashboard vira link para a lista no recorte exato.
 essa igualdade. Texto salvo em branco conta como ausente: `""` e `null` são a
 mesma coisa para quem está conferindo a máquina.
 
-**Card com zero não é link:** não há lista para abrir, e um card clicável que
-abre o vazio frustra mais do que ajuda.
+**Card com zero não abre nada:** não há lista para mostrar, e um pop-up vazio
+frustra mais do que ajuda.
+
+### 23.1 — Pop-up antes da navegação
+
+O clique num indicador **abre um pop-up** com os registros por trás do número, em
+vez de trocar de tela. A pergunta que o painel gera é "quais?", e quase sempre o
+analista só quer conferir e voltar — mandá-lo para outra página cobra o preço de
+perder o painel e ter que voltar. Quem precisa de fato agir usa o link discreto
+no rodapé do pop-up, que leva à tela completa já no mesmo recorte.
+
+As listas são montadas no servidor, junto com os números: a página já carrega
+computadores, celulares e chamados para contar, então o detalhe não custa uma ida
+nova ao banco. O pop-up mostra até 30 itens e diz quantos ficaram de fora.
+
+**Duas armadilhas da fronteira servidor → cliente que isso revelou:**
+
+1. **Componente de ícone não atravessa.** Passar `Icone={Monitor}` para um Client
+   Component quebra com *"Functions cannot be passed directly to Client
+   Components"* — um componente é uma função. O card recebe o **nome** do ícone
+   e resolve o desenho do próprio lado.
+2. **Constante exportada de módulo `"use client"` não atravessa.** O bundler troca
+   cada export por uma referência-proxy; `LIMITE_DETALHE` importado de lá chegava
+   ao servidor como algo que não era número, e `slice(0, NaN)` devolvia **lista
+   vazia com o total certo ao lado** — um bug silencioso, sem erro nenhum. Por
+   isso o contrato compartilhado mora em `components/dashboard/tipos.ts`, um
+   módulo neutro (sem `"use client"`).
 
 **Filtros novos na lista de computadores** para sustentar os destinos:
 `pendencia`, `tipo` (componente) e `garantia`, mais a opção "com funcionário"
