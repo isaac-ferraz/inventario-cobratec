@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { apiSend, mensagem } from "@/lib/fetcher";
 import { useListaPaginada } from "@/hooks/use-lista-paginada";
+import { useFiltroUrl } from "@/hooks/use-filtro-url";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
@@ -43,7 +44,7 @@ type Resumo = { emAberto: number; custoTotal: number };
 export default function ManutencoesPage() {
   const { toast, toastErro } = useToast();
   const confirmar = useConfirmar();
-  const [filtro, setFiltro] = React.useState("abertas");
+  const [filtro, setFiltro] = useFiltroUrl("situacao", "abertas");
   const [dialog, setDialog] = React.useState<{
     aberto: boolean;
     manutencao: Manutencao | null;

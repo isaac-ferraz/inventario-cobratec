@@ -629,3 +629,35 @@ ser calculados por `count`/`aggregate` sobre o conjunto filtrado inteiro, num ca
 de certo. Pelo mesmo motivo, o `total` dos chamados respeita o escopo por papel: se
 viesse cru, o operador descobriria quantos chamados existem na empresa olhando o
 rodapé.
+
+---
+
+## 23. Filtro na URL e o drill-down do Dashboard
+
+**Contexto:** o Dashboard mostrava números que não levavam a lugar nenhum. "Sem
+licença Windows: 7" — quais sete? O analista tinha que ir na lista e conferir na
+mão. O impedimento técnico era que os filtros das telas viviam em `useState`:
+não havia como linkar para uma lista já filtrada.
+
+**Decisão:** os filtros passam a viver na **query string**
+(`hooks/use-filtro-url.ts`). Com isso, todo KPI, barra e card de pendência do
+Dashboard vira link para a lista no recorte exato.
+
+- `router.replace` e não `push`: mexer num select não é navegação, e encher o
+  histórico faria o botão Voltar percorrer cada mudança de filtro.
+- O valor padrão **sai** da URL (`?sala=todos` é ruído num link compartilhado).
+- De brinde, o filtro sobrevive ao F5 e vira link que o analista manda ao colega.
+
+**Uma regra, dois consumidores:** as pendências viraram um catálogo único em
+`lib/pendencias.ts`, usado pelo Dashboard para **contar** e pela lista para
+**filtrar**. Se cada um tivesse a sua regra, o card diria "7" e o clique abriria
+6 — e o número perderia a credibilidade. O teste do catálogo verifica exatamente
+essa igualdade. Texto salvo em branco conta como ausente: `""` e `null` são a
+mesma coisa para quem está conferindo a máquina.
+
+**Card com zero não é link:** não há lista para abrir, e um card clicável que
+abre o vazio frustra mais do que ajuda.
+
+**Filtros novos na lista de computadores** para sustentar os destinos:
+`pendencia`, `tipo` (componente) e `garantia`, mais a opção "com funcionário"
+(que é o KPI "Computadores em uso").

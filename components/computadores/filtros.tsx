@@ -13,7 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ROTULO_SITUACAO, SITUACOES } from "@/lib/ativos";
-import type { Funcionario, Sala } from "./types";
+import { PENDENCIAS } from "@/lib/pendencias";
+import type { Funcionario, Sala, Tipo } from "./types";
 
 type Props = {
   busca: string;
@@ -26,8 +27,16 @@ type Props = {
   setFiltroSala: (v: string) => void;
   filtroSituacao: string;
   setFiltroSituacao: (v: string) => void;
+  filtroPendencia: string;
+  setFiltroPendencia: (v: string) => void;
+  filtroTipo: string;
+  setFiltroTipo: (v: string) => void;
+  filtroGarantia: string;
+  setFiltroGarantia: (v: string) => void;
+  onLimpar: () => void;
   funcionarios: Funcionario[];
   salas: Sala[];
+  tipos: Tipo[];
   cargos: string[];
   total: number;
 };
@@ -43,8 +52,16 @@ export function Filtros({
   setFiltroSala,
   filtroSituacao,
   setFiltroSituacao,
+  filtroPendencia,
+  setFiltroPendencia,
+  filtroTipo,
+  setFiltroTipo,
+  filtroGarantia,
+  setFiltroGarantia,
+  onLimpar,
   funcionarios,
   salas,
+  tipos,
   cargos,
   total,
 }: Props) {
@@ -53,7 +70,10 @@ export function Filtros({
     filtroFunc !== "todos" ||
     filtroCargo !== "todos" ||
     filtroSala !== "todos" ||
-    filtroSituacao !== "todas";
+    filtroSituacao !== "todas" ||
+    filtroPendencia !== "todas" ||
+    filtroTipo !== "todos" ||
+    filtroGarantia !== "todas";
 
   return (
     <Card>
@@ -79,6 +99,7 @@ export function Filtros({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="todos">Todos</SelectItem>
+              <SelectItem value="com">— Com funcionário (em uso) —</SelectItem>
               <SelectItem value="sem">— Sem funcionário —</SelectItem>
               {funcionarios.map((f) => (
                 <SelectItem key={f.id} value={f.id}>
@@ -137,17 +158,55 @@ export function Filtros({
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-1.5">
+          <Label>Pendência</Label>
+          <Select value={filtroPendencia} onValueChange={setFiltroPendencia}>
+            <SelectTrigger className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas</SelectItem>
+              {PENDENCIAS.map((p) => (
+                <SelectItem key={p.chave} value={p.chave}>
+                  {p.rotulo}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Componente</Label>
+          <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos</SelectItem>
+              {tipos.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Garantia</Label>
+          <Select value={filtroGarantia} onValueChange={setFiltroGarantia}>
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas</SelectItem>
+              <SelectItem value="vencendo">Acabando</SelectItem>
+              <SelectItem value="vencida">Fora da garantia</SelectItem>
+              <SelectItem value="vigente">Em dia</SelectItem>
+              <SelectItem value="sem">Sem data</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         {algumFiltro && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setBusca("");
-              setFiltroFunc("todos");
-              setFiltroCargo("todos");
-              setFiltroSala("todos");
-              setFiltroSituacao("todas");
-            }}
-          >
+          <Button variant="ghost" onClick={onLimpar}>
             Limpar filtros
           </Button>
         )}

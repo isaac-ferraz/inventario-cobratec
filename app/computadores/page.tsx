@@ -3,6 +3,9 @@
 import * as React from "react";
 import { Loader2, Plus } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
+import { useFiltroUrl, useLimparFiltros } from "@/hooks/use-filtro-url";
+import { acharPendencia } from "@/lib/pendencias";
+import { estadoGarantia } from "@/lib/ativos";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
@@ -18,6 +21,18 @@ import type {
   Tipo,
 } from "@/components/computadores/types";
 
+// Os parâmetros que "Limpar filtros" apaga da URL.
+const CHAVES_FILTRO = [
+  "busca",
+  "funcionario",
+  "cargo",
+  "sala",
+  "situacao",
+  "pendencia",
+  "tipo",
+  "garantia",
+];
+
 export default function ComputadoresPage() {
   const { toast, toastErro } = useToast();
   const confirmar = useConfirmar();
@@ -32,12 +47,17 @@ export default function ComputadoresPage() {
     null,
   );
 
-  // filtros
-  const [busca, setBusca] = React.useState("");
-  const [filtroFunc, setFiltroFunc] = React.useState<string>("todos");
-  const [filtroCargo, setFiltroCargo] = React.useState<string>("todos");
-  const [filtroSala, setFiltroSala] = React.useState<string>("todos");
-  const [filtroSituacao, setFiltroSituacao] = React.useState<string>("todas");
+  // Filtros na URL (e não em useState): é o que permite o Dashboard mandar a
+  // pessoa para esta tela já filtrada. Ver hooks/use-filtro-url.ts.
+  const [busca, setBusca] = useFiltroUrl("busca", "");
+  const [filtroFunc, setFiltroFunc] = useFiltroUrl("funcionario", "todos");
+  const [filtroCargo, setFiltroCargo] = useFiltroUrl("cargo", "todos");
+  const [filtroSala, setFiltroSala] = useFiltroUrl("sala", "todos");
+  const [filtroSituacao, setFiltroSituacao] = useFiltroUrl("situacao", "todas");
+  const [filtroPendencia, setFiltroPendencia] = useFiltroUrl("pendencia", "todas");
+  const [filtroTipo, setFiltroTipo] = useFiltroUrl("tipo", "todos");
+  const [filtroGarantia, setFiltroGarantia] = useFiltroUrl("garantia", "todas");
+  const limparFiltros = useLimparFiltros(CHAVES_FILTRO);
 
   // diálogos (a tela só guarda "o que está aberto e com qual registro";
   // o estado do formulário vive dentro de cada diálogo)
@@ -82,9 +102,12 @@ export default function ComputadoresPage() {
   );
 
   const termo = busca.trim().toLowerCase();
+  const pendencia = acharPendencia(filtroPendencia);
   const filtrados = computadores.filter((c) => {
+    // "com" = qualquer dono (é o "Computadores em uso" do Dashboard).
     if (filtroFunc === "sem" && c.funcionarioId) return false;
-    if (filtroFunc !== "todos" && filtroFunc !== "sem") {
+    if (filtroFunc === "com" && !c.funcionarioId) return false;
+    if (filtroFunc !== "todos" && filtroFunc !== "sem" && filtroFunc !== "com") {
       if (c.funcionarioId !== filtroFunc) return false;
     }
     if (filtroCargo !== "todos") {
@@ -94,6 +117,13 @@ export default function ComputadoresPage() {
     if (filtroSala === "sem" && c.salaId) return false;
     if (filtroSala !== "todos" && filtroSala !== "sem") {
       if (c.salaId !== filtroSala) return false;
+    }
+    if (pendencia && !pendencia.falta(c)) return false;
+    if (filtroTipo !== "todos") {
+      if (!c.componentes.some((comp) => comp.tipo.id === filtroTipo)) return false;
+    }
+    if (filtroGarantia !== "todas") {
+      if (estadoGarantia(c.garantiaAte) !== filtroGarantia) return false;
     }
     if (termo) {
       const alvo = [
@@ -177,8 +207,16 @@ export default function ComputadoresPage() {
         setFiltroSala={setFiltroSala}
         filtroSituacao={filtroSituacao}
         setFiltroSituacao={setFiltroSituacao}
+        filtroPendencia={filtroPendencia}
+        setFiltroPendencia={setFiltroPendencia}
+        filtroTipo={filtroTipo}
+        setFiltroTipo={setFiltroTipo}
+        filtroGarantia={filtroGarantia}
+        setFiltroGarantia={setFiltroGarantia}
+        onLimpar={limparFiltros}
         funcionarios={funcionarios}
         salas={salas}
+        tipos={tipos}
         cargos={cargos}
         total={filtrados.length}
       />

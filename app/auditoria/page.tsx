@@ -4,6 +4,7 @@ import * as React from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { apiSend, mensagem } from "@/lib/fetcher";
 import { useListaPaginada } from "@/hooks/use-lista-paginada";
+import { useFiltroUrl } from "@/hooks/use-filtro-url";
 import { Button } from "@/components/ui/button";
 import { CarregarMais } from "@/components/ui/carregar-mais";
 import { useToast } from "@/components/ui/toast";
@@ -61,7 +62,7 @@ const VARIANTE_ACAO: Record<
 export default function AuditoriaPage() {
   const { toast, toastErro } = useToast();
   const confirmar = useConfirmar();
-  const [filtro, setFiltro] = React.useState<string>("todas");
+  const [filtro, setFiltro] = useFiltroUrl("entidade", "todas");
   const [removendoId, setRemovendoId] = React.useState<string | null>(null);
 
   const construirUrl = React.useCallback(

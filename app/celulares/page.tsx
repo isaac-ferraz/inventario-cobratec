@@ -6,6 +6,7 @@ import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
+import { useFiltroUrl } from "@/hooks/use-filtro-url";
 import { Filtros } from "@/components/celulares/filtros";
 import { CelularCard } from "@/components/celulares/celular-card";
 import { CelularDialog } from "@/components/celulares/celular-dialog";
@@ -20,10 +21,11 @@ export default function CelularesPage() {
   const [carregaErro, setCarregaErro] = React.useState<string | null>(null);
   const [removendoId, setRemovendoId] = React.useState<string | null>(null);
 
-  // filtros
-  const [busca, setBusca] = React.useState("");
-  const [filtroFunc, setFiltroFunc] = React.useState<string>("todos");
-  const [filtroCargo, setFiltroCargo] = React.useState<string>("todos");
+  // Filtros na URL: é o que permite o Dashboard e o perfil do funcionário
+  // mandarem a pessoa para esta tela já filtrada.
+  const [busca, setBusca] = useFiltroUrl("busca", "");
+  const [filtroFunc, setFiltroFunc] = useFiltroUrl("funcionario", "todos");
+  const [filtroCargo, setFiltroCargo] = useFiltroUrl("cargo", "todos");
 
   // diálogo (a tela só guarda "o que está aberto e com qual registro";
   // o estado do formulário vive dentro do diálogo)
@@ -61,7 +63,8 @@ export default function CelularesPage() {
   const termo = busca.trim().toLowerCase();
   const filtrados = celulares.filter((c) => {
     if (filtroFunc === "sem" && c.funcionarioId) return false;
-    if (filtroFunc !== "todos" && filtroFunc !== "sem") {
+    if (filtroFunc === "com" && !c.funcionarioId) return false;
+    if (filtroFunc !== "todos" && filtroFunc !== "sem" && filtroFunc !== "com") {
       if (c.funcionarioId !== filtroFunc) return false;
     }
     if (filtroCargo !== "todos") {

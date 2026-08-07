@@ -64,6 +64,7 @@ export function Filtros({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="todos">Todos</SelectItem>
+              <SelectItem value="com">— Com funcionário (em uso) —</SelectItem>
               <SelectItem value="sem">— Sem funcionário —</SelectItem>
               {funcionarios.map((f) => (
                 <SelectItem key={f.id} value={f.id}>

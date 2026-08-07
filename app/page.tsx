@@ -16,42 +16,121 @@ import {
 import { prisma } from "@/lib/prisma";
 import { STATUS_ABERTOS } from "@/lib/chamados";
 import { DIAS_AVISO_GARANTIA } from "@/lib/ativos";
+import { contarPendencias } from "@/lib/pendencias";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButton } from "@/components/export-button";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-function BarList({
-  dados,
-  cor,
-}: {
-  dados: { label: string; valor: number }[];
-  cor: string;
-}) {
+// Rótulos que não são cargo/sala de verdade — viram recortes da lista, não
+// filtros por nome.
+const SEM_DONO = "Sem funcionário (estoque)";
+const SEM_SALA = "Sem sala definida";
+
+// Cada barra leva para a lista daquele recorte — o número por si só não responde
+// "quais?", que é sempre a pergunta seguinte.
+type Barra = { label: string; valor: number; href?: string };
+
+function BarList({ dados, cor }: { dados: Barra[]; cor: string }) {
   const max = Math.max(1, ...dados.map((d) => d.valor));
   if (dados.length === 0) {
     return <p className="text-sm text-muted-foreground">Sem dados ainda.</p>;
   }
   return (
     <div className="space-y-2.5">
-      {dados.map((d) => (
-        <div key={d.label} className="space-y-1">
-          <div className="flex items-center justify-between gap-2 text-sm">
-            <span className="truncate text-foreground">{d.label}</span>
-            <span className="font-mono text-xs tabular-nums text-muted-foreground">
-              {d.valor}
-            </span>
+      {dados.map((d) => {
+        const conteudo = (
+          <>
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="truncate text-foreground">{d.label}</span>
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                {d.valor}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn("h-full rounded-full", cor)}
+                style={{ width: `${(d.valor / max) * 100}%` }}
+              />
+            </div>
+          </>
+        );
+        return d.href ? (
+          <Link
+            key={d.label}
+            href={d.href}
+            title={`Ver os ${d.valor} computador(es): ${d.label}`}
+            className="block rounded-sm px-1 py-0.5 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {conteudo}
+          </Link>
+        ) : (
+          <div key={d.label} className="px-1 py-0.5">
+            {conteudo}
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn("h-full rounded-full", cor)}
-              style={{ width: `${(d.valor / max) * 100}%` }}
-            />
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
+  );
+}
+
+// KPI clicável. O href é obrigatório de propósito: um card que não leva a lugar
+// nenhum é o problema que esta tela tinha.
+function Kpi({
+  titulo,
+  valor,
+  href,
+  Icone,
+  rodape,
+  tom = "neutro",
+}: {
+  titulo: string;
+  valor: number;
+  href: string;
+  Icone: typeof Monitor;
+  rodape?: React.ReactNode;
+  tom?: "neutro" | "alerta" | "ok" | "apagado";
+}) {
+  return (
+    <Link
+      href={href}
+      title={`${titulo}: ver a lista`}
+      className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Card className="relative h-full overflow-hidden transition-shadow hover:shadow-md">
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-x-0 top-0 h-0.5",
+            tom === "alerta"
+              ? "bg-amber-500"
+              : tom === "ok"
+                ? "bg-emerald-500"
+                : tom === "apagado"
+                  ? "bg-muted-foreground/40"
+                  : "bg-primary",
+          )}
+        />
+        <CardContent className="pt-5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">{titulo}</span>
+            <Icone className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div
+            className={cn(
+              "mt-2 font-display text-3xl font-bold tabular-nums",
+              tom === "alerta" && "num-alerta",
+              tom === "ok" && "num-ok",
+              tom === "apagado" && "text-muted-foreground",
+            )}
+          >
+            {valor}
+          </div>
+          {rodape && <div className="eyebrow mt-1">{rodape}</div>}
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
@@ -94,31 +173,61 @@ export default async function DashboardPage() {
 
   const porCargo = new Map<string, number>();
   for (const c of computadores) {
-    const cargo = c.funcionario?.cargo ?? "Sem funcionário (estoque)";
+    const cargo = c.funcionario?.cargo ?? SEM_DONO;
     porCargo.set(cargo, (porCargo.get(cargo) ?? 0) + 1);
   }
 
+  // O id da sala é guardado junto com o nome porque a barra vira link para a
+  // página da sala — e o agrupamento é por nome.
   const porSala = new Map<string, number>();
+  const salaIdPorNome = new Map<string, string>();
   for (const c of computadores) {
-    const sala = c.sala?.nome ?? "Sem sala definida";
+    const sala = c.sala?.nome ?? SEM_SALA;
+    if (c.sala) salaIdPorNome.set(c.sala.nome, c.sala.id);
     porSala.set(sala, (porSala.get(sala) ?? 0) + 1);
   }
 
-  const porTipo = new Map<string, number>();
+  // Idem para o tipo de componente: o filtro da lista é por id, não por nome.
+  const porTipo = new Map<string, { valor: number; id: string }>();
   for (const c of computadores) {
     for (const comp of c.componentes) {
-      porTipo.set(comp.tipo.nome, (porTipo.get(comp.tipo.nome) ?? 0) + 1);
+      const atual = porTipo.get(comp.tipo.nome);
+      porTipo.set(comp.tipo.nome, {
+        valor: (atual?.valor ?? 0) + 1,
+        id: comp.tipo.id,
+      });
     }
   }
 
-  const cargoData = [...porCargo.entries()]
-    .map(([label, valor]) => ({ label, valor }))
+  const cargoData: Barra[] = [...porCargo.entries()]
+    .map(([label, valor]) => ({
+      label,
+      valor,
+      // "Sem funcionário (estoque)" não é um cargo: vai para o filtro de dono.
+      href:
+        label === SEM_DONO
+          ? "/computadores?funcionario=sem"
+          : `/computadores?cargo=${encodeURIComponent(label)}`,
+    }))
     .sort((a, b) => b.valor - a.valor);
-  const salaData = [...porSala.entries()]
-    .map(([label, valor]) => ({ label, valor }))
+
+  const salaData: Barra[] = [...porSala.entries()]
+    .map(([label, valor]) => ({
+      label,
+      valor,
+      // Sala de verdade tem página própria; "sem sala" é um recorte da lista.
+      href: salaIdPorNome.has(label)
+        ? `/salas/${salaIdPorNome.get(label)}`
+        : "/computadores?sala=sem",
+    }))
     .sort((a, b) => b.valor - a.valor);
-  const tipoData = [...porTipo.entries()]
-    .map(([label, valor]) => ({ label, valor }))
+
+  const tipoData: Barra[] = [...porTipo.entries()]
+    .map(([label, { valor, id }]) => ({
+      label,
+      valor,
+      href: `/computadores?tipo=${id}`,
+    }))
     .sort((a, b) => b.valor - a.valor);
 
   // Ciclo de vida: o que exige uma decisão do TI nas próximas semanas.
@@ -139,42 +248,37 @@ export default async function DashboardPage() {
       e.situacao !== "descartado",
   ).length;
 
-  // Pendências de licença/conta: quantos computadores estão sem cada item.
-  const pendencias = [
-    {
-      label: "Sem sala definida",
-      valor: computadores.filter((c) => !c.salaId).length,
-    },
-    {
-      label: "Sem licença Windows",
-      valor: computadores.filter((c) => !c.licencaWindows).length,
-    },
-    {
-      label: "Sem licença Microsoft / Office",
-      valor: computadores.filter((c) => !c.licencaMicrosoft).length,
-    },
-    {
-      label: "Sem conta Outlook",
-      valor: computadores.filter((c) => !c.contaOutlook).length,
-    },
-    {
-      label: "Sem login padrão",
-      valor: computadores.filter((c) => !c.loginPadrao).length,
-    },
-    {
-      label: "Sem headset",
-      valor: computadores.filter((c) => !c.temHeadset).length,
-    },
-  ];
+  // Pendências: a contagem vem do MESMO catálogo que a lista usa para filtrar
+  // (lib/pendencias.ts). Se cada um tivesse a sua regra, o card diria "7" e o
+  // clique abriria 6.
+  const pendencias = contarPendencias(computadores);
 
+  // "Em estoque" mistura PCs e celulares, que moram em telas diferentes — o
+  // clique leva aos computadores, que é a maioria do parque.
   const kpis = [
-    { titulo: "Total de computadores", valor: total, icon: Monitor },
-    { titulo: "Computadores em uso", valor: emUso, icon: Users },
-    { titulo: "Total de celulares", valor: totalCelulares, icon: Smartphone },
+    {
+      titulo: "Total de computadores",
+      valor: total,
+      icon: Monitor,
+      href: "/computadores",
+    },
+    {
+      titulo: "Computadores em uso",
+      valor: emUso,
+      icon: Users,
+      href: "/computadores?funcionario=com",
+    },
+    {
+      titulo: "Total de celulares",
+      valor: totalCelulares,
+      icon: Smartphone,
+      href: "/celulares",
+    },
     {
       titulo: "Em estoque (PCs + celulares)",
       valor: semFuncionario + celularesSemFunc,
       icon: PackageOpen,
+      href: "/computadores?funcionario=sem",
     },
   ];
 
@@ -206,89 +310,39 @@ export default async function DashboardPage() {
           </Link>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Link href="/chamados" className="focus-visible:outline-none">
-            <Card
-              className={cn(
-                "relative h-full overflow-hidden transition-shadow hover:shadow-md",
-                chamadosAbertos > 0 && "border-amber-300 dark:border-amber-700/60",
-              )}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "absolute inset-x-0 top-0 h-0.5",
-                  chamadosAbertos > 0 ? "bg-amber-500" : "bg-emerald-500",
-                )}
-              />
-              <CardContent className="pt-5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    Chamados em aberto
-                  </span>
-                  <LifeBuoy className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div
-                  className={cn(
-                    "mt-2 font-display text-3xl font-bold tabular-nums",
-                    chamadosAbertos > 0 ? "num-alerta" : "num-ok",
-                  )}
-                >
-                  {chamadosAbertos}
-                </div>
-                {chamadoMaisAntigo && (
-                  <div className="eyebrow mt-1 flex items-center gap-1">
-                    <AlarmClock className="h-3 w-3" />
-                    mais antigo: #{chamadoMaisAntigo.numero}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </Link>
-
-          <Card className="relative overflow-hidden">
-            <span
-              aria-hidden
-              className={cn(
-                "absolute inset-x-0 top-0 h-0.5",
-                semResponsavel > 0 ? "bg-amber-500" : "bg-emerald-500",
-              )}
-            />
-            <CardContent className="pt-5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">
-                  Sem responsável
+          <Kpi
+            titulo="Chamados em aberto"
+            valor={chamadosAbertos}
+            href="/chamados?status=abertos"
+            Icone={LifeBuoy}
+            tom={chamadosAbertos > 0 ? "alerta" : "ok"}
+            rodape={
+              chamadoMaisAntigo && (
+                <span className="flex items-center gap-1">
+                  <AlarmClock className="h-3 w-3" />
+                  mais antigo: #{chamadoMaisAntigo.numero}
                 </span>
-                <UserX className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div
-                className={cn(
-                  "mt-2 font-display text-3xl font-bold tabular-nums",
-                  semResponsavel > 0 ? "num-alerta" : "num-ok",
-                )}
-              >
-                {semResponsavel}
-              </div>
-              <div className="eyebrow mt-1">
-                {semResponsavel > 0 ? "esperando alguém assumir" : "fila coberta"}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="relative overflow-hidden">
-            <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-emerald-500" />
-            <CardContent className="pt-5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">
-                  Resolvidos (7 dias)
-                </span>
-                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="mt-2 font-display text-3xl font-bold tabular-nums">
-                {resolvidos7d}
-              </div>
-              <div className="eyebrow mt-1">na última semana</div>
-            </CardContent>
-          </Card>
+              )
+            }
+          />
+          <Kpi
+            titulo="Sem responsável"
+            valor={semResponsavel}
+            href="/chamados?status=abertos&responsavel=sem"
+            Icone={UserX}
+            tom={semResponsavel > 0 ? "alerta" : "ok"}
+            rodape={
+              semResponsavel > 0 ? "esperando alguém assumir" : "fila coberta"
+            }
+          />
+          <Kpi
+            titulo="Resolvidos (7 dias)"
+            valor={resolvidos7d}
+            href="/chamados?status=resolvido"
+            Icone={CheckCircle2}
+            tom="ok"
+            rodape="na última semana"
+          />
         </div>
       </section>
 
@@ -305,64 +359,30 @@ export default async function DashboardPage() {
             </Link>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Link href="/manutencoes" className="focus-visible:outline-none">
-              <Card className="relative h-full overflow-hidden transition-shadow hover:shadow-md">
-                <span
-                  aria-hidden
-                  className="absolute inset-x-0 top-0 h-0.5 bg-amber-500"
-                />
-                <CardContent className="pt-5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      No conserto
-                    </span>
-                    <Wrench className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="mt-2 font-display text-3xl font-bold tabular-nums num-alerta">
-                    {emManutencao}
-                  </div>
-                  <div className="eyebrow mt-1">equipamentos parados</div>
-                </CardContent>
-              </Card>
-            </Link>
-            <Card className="relative overflow-hidden">
-              <span
-                aria-hidden
-                className="absolute inset-x-0 top-0 h-0.5 bg-amber-500"
-              />
-              <CardContent className="pt-5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    Garantia acabando
-                  </span>
-                  <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="mt-2 font-display text-3xl font-bold tabular-nums num-alerta">
-                  {garantiaVencendo}
-                </div>
-                <div className="eyebrow mt-1">
-                  nos próximos {DIAS_AVISO_GARANTIA} dias
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="relative overflow-hidden">
-              <span
-                aria-hidden
-                className="absolute inset-x-0 top-0 h-0.5 bg-muted-foreground/40"
-              />
-              <CardContent className="pt-5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    Descartados
-                  </span>
-                  <Trash2 className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="mt-2 font-display text-3xl font-bold tabular-nums text-muted-foreground">
-                  {descartados}
-                </div>
-                <div className="eyebrow mt-1">fora do parque</div>
-              </CardContent>
-            </Card>
+            <Kpi
+              titulo="No conserto"
+              valor={emManutencao}
+              href="/manutencoes?situacao=abertas"
+              Icone={Wrench}
+              tom="alerta"
+              rodape="equipamentos parados"
+            />
+            <Kpi
+              titulo="Garantia acabando"
+              valor={garantiaVencendo}
+              href="/computadores?garantia=vencendo"
+              Icone={ShieldAlert}
+              tom="alerta"
+              rodape={`nos próximos ${DIAS_AVISO_GARANTIA} dias`}
+            />
+            <Kpi
+              titulo="Descartados"
+              valor={descartados}
+              href="/computadores?situacao=descartado"
+              Icone={Trash2}
+              tom="apagado"
+              rodape="fora do parque"
+            />
           </div>
         </section>
       )}
@@ -370,23 +390,13 @@ export default async function DashboardPage() {
       <h2 className="eyebrow">parque de equipamentos</h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((k) => (
-          <Card key={k.titulo} className="relative overflow-hidden">
-            <span
-              aria-hidden
-              className="absolute inset-x-0 top-0 h-0.5 bg-primary"
-            />
-            <CardContent className="pt-5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">
-                  {k.titulo}
-                </span>
-                <k.icon className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="mt-2 font-display text-3xl font-bold tabular-nums">
-                {k.valor}
-              </div>
-            </CardContent>
-          </Card>
+          <Kpi
+            key={k.titulo}
+            titulo={k.titulo}
+            valor={k.valor}
+            href={k.href}
+            Icone={k.icon}
+          />
         ))}
       </div>
 
@@ -433,16 +443,8 @@ export default async function DashboardPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {pendencias.map((p) => {
               const ok = p.valor === 0;
-              return (
-                <div
-                  key={p.label}
-                  className={cn(
-                    "rounded-md border p-3",
-                    ok
-                      ? "border-border"
-                      : "border-amber-300 bg-amber-50/50 dark:border-amber-800/60 dark:bg-amber-950/40",
-                  )}
-                >
+              const conteudo = (
+                <>
                   <div className="flex items-center gap-1.5">
                     <span
                       className={cn(
@@ -451,7 +453,7 @@ export default async function DashboardPage() {
                       )}
                     />
                     <div className="text-xs text-muted-foreground">
-                      {p.label}
+                      {p.rotulo}
                     </div>
                   </div>
                   <div
@@ -467,9 +469,26 @@ export default async function DashboardPage() {
                       ? "—"
                       : ok
                         ? "tudo registrado"
-                        : `de ${total} PCs`}
+                        : `de ${total} PCs · ver quais →`}
                   </div>
+                </>
+              );
+
+              // Zero não vira link: não há lista para abrir, e um card clicável
+              // que abre o vazio frustra mais do que ajuda.
+              return ok ? (
+                <div key={p.chave} className="rounded-md border border-border p-3">
+                  {conteudo}
                 </div>
+              ) : (
+                <Link
+                  key={p.chave}
+                  href={`/computadores?pendencia=${p.chave}`}
+                  title={`Ver os ${p.valor} computador(es): ${p.rotulo.toLowerCase()}`}
+                  className="rounded-md border border-amber-300 bg-amber-50/50 p-3 transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-amber-800/60 dark:bg-amber-950/40"
+                >
+                  {conteudo}
+                </Link>
               );
             })}
           </div>

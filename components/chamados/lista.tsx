@@ -13,6 +13,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { useListaPaginada } from "@/hooks/use-lista-paginada";
+import { useFiltroUrl } from "@/hooks/use-filtro-url";
 import { CarregarMais } from "@/components/ui/carregar-mais";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,17 +39,25 @@ export function ListaChamados({ papel }: Props) {
   const [abrirDialog, setAbrirDialog] = React.useState(false);
   // O TI abre o dia querendo ver o que está pendente; o operador quer ver tudo
   // que já pediu.
-  const [filtroStatus, setFiltroStatus] = React.useState(admin ? "abertos" : "todos");
-  const [filtroPrioridade, setFiltroPrioridade] = React.useState("todas");
+  const [filtroStatus, setFiltroStatus] = useFiltroUrl(
+    "status",
+    admin ? "abertos" : "todos",
+  );
+  const [filtroPrioridade, setFiltroPrioridade] = useFiltroUrl("prioridade", "todas");
+  // Só o admin gerencia fila; para o operador este filtro nem existe na API.
+  const [filtroResponsavel, setFiltroResponsavel] = useFiltroUrl("responsavel", "todos");
 
   const construirUrl = React.useCallback(
     (pagina: number) => {
       const params = new URLSearchParams({ pagina: String(pagina) });
       if (filtroStatus !== "todos") params.set("status", filtroStatus);
       if (filtroPrioridade !== "todas") params.set("prioridade", filtroPrioridade);
+      if (admin && filtroResponsavel !== "todos") {
+        params.set("responsavelId", filtroResponsavel);
+      }
       return `/api/chamados?${params.toString()}`;
     },
-    [filtroStatus, filtroPrioridade],
+    [filtroStatus, filtroPrioridade, filtroResponsavel, admin],
   );
 
   const {
@@ -114,6 +123,20 @@ export function ListaChamados({ papel }: Props) {
                       {ROTULO_PRIORIDADE[p]}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {admin && (
+            <div className="space-y-1.5">
+              <Label>Responsável</Label>
+              <Select value={filtroResponsavel} onValueChange={setFiltroResponsavel}>
+                <SelectTrigger className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="sem">— Sem responsável —</SelectItem>
                 </SelectContent>
               </Select>
             </div>
