@@ -49,7 +49,7 @@ function Formulario() {
   return (
     <form onSubmit={salvar} className="space-y-4">
       {inicial && !ok && (
-        <p className="rounded-md border border-amber-300 bg-amber-50/60 p-3 text-sm text-amber-800">
+        <p className="tom-alerta rounded-md border p-3 text-sm">
           Sua senha foi definida por outra pessoa. Escolha uma senha própria
           antes de continuar.
         </p>

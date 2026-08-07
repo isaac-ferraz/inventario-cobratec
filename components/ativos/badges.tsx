@@ -12,8 +12,8 @@ import {
 
 const COR_SITUACAO: Record<Situacao, string> = {
   ativo: "", // situação normal não merece badge (ver abaixo)
-  manutencao: "border-amber-300 bg-amber-50 text-amber-700",
-  reserva: "border-violet-300 bg-violet-50 text-violet-700",
+  manutencao: "tom-alerta",
+  reserva: "tom-espera",
   descartado: "border-border bg-muted text-muted-foreground line-through",
 };
 
@@ -44,7 +44,7 @@ export function GarantiaBadge({
   return estado === "vencendo" ? (
     <Badge
       variant="outline"
-      className="border-amber-300 bg-amber-50 font-medium text-amber-700"
+      className="tom-alerta font-medium"
       title={`Garantia termina em ${new Date(garantiaAte!).toLocaleDateString("pt-BR")}`}
     >
       <ShieldAlert className="mr-1 h-3 w-3" />

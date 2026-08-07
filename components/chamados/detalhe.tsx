@@ -201,7 +201,7 @@ export function DetalheChamado({ chamadoId, papel, usuarioId }: Props) {
                     className={cn(
                       "rounded-md border p-3",
                       m.interna
-                        ? "border-dashed border-amber-300 bg-amber-50/50"
+                        ? "border-dashed border-amber-300 bg-amber-50/50 dark:border-amber-800/60 dark:bg-amber-950/40"
                         : m.autor.papel === "ADMIN"
                           ? "border-primary/30 bg-primary/5"
                           : "bg-card",
@@ -270,7 +270,7 @@ export function DetalheChamado({ chamadoId, papel, usuarioId }: Props) {
                 </Button>
               </div>
               {interna && admin && (
-                <p className="text-xs text-amber-700">
+                <p className="text-xs num-alerta">
                   Só administradores verão esta mensagem.
                 </p>
               )}

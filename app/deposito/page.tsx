@@ -180,7 +180,7 @@ export default function DepositoPage() {
               <div
                 className={cn(
                   "mt-2 font-display text-3xl font-bold tabular-nums",
-                  k.alerta && "text-amber-600",
+                  k.alerta && "num-alerta",
                 )}
               >
                 {k.valor}

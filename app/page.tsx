@@ -210,7 +210,7 @@ export default async function DashboardPage() {
             <Card
               className={cn(
                 "relative h-full overflow-hidden transition-shadow hover:shadow-md",
-                chamadosAbertos > 0 && "border-amber-300",
+                chamadosAbertos > 0 && "border-amber-300 dark:border-amber-700/60",
               )}
             >
               <span
@@ -230,7 +230,7 @@ export default async function DashboardPage() {
                 <div
                   className={cn(
                     "mt-2 font-display text-3xl font-bold tabular-nums",
-                    chamadosAbertos > 0 ? "text-amber-600" : "text-emerald-600",
+                    chamadosAbertos > 0 ? "num-alerta" : "num-ok",
                   )}
                 >
                   {chamadosAbertos}
@@ -263,7 +263,7 @@ export default async function DashboardPage() {
               <div
                 className={cn(
                   "mt-2 font-display text-3xl font-bold tabular-nums",
-                  semResponsavel > 0 ? "text-amber-600" : "text-emerald-600",
+                  semResponsavel > 0 ? "num-alerta" : "num-ok",
                 )}
               >
                 {semResponsavel}
@@ -318,7 +318,7 @@ export default async function DashboardPage() {
                     </span>
                     <Wrench className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <div className="mt-2 font-display text-3xl font-bold tabular-nums text-amber-600">
+                  <div className="mt-2 font-display text-3xl font-bold tabular-nums num-alerta">
                     {emManutencao}
                   </div>
                   <div className="eyebrow mt-1">equipamentos parados</div>
@@ -337,7 +337,7 @@ export default async function DashboardPage() {
                   </span>
                   <ShieldAlert className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="mt-2 font-display text-3xl font-bold tabular-nums text-amber-600">
+                <div className="mt-2 font-display text-3xl font-bold tabular-nums num-alerta">
                   {garantiaVencendo}
                 </div>
                 <div className="eyebrow mt-1">
@@ -438,7 +438,9 @@ export default async function DashboardPage() {
                   key={p.label}
                   className={cn(
                     "rounded-md border p-3",
-                    ok ? "border-border" : "border-amber-300 bg-amber-50/50",
+                    ok
+                      ? "border-border"
+                      : "border-amber-300 bg-amber-50/50 dark:border-amber-800/60 dark:bg-amber-950/40",
                   )}
                 >
                   <div className="flex items-center gap-1.5">
@@ -455,7 +457,7 @@ export default async function DashboardPage() {
                   <div
                     className={cn(
                       "mt-1 font-display text-2xl font-bold tabular-nums",
-                      ok ? "text-emerald-600" : "text-amber-600",
+                      ok ? "num-ok" : "num-alerta",
                     )}
                   >
                     {p.valor}

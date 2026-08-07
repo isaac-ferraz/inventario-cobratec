@@ -20,6 +20,7 @@ import {
   ScrollText,
 } from "lucide-react";
 import { apiSend } from "@/lib/fetcher";
+import { AlternarTema } from "@/components/ui/tema";
 import { cn } from "@/lib/utils";
 
 export type Papel = "ADMIN" | "OPERADOR";
@@ -117,9 +118,14 @@ export function Sidebar({ papel, usuario }: { papel: Papel; usuario: string }) {
         })}
       </nav>
       <div className="space-y-2 border-t p-3">
-        <div className="px-2">
-          <div className="eyebrow">{papel === "ADMIN" ? "administrador" : "operador"}</div>
-          <div className="truncate text-sm font-medium">{usuario}</div>
+        <div className="flex items-center justify-between gap-2 px-2">
+          <div className="min-w-0">
+            <div className="eyebrow">
+              {papel === "ADMIN" ? "administrador" : "operador"}
+            </div>
+            <div className="truncate text-sm font-medium">{usuario}</div>
+          </div>
+          <AlternarTema />
         </div>
         <div className="flex gap-1">
           <Link
@@ -170,6 +176,7 @@ export function TopBar({ papel, usuario }: { papel: Papel; usuario: string }) {
           );
         })}
       </nav>
+      <AlternarTema className="shrink-0" />
       <button
         type="button"
         onClick={sair}

@@ -341,7 +341,7 @@ export default function SalaPage({ params }: { params: { id: string } }) {
                                 </span>
                               )}
                               {c.salaId !== sala.id && (
-                                <span className="ml-auto flex items-center gap-1 text-[11px] text-amber-600">
+                                <span className="num-alerta ml-auto flex items-center gap-1 text-[11px]">
                                   <TriangleAlert className="h-3 w-3" />
                                   {c.sala
                                     ? `está em ${c.sala.nome}`

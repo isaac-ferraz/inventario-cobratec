@@ -12,17 +12,17 @@ import {
 // Cores como leitura de instrumento (mesma linguagem do resto do painel):
 // âmbar = pede atenção, teal = em curso, verde = resolvido, cinza = encerrado.
 const COR_STATUS: Record<Status, string> = {
-  aberto: "border-amber-300 bg-amber-50 text-amber-700",
+  aberto: "tom-alerta",
   em_andamento: "border-primary/40 bg-primary/10 text-primary",
-  aguardando: "border-violet-300 bg-violet-50 text-violet-700",
-  resolvido: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  aguardando: "tom-espera",
+  resolvido: "tom-ok",
   fechado: "border-border bg-muted text-muted-foreground",
 };
 
 const COR_PRIORIDADE: Record<Prioridade, string> = {
   baixa: "border-border bg-muted text-muted-foreground",
   normal: "border-border bg-secondary text-secondary-foreground",
-  alta: "border-orange-300 bg-orange-50 text-orange-700",
+  alta: "tom-urgente",
   urgente: "border-destructive/40 bg-destructive/10 text-destructive",
 };
 

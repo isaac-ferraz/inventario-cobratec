@@ -80,4 +80,33 @@
     @apply inline-block h-2 w-2 shrink-0 rounded-full;
     box-shadow: 0 0 0 2px hsl(var(--card)), 0 0 6px 0 currentColor;
   }
+
+  /*
+    Tons de estado (superfície + borda + texto), definidos uma vez porque
+    aparecem em vários badges e avisos.
+
+    Por que classe e não Tailwind solto no componente: no tema escuro, um
+    `bg-amber-50` com `text-amber-700` fica ilegível — texto escuro sobre fundo
+    quase branco dentro de um card preto. Cada tom precisa do par claro/escuro,
+    e repetir isso em cada uso é onde alguém esquece um.
+  */
+  .tom-alerta {
+    @apply border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700/60 dark:bg-amber-950 dark:text-amber-200;
+  }
+  .tom-ok {
+    @apply border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-950 dark:text-emerald-200;
+  }
+  .tom-espera {
+    @apply border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800/60 dark:bg-violet-950 dark:text-violet-200;
+  }
+  .tom-urgente {
+    @apply border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-800/60 dark:bg-orange-950 dark:text-orange-200;
+  }
+  /* Número grande de pendência/atenção — só cor de texto, sem superfície. */
+  .num-alerta {
+    @apply text-amber-600 dark:text-amber-400;
+  }
+  .num-ok {
+    @apply text-emerald-600 dark:text-emerald-400;
+  }
 }

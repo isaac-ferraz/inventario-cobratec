@@ -5,6 +5,7 @@ import { Space_Grotesk, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { Sidebar, TopBar } from "@/components/shell/nav";
 import { ToastProvider } from "@/components/ui/toast";
 import { ConfirmarProvider } from "@/components/ui/confirmar-dialog";
+import { TemaProvider, SCRIPT_ANTI_FLASH } from "@/components/ui/tema";
 import { sessaoAtual } from "@/lib/sessao-servidor";
 import { COOKIE_SESSAO } from "@/lib/sessao";
 import { cn } from "@/lib/utils";
@@ -67,7 +68,13 @@ export default async function RootLayout({
   );
 
   return (
-    <html lang="pt-BR">
+    // suppressHydrationWarning: o script abaixo põe a classe `dark` no <html>
+    // antes do React montar, então o HTML do cliente diverge do servidor de
+    // propósito — é o preço de não piscar branco.
+    <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_ANTI_FLASH }} />
+      </head>
       <body
         className={cn(
           display.variable,
@@ -76,9 +83,11 @@ export default async function RootLayout({
           "font-sans",
         )}
       >
-        <ToastProvider>
-          <ConfirmarProvider>{corpo}</ConfirmarProvider>
-        </ToastProvider>
+        <TemaProvider>
+          <ToastProvider>
+            <ConfirmarProvider>{corpo}</ConfirmarProvider>
+          </ToastProvider>
+        </TemaProvider>
       </body>
     </html>
   );
