@@ -189,6 +189,13 @@ drill-down do Dashboard (todo número leva à lista por trás dele), perfil do
 funcionário em `/funcionarios/[id]` e a logo oficial da Cobratec no topo.
 Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
 
+16. **Supervisor de sala** (branch **`feat/polimento`**): papel `SUPERVISOR`
+    ligado a quantas salas precisar, com alcance definido por funções puras em
+    `lib/supervisao.ts` e filtros aplicados no `where` do Prisma. Vê e edita o
+    que está nas salas dele — inclusive o cofre de senhas da equipe — e não
+    alcança nada fora delas nem as telas globais do TI. Decisão 24 em
+    `decisoes.md`.
+
 ### O que sobrou para depois
 - **Deploy**: `docs/deploy.md` está escrito (Oracle Always Free + Docker), mas o
   sistema ainda roda só em LAN — falta escolher e provisionar o host.

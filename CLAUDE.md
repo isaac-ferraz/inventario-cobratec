@@ -262,6 +262,17 @@ computadores (e hardware), celulares, credenciais e chamados da pessoa.
 `components/brand/`) na navegação e no login; o token `--brand-blue` clareia
 sozinho no tema escuro.
 
+**Supervisor de sala (decisão 24):** papel `SUPERVISOR` ligado a quantas salas
+precisar (`SupervisorSala`; cada sala tem quantos supervisores precisar). As
+regras de alcance são funções puras em **`lib/supervisao.ts`**, e os filtros
+entram no `where` do Prisma — a consulta sai recortada do banco, não da memória.
+Um computador é "da sala" quando a **máquina** está nela **ou** o **dono** senta
+nela; celular segue o dono. `exigirEscopo` (em `lib/autorizacao.ts`) é o portão
+do inventário, ao lado de `exigirSessao` e `exigirAdmin`. Continuam só com o TI:
+cadastrar/remover registros, catálogo de tipos, depósito, usuários, auditoria e
+exportação. No helpdesk o supervisor vê os chamados da sala mas age como
+operador (a fila é do TI, e a nota interna não é dele).
+
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
   `exceljs` não cria gráficos nativos na escrita (decisão 6).
@@ -276,11 +287,12 @@ sozinho no tema escuro.
   **headers de segurança** em todas as respostas; Next fixado na linha 14.2.x
   (14.2.35). A antiga auth Basic opcional foi removida (decisões 9 e 19).
 
-**Autenticação e papéis (decisão 19):** o sistema **exige login**. Model
-`Usuario` (login único, `senhaHash` scrypt, papel `ADMIN`|`OPERADOR`, `ativo`,
+**Autenticação e papéis (decisões 19 e 24):** o sistema **exige login**. Model
+`Usuario` (login único, `senhaHash` scrypt, papel `ADMIN`|`SUPERVISOR`|`OPERADOR`, `ativo`,
 `senhaProvisoria`, vínculo opcional com `Funcionario`) + CRUD em `/usuarios` (só
-admin). **Administrador** faz tudo; **operador** só alcança `/chamados` e
-`/trocar-senha`. Sessão em cookie httpOnly assinado por HMAC (`lib/sessao.ts`,
+admin). **Administrador** faz tudo; **supervisor de sala** vê e edita o que está nas
+salas dele (inclusive o cofre de senhas da equipe) e não alcança as telas globais;
+**operador** só alcança `/chamados` e `/trocar-senha`. Sessão em cookie httpOnly assinado por HMAC (`lib/sessao.ts`,
 Web Crypto — funciona no Edge do middleware), com **reconferência no banco** em
 `lib/sessao-servidor.ts` (papel e `ativo` valem os do banco, não os do cookie).
 Autorização em duas camadas: `middleware.ts` (portão de navegação) **e**
