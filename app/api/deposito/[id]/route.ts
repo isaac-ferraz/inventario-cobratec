@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { itemDepositoSchema } from "@/lib/validations";
+import { itemDepositoSchema, LIMITE_QUANTIDADE } from "@/lib/validations";
 import { validarCorpo, tratarErroPrisma, erro } from "@/lib/api";
 import { registrarAuditoria } from "@/lib/auditoria";
 import { exigirAdmin } from "@/lib/autorizacao";
@@ -25,8 +25,16 @@ export async function GET(req: Request, { params }: Params) {
 //  2) Ajuste rápido de quantidade pelos botões ± : envia só `delta` (ex: +1/-1).
 //     É atômico (increment) e NÃO gera auditoria — a contagem do dia a dia
 //     emitiria eventos demais. O total nunca fica negativo (piso em 0).
+//     O delta respeita o MESMO teto da edição pelo formulário: antes ele não
+//     tinha limite nenhum, e um `delta` gordo (digitado ou repetido por um botão
+//     preso) gravava um estoque absurdo que a criação do item jamais aceitaria.
 const patchSchema = itemDepositoSchema.partial().extend({
-  delta: z.coerce.number().int().optional(),
+  delta: z.coerce
+    .number({ invalid_type_error: "Ajuste deve ser um número" })
+    .int("Ajuste deve ser um número inteiro")
+    .min(-LIMITE_QUANTIDADE, "Ajuste fora do limite")
+    .max(LIMITE_QUANTIDADE, "Ajuste fora do limite")
+    .optional(),
 });
 
 export async function PATCH(req: Request, { params }: Params) {
@@ -44,7 +52,12 @@ export async function PATCH(req: Request, { params }: Params) {
       select: { quantidade: true },
     });
     if (!atual) return erro("Registro não encontrado.", 404);
-    const nova = Math.max(0, atual.quantidade + delta);
+    // Piso em 0 e teto no mesmo limite da edição — o estoque nunca fica
+    // negativo nem vira um número que não cabe numa caixa.
+    const nova = Math.min(
+      LIMITE_QUANTIDADE,
+      Math.max(0, atual.quantidade + delta),
+    );
     try {
       const atualizado = await prisma.itemDeposito.update({
         where: { id: params.id },

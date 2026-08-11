@@ -12,6 +12,7 @@ import { GET as getUsuarios } from "@/app/api/usuarios/route";
 import { GET as getAuditoria } from "@/app/api/auditoria/route";
 import { GET as getCelulares } from "@/app/api/celulares/route";
 import { GET as getChamados } from "@/app/api/chamados/route";
+import { exigirChat } from "@/lib/autorizacao";
 import {
   criarUsuario,
   limparBanco,
@@ -23,12 +24,18 @@ import {
 let admin: UsuarioTeste;
 let operador: UsuarioTeste;
 let inativo: UsuarioTeste;
+let cobranca: UsuarioTeste;
+let supervisor: UsuarioTeste;
+let cobrancaInativa: UsuarioTeste;
 
 beforeAll(async () => {
   await limparBanco();
   admin = await criarUsuario("admin-auth", "ADMIN");
   operador = await criarUsuario("operador-auth", "OPERADOR");
   inativo = await criarUsuario("desligado-auth", "ADMIN", false);
+  cobranca = await criarUsuario("cobranca-auth", "COBRANCA");
+  supervisor = await criarUsuario("supervisor-auth", "SUPERVISOR");
+  cobrancaInativa = await criarUsuario("cobranca-fora", "COBRANCA", false);
 });
 
 // Cada entrada: nome da rota e o handler já pronto para receber o Request.
@@ -88,6 +95,42 @@ describe("revogação", () => {
       await requisicao("GET", "/api/computadores", { usuario: inativo }),
     );
     expect(res.status).toBe(401);
+  });
+});
+
+// exigirChat é o portão das conversas com devedor. As rotas de /api/chat ainda
+// não existem (chegam na fase 2), mas o portão sim — e testá-lo agora é o que
+// garante que elas nasçam fechadas para quem não é do ofício, em vez de
+// dependerem do middleware, que não é fronteira de segurança.
+describe("exigirChat", () => {
+  async function tentar(usuario?: UsuarioTeste) {
+    const r = await exigirChat(
+      await requisicao("GET", "/api/chat/conversas", { usuario }),
+    );
+    return "resposta" in r ? r.resposta.status : 200;
+  }
+
+  it("admin e cobrança passam", async () => {
+    expect(await tentar(admin)).toBe(200);
+    expect(await tentar(cobranca)).toBe(200);
+  });
+
+  it("supervisor de sala é barrado — cobrança não é assunto de sala", async () => {
+    expect(await tentar(supervisor)).toBe(403);
+  });
+
+  it("operador de helpdesk é barrado", async () => {
+    expect(await tentar(operador)).toBe(403);
+  });
+
+  it("sem sessão é 401, não 403", async () => {
+    expect(await tentar()).toBe(401);
+  });
+
+  // Mesma revogação das outras rotas: o cookie segue válido, quem corta é a
+  // reconferência no banco. Vale dobrado aqui, onde o dado é de terceiro.
+  it("cobrança inativada perde o acesso mesmo com cookie válido", async () => {
+    expect(await tentar(cobrancaInativa)).toBe(401);
   });
 });
 

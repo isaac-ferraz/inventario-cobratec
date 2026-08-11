@@ -16,6 +16,7 @@ const CAMPOS_PUBLICOS = {
   ativo: true,
   senhaProvisoria: true,
   funcionarioId: true,
+  siscobraUsucod: true,
   criadoEm: true,
   ultimoAcessoEm: true,
   funcionario: { select: { id: true, nome: true, cargo: true } },
@@ -28,6 +29,18 @@ const CAMPOS_PUBLICOS = {
 function salasDoPapel(papel: string, salaIds: string[] | undefined): string[] {
   if (papel !== "SUPERVISOR") return [];
   return [...new Set(salaIds ?? [])];
+}
+
+// Mesmo raciocínio das salas, para o código de operadora no Siscobra: ele só
+// significa alguma coisa para COBRANCA. Deixá-lo pendurado num papel que não
+// atende devedor guardaria uma atribuição que ninguém usa — e que voltaria a
+// valer sozinha no dia em que o papel mudasse.
+function usucodDoPapel(
+  papel: string,
+  usucod: number | null | undefined,
+): number | null {
+  if (papel !== "COBRANCA") return null;
+  return usucod ?? null;
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
@@ -61,6 +74,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         papel: r.data.papel,
         ativo: r.data.ativo ?? true,
         funcionarioId: r.data.funcionarioId || null,
+        siscobraUsucod: usucodDoPapel(r.data.papel, r.data.siscobraUsucod),
         senhaHash: await gerarHashSenha(r.data.senha),
         // Senha definida por outra pessoa nasce provisória: a UI cobra a troca.
         senhaProvisoria: true,

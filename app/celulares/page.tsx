@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Loader2, Plus } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
+import { ImportarCsv } from "@/components/importar-csv";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
@@ -117,9 +118,12 @@ export default function CelularesPage() {
             Gerencie os aparelhos corporativos e a quem cada um pertence.
           </p>
         </div>
-        <Button onClick={() => setCelDialog({ aberto: true, celular: null })}>
-          <Plus /> Novo celular
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportarCsv entidade="celulares" onPronto={carregarTudo} />
+          <Button onClick={() => setCelDialog({ aberto: true, celular: null })}>
+            <Plus /> Novo celular
+          </Button>
+        </div>
       </div>
 
       <Filtros

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Boxes, Loader2, PackageX, Plus, Search, TriangleAlert } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
+import { ImportarCsv } from "@/components/importar-csv";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
@@ -151,9 +152,12 @@ export default function DepositoPage() {
             que tem e o que está em falta.
           </p>
         </div>
-        <Button onClick={() => setDialog({ aberto: true, item: null })}>
-          <Plus /> Novo item
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportarCsv entidade="deposito" onPronto={carregar} />
+          <Button onClick={() => setDialog({ aberto: true, item: null })}>
+            <Plus /> Novo item
+          </Button>
+        </div>
       </div>
 
       {/* Resumo */}

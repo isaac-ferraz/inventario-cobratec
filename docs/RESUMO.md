@@ -168,8 +168,10 @@ campos do Computador; postura de segurança e política de dependências (ficar 
 Next 14.2.x para uso interno em LAN).
 
 ## Segurança
-**Login obrigatório com papéis** (decisão 19): administrador faz tudo, operador
-só abre/acompanha chamados. Senha de login em hash scrypt; sessão em cookie
+**Login obrigatório com papéis** (decisões 19, 24 e 27): administrador faz tudo;
+supervisor de sala manda no recorte dele; **cobrança** alcança as conversas com
+devedor (`/chat`) e nada do inventário; operador só abre/acompanha chamados.
+Senha de login em hash scrypt; sessão em cookie
 httpOnly assinado, revogável (papel e `ativo` reconferidos no banco a cada
 requisição). `AUTH_SECRET` é obrigatório para o app subir.
 
@@ -196,8 +198,66 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     alcança nada fora delas nem as telas globais do TI. Decisão 24 em
     `decisoes.md`.
 
+17. **Caça a bugs** (decisão 25 em [`decisoes.md`](./decisoes.md)): varredura no
+    navegador e na API corrigiu oito defeitos, entre eles o **papel do supervisor
+    morrendo no login** (cookie assinado como operador ⇒ decisão 24 inalcançável),
+    data inexistente sendo gravada calada e o admin conseguindo se trancar fora do
+    sistema. Entraram freio de força bruta no login, CSP e mensagens de erro em
+    pt-BR. Testes: 177 → **244**.
+
+18. **Importação de CSV** (decisão 26): botão "Importar CSV" nas sete telas de
+    cadastro, com prévia linha por linha antes de gravar, relação por nome,
+    modelo para baixar e parser próprio para o CSV do Excel brasileiro. A
+    validação reaproveita os schemas da tela — nada de regra duplicada. Testes:
+    244 → **323**.
+
+19. **Papel de cobrança** (decisão 27): quarto papel, `COBRANCA`, para a
+    operadora que atende devedor por WhatsApp. Tem destino próprio (`/chat`,
+    destacado na navegação) e **não enxerga inventário nenhum**; o supervisor de
+    sala, por sua vez, não alcança as conversas — dado pessoal de devedor se
+    decide pelo ofício, não pela sala. O campo `siscobraUsucod` (código da
+    operadora no CRM) anda colado ao papel nos três caminhos de escrita. A tela
+    de conversas está em **fase 0**: portão e lugar prontos, serviço de WhatsApp
+    e dossiê do Siscobra ainda por ligar. Testes: 323 → **357**.
+
+20. **Chatbot de cobrança** (decisão 28): o `/chat` deixou de ser moldura. Um
+    robô de WhatsApp atende o devedor, consulta o **Siscobra** e passa para a
+    operadora quando precisa — com fila, conversa e **dossiê** lado a lado.
+    Fronteiras rígidas: o **n8n é o chatbot** (classifica, consulta, redige),
+    o **WAHA** é o canal, e o inventário **não fala com o Siscobra nem com o
+    WhatsApp** — recebe o dossiê empurrado como snapshot. A trava do domínio
+    (nenhum valor antes de CPF + nascimento; nenhuma proposta fora da regra da
+    carteira) é **código**, não prompt. Passo a passo em
+    [`docs/conversas/`](./conversas/README.md). Testes: 357 → **431**.
+21. **Modo direto do WhatsApp** (decisão 29): dá para **conectar um número e
+    conversar agora**, sem n8n, sem Twilio e sem API oficial da Meta — o
+    caminho de teste. Liga com `WAHA_URL` no `.env`; o pareamento é um QR na
+    tela **/chat → Conexão** (só admin). Sem robô do outro lado, tudo que chega
+    cai na **fila** da operadora. O desenho da decisão 28 fica intacto: o n8n
+    tem precedência, e o inventário continua sem conexão com o Siscobra. As
+    duas portas de webhook dividem a mesma máquina de estados
+    (`lib/chat-registro.ts`) e o mesmo segredo. Testes: 431 → **463**.
+22. **Anexo e fila ao vivo** (decisão 30): o primeiro teste com um número real
+    mostrou o defeito de fundo — o filtro **descartava em silêncio**, e agora
+    todo evento ignorado registra o motivo (sem conteúdo nem número). **Mídia
+    entra**: áudio, foto e PDF viram mensagem com marcador e o arquivo baixa
+    depois, fora do banco, servido pelo portão da conversa. Remetente em `@lid`
+    (o endereçamento novo do WhatsApp) tem o telefone procurado nos campos
+    vizinhos. E a **fila é ao vivo** por SSE, com a consulta periódica virando
+    rede de segurança. Fluxos do n8n prontos para importar em
+    [`conversas/n8n/`](./conversas/n8n/). Testes: 463 → **490**.
+
 ### O que sobrou para depois
 - **Deploy**: `docs/deploy.md` está escrito (Oracle Always Free + Docker), mas o
   sistema ainda roda só em LAN — falta escolher e provisionar o host.
 - **Agendar o backup de verdade**: o mecanismo e o passo a passo estão prontos
   em [`backup.md`](./backup.md); o cron/systemd depende de onde o app for morar.
+- **Confirmação visual em 390px**: a estrutura mobile foi auditada e não tem
+  impedimento (layout empilha em `md:`, tabelas rolam no próprio container), mas
+  falta olhar numa tela de celular de verdade — fonte, diálogos e alvo de toque
+  (13 dos 39 alvos ficam abaixo de 36px). Ver o fim da decisão 25.
+- **O chatbot em si**: o número já conecta e a conversa já acontece (modo
+  direto, decisão 29), mas quem responde é gente. Falta montar os dois fluxos do
+  n8n, a credencial de leitura do Siscobra e os prompts — tudo escrito em
+  [`docs/conversas/`](./conversas/README.md), nada disso muda o desenho do papel
+  `COBRANCA` (decisão 27).

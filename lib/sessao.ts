@@ -8,10 +8,19 @@
 // confere no banco se o usuário continua ativo — ver lib/sessao-servidor.ts.
 //
 // Formato: "<payload-base64url>.<assinatura-base64url>", HMAC-SHA256.
+//
+// O papel vem de lib/supervisao.ts de propósito, e não repetido aqui: era uma
+// lista literal, e listas literais de papel foi exatamente o que produziu o bug
+// da decisão 25. Um papel novo que não fosse acrescentado neste arquivo teria o
+// cookie RECUSADO na leitura — a pessoa logaria e cairia fora na página
+// seguinte, sem erro nenhum que explicasse por quê. Importando a lista, o
+// compilador cobra o resto.
+import { PAPEIS, type Papel } from "@/lib/supervisao";
+
 export type Sessao = {
   uid: string;
   login: string;
-  papel: "ADMIN" | "SUPERVISOR" | "OPERADOR";
+  papel: Papel;
   exp: number; // epoch em segundos
 };
 
@@ -110,9 +119,7 @@ export async function lerSessao(
     if (
       typeof sessao?.uid !== "string" ||
       typeof sessao?.login !== "string" ||
-      (sessao?.papel !== "ADMIN" &&
-        sessao?.papel !== "SUPERVISOR" &&
-        sessao?.papel !== "OPERADOR") ||
+      !PAPEIS.includes(sessao?.papel) ||
       typeof sessao?.exp !== "number"
     ) {
       return null;

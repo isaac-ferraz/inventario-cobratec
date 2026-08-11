@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
+import { ImportarCsv } from "@/components/importar-csv";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
@@ -53,6 +54,7 @@ type Usuario = {
   ativo: boolean;
   senhaProvisoria: boolean;
   funcionarioId: string | null;
+  siscobraUsucod: number | null;
   funcionario: { id: string; nome: string; cargo: string } | null;
   ultimoAcessoEm: string | null;
   supervisoes: { sala: { id: string; nome: string } }[];
@@ -70,6 +72,9 @@ const VAZIO = {
   papel: "OPERADOR" as Papel,
   ativo: true,
   funcionarioId: SEM_FUNC,
+  // Texto no formulário e número na API: campo numérico vazio é "" no DOM, e
+  // guardar 0 para "em branco" confundiria "sem código" com o código 0.
+  siscobraUsucod: "",
   salaIds: [] as string[],
 };
 
@@ -135,6 +140,7 @@ export default function UsuariosPage() {
       papel: u.papel,
       ativo: u.ativo,
       funcionarioId: u.funcionarioId ?? SEM_FUNC,
+      siscobraUsucod: u.siscobraUsucod === null ? "" : String(u.siscobraUsucod),
       salaIds: u.supervisoes.map((s) => s.sala.id),
     });
     setErro(null);
@@ -161,6 +167,12 @@ export default function UsuariosPage() {
       salaIds: form.papel === "SUPERVISOR" ? form.salaIds : [],
       ativo: form.ativo,
       funcionarioId: form.funcionarioId === SEM_FUNC ? null : form.funcionarioId,
+      // Como as salas: só vai quando é cobrança, e a API zera nos demais.
+      // Em branco vira null — "não tem código", que é diferente de zero.
+      siscobraUsucod:
+        form.papel === "COBRANCA" && form.siscobraUsucod.trim() !== ""
+          ? Number(form.siscobraUsucod)
+          : null,
     };
     // Na edição, senha em branco significa "não mexer".
     if (form.senha) corpo.senha = form.senha;
@@ -214,9 +226,12 @@ export default function UsuariosPage() {
             <strong>operador</strong> só abre e acompanha chamados.
           </p>
         </div>
-        <Button onClick={abrirNovo}>
-          <Plus /> Novo usuário
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportarCsv entidade="usuarios" onPronto={carregar} />
+          <Button onClick={abrirNovo}>
+            <Plus /> Novo usuário
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -264,6 +279,8 @@ export default function UsuariosPage() {
                         <Badge>Administrador</Badge>
                       ) : u.papel === "SUPERVISOR" ? (
                         <Badge variant="warning">Supervisor</Badge>
+                      ) : u.papel === "COBRANCA" ? (
+                        <Badge variant="success">Cobrança</Badge>
                       ) : (
                         <Badge variant="secondary">Operador</Badge>
                       )}
@@ -408,6 +425,9 @@ export default function UsuariosPage() {
                     <SelectItem value="SUPERVISOR">
                       Supervisor — as salas dele
                     </SelectItem>
+                    <SelectItem value="COBRANCA">
+                      Cobrança — conversas e chamados
+                    </SelectItem>
                     <SelectItem value="OPERADOR">
                       Operador — só chamados
                     </SelectItem>
@@ -417,6 +437,39 @@ export default function UsuariosPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* Mesma ideia das salas: o código do Siscobra só significa
+                  alguma coisa para quem atende devedor. */}
+              {form.papel === "COBRANCA" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="siscobraUsucod">Código no Siscobra</Label>
+                  <Input
+                    id="siscobraUsucod"
+                    inputMode="numeric"
+                    value={form.siscobraUsucod}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        // Só dígitos: o campo é o `usucod` do Siscobra, e
+                        // deixar texto passar só adiaria o erro para a API.
+                        siscobraUsucod: e.target.value.replace(/\D/g, ""),
+                      })
+                    }
+                    placeholder="ex.: 1042"
+                  />
+                  <p
+                    className={cn(
+                      "text-xs",
+                      form.siscobraUsucod.trim() === ""
+                        ? "num-alerta"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {form.siscobraUsucod.trim() === ""
+                      ? "Sem código, as conversas dela não têm como ser atribuídas."
+                      : "É o usucod da operadora no CRM — liga as conversas ao trabalho dela."}
+                  </p>
+                </div>
+              )}
               {/* Salas só aparecem para supervisor: para os outros papéis o
                   campo não significaria nada. */}
               {form.papel === "SUPERVISOR" && (

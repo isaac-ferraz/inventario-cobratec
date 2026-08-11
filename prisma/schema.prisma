@@ -79,6 +79,16 @@ model Usuario {
   senhaProvisoria Boolean     @default(false)
   funcionarioId  String?
   funcionario    Funcionario? @relation(fields: [funcionarioId], references: [id])
+  // `usuario.usucod` da operadora no Siscobra (CRM de cobrança). Só faz sentido
+  // para o papel COBRANCA, e sem ele não há como atribuir uma conversa a quem
+  // de fato trabalhou o caso nem medir conversão — as regras de atribuição do
+  // Siscobra (acionamento e acordo) são todas por `usucod`.
+  //
+  // É Int e não relação: o Siscobra é outro banco, PostgreSQL e SOMENTE
+  // LEITURA. Guardar o código solto é o único vínculo possível, e por isso ele
+  // pode apontar para um operador que não existe mais lá — quem consome trata
+  // o vazio, em vez de o SQLite prometer uma integridade que não pode cumprir.
+  siscobraUsucod Int?
   criadoEm       DateTime     @default(now())
   ultimoAcessoEm DateTime?
 
@@ -88,8 +98,131 @@ model Usuario {
   // Salas pelas quais responde. Só faz sentido com papel SUPERVISOR; para os
   // outros papéis a lista fica vazia.
   supervisoes        SupervisorSala[]
+  // Conversas com devedor que assumiu. Só faz sentido com papel COBRANCA.
+  conversas          Conversa[]
+  respostas          ConversaMensagem[]
 
   @@index([funcionarioId])
+}
+
+// ─────────────────────── Conversas com devedor (cobrança) ───────────────────
+//
+// O atendimento por WhatsApp ao devedor. Duas coisas que este modelo NÃO é, e
+// que explicam o resto do desenho:
+//
+// 1. Não é o estado do robô. Quem orquestra a conversa é o n8n (classificar,
+//    consultar o Siscobra, decidir responder ou escalar). O que mora aqui é o
+//    REGISTRO do atendimento: o que a operadora precisa ver para assumir, e o
+//    que a empresa precisa conseguir provar depois — cobrança é área regulada
+//    (CDC art. 42 e 71), e "o que foi dito ao devedor" é a pergunta que aparece.
+//
+// 2. Não é espelho do Siscobra. O CRM não guarda mensagem de WhatsApp
+//    (confirmado no mapa do schema), então este é o único lugar onde a conversa
+//    existe. O vínculo com o CRM é por código solto, como em `siscobraUsucod`
+//    (decisão 27): outro banco, PostgreSQL, somente leitura.
+model Conversa {
+  id String @id @default(cuid())
+
+  // Identidade da conversa é o TELEFONE, não o devedor: ela começa antes de
+  // saber quem é (e pode nunca chegar lá — engano, ex-devedor, terceiro).
+  // Só dígitos em E.164, sem "+" nem máscara: "5512997654321".
+  telefone String  @unique
+  // Nome que o WhatsApp anuncia (pushName). NÃO é identificação — qualquer um
+  // escreve o que quiser aí. Serve só para a fila não ficar com números secos.
+  nome     String?
+
+  // Preenchidos quando o devedor confirma CPF **e** data de nascimento — a
+  // dupla verificação anti-enumeração que o "Negocie Online" já usa. Sem isso o
+  // robô não diz um único valor: é a regra de ouro do domínio.
+  siscobraDevcod Int?
+  siscobraCarcod Int?
+  // Nome da carteira congelado no momento da identificação, para a fila não
+  // precisar consultar o CRM só para desenhar a lista.
+  carteira       String?
+  identificadaEm DateTime?
+
+  // bot        — o robô está conduzindo.
+  // fila       — pediu humano (ou o robô desistiu) e ninguém assumiu ainda.
+  // humana     — uma operadora assumiu; o robô cala nesta conversa.
+  // encerrada  — acabou.
+  // String pelo mesmo motivo de `papel` e `status` do chamado.
+  situacao String @default("bot")
+  // Por que saiu do robô — "pediu_humano", "fora_da_regra", "irritado"... Texto
+  // livre porque quem classifica é o n8n, e engessar aqui obrigaria migration a
+  // cada motivo novo que o prompt aprender.
+  motivoEscalonamento String?
+
+  // Operadora que assumiu. `SetNull`: a conversa sobrevive ao desligamento de
+  // quem a atendeu — e continua sendo prova do que foi dito.
+  responsavelId String?
+  responsavel   Usuario? @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  // Dossiê do Siscobra (saldo, contratos, regra de parcelamento da carteira),
+  // como JSON serializado — mesmo padrão de `Componente.especificacoes`.
+  //
+  // É um SNAPSHOT empurrado pelo n8n, e não uma consulta que este app faz: o
+  // inventário não abre conexão com o Siscobra (ver decisão 28). Congelado tem
+  // valor próprio — é o que a operadora tinha à frente quando negociou.
+  dossie   String?
+  dossieEm DateTime?
+
+  criadoEm         DateTime  @default(now())
+  ultimaMensagemEm DateTime  @default(now())
+  encerradaEm      DateTime?
+
+  mensagens ConversaMensagem[]
+
+  // A fila ordena por situação + última mensagem; o resto é lookup por dono.
+  @@index([situacao, ultimaMensagemEm])
+  @@index([responsavelId])
+  @@index([siscobraDevcod])
+}
+
+// Uma mensagem da conversa. Append-only: mensagem enviada ao devedor não se
+// edita nem se apaga — é registro de cobrança.
+model ConversaMensagem {
+  id        String   @id @default(cuid())
+  conversaId String
+  conversa  Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+
+  // devedor | bot | operadora | sistema
+  // "sistema" são os marcos do atendimento (assumiu, encerrou), que aparecem na
+  // thread como no helpdesk.
+  autor String
+
+  // Quem escreveu, quando foi gente. Null para devedor, bot e sistema.
+  autorId String?
+  usuario Usuario? @relation(fields: [autorId], references: [id], onDelete: SetNull)
+
+  corpo String
+
+  // Id da mensagem no gateway de WhatsApp. UNIQUE porque webhook reentrega:
+  // sem esta trava, uma reentrega do n8n duplicaria a fala do devedor no
+  // histórico. É a idempotência do canal, e ela precisa estar no banco — dois
+  // webhooks simultâneos passariam por um "já existe?" feito em código.
+  waId String? @unique
+
+  // Anexo do devedor (áudio, foto, comprovante). O ARQUIVO não fica no banco:
+  // `midiaArquivo` é o nome do arquivo dentro da pasta de mídia (volume do
+  // container, ao lado do dev.db), servido por rota autenticada.
+  //
+  // Fora do banco porque SQLite com blob de áudio vira um arquivo de gigabytes
+  // que o backup copia inteiro toda noite — e porque o dado sensível aqui é a
+  // CONVERSA; o anexo é acessório e pode ser purgado sem perder o histórico.
+  //
+  // `midiaTipo` é o substantivo que a operadora lê ("áudio", "imagem"). Ele é
+  // preenchido mesmo quando o download falha: assim a mensagem existe na thread
+  // como "[áudio]" em vez de sumir — devedor invisível é o pior defeito deste
+  // módulo.
+  midiaTipo    String?
+  midiaMime    String?
+  midiaArquivo String?
+  midiaBytes   Int?
+
+  criadoEm DateTime @default(now())
+
+  @@index([conversaId, criadoEm])
+  @@index([autorId])
 }
 
 // Chamado = pedido de suporte ao TI. É a única coisa que o OPERADOR faz no

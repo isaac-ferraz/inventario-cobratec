@@ -16,6 +16,8 @@ export type UsuarioTeste = {
 // Ordem importa: filho antes do pai, senão a FK barra.
 export async function limparBanco(): Promise<void> {
   await prisma.supervisorSala.deleteMany();
+  await prisma.conversaMensagem.deleteMany();
+  await prisma.conversa.deleteMany();
   await prisma.chamadoMensagem.deleteMany();
   await prisma.chamado.deleteMany();
   await prisma.manutencao.deleteMany();

@@ -10,13 +10,48 @@ import {
   assinarSessao,
 } from "@/lib/sessao";
 import { sessaoDaRequisicao } from "@/lib/sessao-servidor";
+import { papelDe } from "@/lib/supervisao";
+import {
+  limparTentativas,
+  podarJanelas,
+  registrarTentativa,
+} from "@/lib/rate-limit";
 
 // Rota pública (ver middleware): é por aqui que se entra e se sai.
+
+// Freio de força bruta. O login protege um cofre de senhas em texto (§12 do
+// README interno), então tentativa ilimitada não serve: antes daqui, 12 palpites
+// seguidos passavam sem nenhum atraso. 10 erros por 5 min por (IP + login) é
+// folgado para quem digitou errado e estreito para quem está adivinhando.
+const LOGIN_MAXIMO = 10;
+const LOGIN_JANELA_MS = 5 * 60_000;
+
+// A chave inclui o login para que um errante não tranque os colegas atrás do
+// mesmo IP/NAT, e inclui o IP para que trocar de usuário não zere o freio.
+function chaveTentativa(req: Request, login: string): string {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "local";
+  return `login|${ip}|${login.toLowerCase()}`;
+}
 
 // POST /api/sessao — login
 export async function POST(req: Request): Promise<NextResponse> {
   const r = await validarCorpo(req, loginSchema);
   if ("resposta" in r) return r.resposta;
+
+  const chave = chaveTentativa(req, r.data.login);
+  podarJanelas(LOGIN_JANELA_MS);
+  const veredito = registrarTentativa(chave, LOGIN_MAXIMO, LOGIN_JANELA_MS);
+  if (!veredito.permitido) {
+    return NextResponse.json(
+      {
+        erro: `Muitas tentativas de login. Aguarde ${veredito.esperarS}s e tente de novo.`,
+      },
+      { status: 429, headers: { "Retry-After": String(veredito.esperarS) } },
+    );
+  }
 
   try {
     const usuario = await prisma.usuario.findUnique({
@@ -44,7 +79,13 @@ export async function POST(req: Request): Promise<NextResponse> {
       return erro("Login ou senha inválidos.", 401);
     }
 
-    const papel = usuario.papel === "ADMIN" ? "ADMIN" : "OPERADOR";
+    // Acertou: o histórico de erros vai embora.
+    limparTentativas(chave);
+
+    // O papel do cookie tem de ser o papel do banco. Colapsar SUPERVISOR em
+    // OPERADOR aqui matava o papel inteiro, porque o middleware decide a
+    // navegação só com o cookie.
+    const papel = papelDe(usuario.papel);
     const token = await assinarSessao({
       uid: usuario.id,
       login: usuario.login,

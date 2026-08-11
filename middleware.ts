@@ -31,6 +31,19 @@ const PERMITIDO_OPERADOR = [
 // Fora desta lista de propósito: /usuarios, /tipos (catálogo global),
 // /auditoria, /deposito (suprimentos não têm sala) e /api/export — a planilha
 // sai com o parque inteiro, e recortá-la é outro trabalho.
+// Rotas da OPERADORA DE COBRANÇA. Ela não é do TI: entra no sistema para
+// atender devedor no /chat, e leva junto o que o operador tem (abrir chamado
+// para o TI, trocar a própria senha) porque ela também é funcionária daqui.
+//
+// Fora desta lista está TODO o inventário — inclusive o dashboard. Conversa com
+// devedor e parque de máquinas são domínios diferentes; quem atende cobrança
+// não tem por que enxergar patrimônio, cofre de senhas ou sala.
+const PERMITIDO_COBRANCA = [
+  ...PERMITIDO_OPERADOR,
+  "/chat",
+  "/api/chat",
+];
+
 const PERMITIDO_SUPERVISOR = [
   ...PERMITIDO_OPERADOR,
   "/", // dashboard, recortado pelas salas dele
@@ -54,7 +67,19 @@ function ehPublica(pathname: string): boolean {
     // login, logout e o encerramento de sessão zumbi precisam ser alcançáveis
     pathname === "/api/sessao" ||
     pathname.startsWith("/api/sessao/") ||
-    pathname === "/api/health" // healthcheck do container roda sem credencial
+    pathname === "/api/health" || // healthcheck do container roda sem credencial
+    // O n8n entregando mensagem do WhatsApp. "Pública" aqui significa apenas
+    // "sem cookie de sessão" — o middleware roda no Edge e não confere token de
+    // serviço. Quem barra é `exigirServico` no início da rota, exatamente como
+    // /api/sessao é público e valida login e senha por conta própria.
+    //
+    // O caminho é EXATO de propósito: `startsWith("/api/chat")` abriria a fila
+    // e o dossiê inteiros para quem não tem cookie nenhum.
+    pathname === "/api/chat/webhook" ||
+    // O gateway de WhatsApp entregando direto, sem n8n (modo direto, decisão
+    // 29). Mesma natureza e mesmo portão da linha acima: `exigirServico` confere
+    // o token dentro da rota.
+    pathname === "/api/chat/waha/webhook"
   );
 }
 
@@ -71,12 +96,15 @@ function casa(lista: string[], pathname: string): boolean {
 function podeNavegar(papel: string, pathname: string): boolean {
   if (papel === "ADMIN") return true;
   if (papel === "SUPERVISOR") return casa(PERMITIDO_SUPERVISOR, pathname);
+  if (papel === "COBRANCA") return casa(PERMITIDO_COBRANCA, pathname);
   return casa(PERMITIDO_OPERADOR, pathname);
 }
 
 /** Para onde mandar quem bateu numa porta que não é dele. */
 function telaInicial(papel: string): string {
-  return papel === "SUPERVISOR" ? "/" : "/chamados";
+  if (papel === "SUPERVISOR") return "/";
+  if (papel === "COBRANCA") return "/chat";
+  return "/chamados";
 }
 
 export async function middleware(req: NextRequest) {

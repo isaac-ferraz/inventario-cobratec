@@ -26,6 +26,28 @@ services:
       # logs`. Em ambos os casos nasce provisória.
       ADMIN_INICIAL_LOGIN: "${ADMIN_INICIAL_LOGIN:-admin}"
       ADMIN_INICIAL_SENHA: "${ADMIN_INICIAL_SENHA:-}"
+      # Conversas com devedor (aba /chat). OPCIONAIS: em branco, o app sobe
+      # igual e o /chat avisa que o serviço não está ligado — ninguém fica
+      # achando que mandou mensagem. Ver .env.example e docs/conversas.md.
+      CHAT_SERVICE_TOKEN: "${CHAT_SERVICE_TOKEN:-}"
+      CHAT_ENVIO_URL: "${CHAT_ENVIO_URL:-}"
+      # Modo direto — WhatsApp sem n8n, para testes (decisão 29). Também
+      # opcionais; `CHAT_ENVIO_URL` acima tem precedência sobre elas.
+      #
+      # ATENÇÃO ao endereço: aqui dentro, "127.0.0.1" é o próprio container, e o
+      # `127.0.0.1:3001` do host NÃO aceita conexão vinda da rede do Docker. Os
+      # dois se falam pelo NOME DO CONTAINER — o gateway entra nesta mesma rede
+      # (ver o fim do docker-compose.waha.yml). Os padrões abaixo já são esses;
+      # qualquer valor no .env vence.
+      WAHA_URL: "${WAHA_URL:-http://cobratec-waha:3000}"
+      WAHA_API_KEY: "${WAHA_API_KEY:-}"
+      WAHA_SESSION: "${WAHA_SESSION:-default}"
+      WAHA_WEBHOOK_URL: "${WAHA_WEBHOOK_URL:-http://inventario-cobratec:3000/api/chat/waha/webhook}"
+    # Alcança serviços publicados na máquina hospedeira. Não é o caminho do
+    # gateway (esse é pela rede, acima), mas destrava integrações que morem no
+    # host — no Linux este nome não existe sem esta linha.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Persiste o dev.db entre reinícios/rebuilds do container.
       - inventario-db:/app/data

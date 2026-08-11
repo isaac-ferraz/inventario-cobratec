@@ -747,3 +747,652 @@ inteiro para a memória do processo e, num descuido, para o JSON. O middleware
 segue sendo só o portão de navegação: ele não tem banco (roda no Edge) e por isso
 não sabe QUAIS registros são de quem — cada rota chama `exigirEscopo` e aplica o
 filtro por conta própria.
+
+---
+
+## 25. Rodada de caça a bugs (varredura de 10/08/2026)
+
+Uma varredura do sistema no navegador e na API (guardas de rota, casos-limite de
+todas as entidades, XSS, concorrência, papéis) achou oito defeitos. Estão todos
+corrigidos, cada um com teste que falha sem a correção. O registro importa mais
+pelo **porquê** de cada um ter passado até aqui.
+
+### 25.1 — O papel do supervisor morria no login (o mais grave)
+
+`POST /api/sessao` assinava o cookie com
+`usuario.papel === "ADMIN" ? "ADMIN" : "OPERADOR"`, colapsando SUPERVISOR em
+operador. Como o `middleware.ts` roda no Edge e julga a navegação **só pelo
+cookie**, o supervisor entrava e era devolvido para `/chamados`: nenhuma tela de
+inventário abria. O papel funcionava no banco, funcionava em `exigirEscopo` e não
+funcionava para quem usava o sistema — a decisão 24 nasceu inalcançável.
+
+**Por que os testes não pegaram:** `tests/api/*` forjam a sessão direto
+(`assinarSessao` com o papel desejado) e chamam o route handler. Ninguém passava
+pelo login nem pelo middleware, justamente as duas peças que discordavam.
+
+**Correção:** a conversão virou `papelDe()` em `lib/supervisao.ts` — ponto único
+de verdade usado pelo login e por `lib/sessao-servidor.ts`. Duas cópias da mesma
+regra divergiram; uma não pode. Novos testes: `tests/api/sessao.test.ts` (papel
+gravado no cookie, papel por papel) e `tests/api/middleware.test.ts` (o portão de
+navegação para os três papéis, tela por tela).
+
+### 25.2 — Data que não existe no calendário
+
+`dataOpcional` validava só o formato `AAAA-MM-DD`. O JS erra de dois jeitos com o
+que passa por essa regex:
+
+- `"2026-13-01"` → `Invalid Date` → o Prisma estourava e a rota respondia **500**.
+- `"2026-02-31"` → **rola para 03/03** e era gravado calado. Uma garantia passava
+  a vencer num dia que ninguém digitou — corrupção silenciosa, o pior dos dois.
+
+**Correção:** `dataDoCalendario()` reconstrói a data em UTC e confere se os três
+componentes sobreviveram; se o dia mudou, ele não existia → 400 com mensagem
+clara. O `<input type="date">` do Chrome já recusava essas datas, então a tela
+nunca esteve exposta — mas a API é porta aberta para script de importação e
+outros clientes, e a validação é dela.
+
+### 25.3 — Inativar a própria conta trancava o admin do lado de fora
+
+Havia trava para *remover* a própria conta e para mexer no *último* admin, mas
+não para se inativar havendo outro admin: `PATCH {ativo:false}` respondia 200 e a
+sessão morria na requisição seguinte (o `ativo` é reconferido no banco). Eram três
+cliques sem aviso, e aconteceu de verdade durante a varredura.
+
+**Correção:** quem edita a própria conta não pode se inativar nem se rebaixar
+(409 com o motivo). A trava é sobre a pessoa perder o acesso, não sobre o sistema
+ficar sem administrador — por isso vale mesmo com outro admin ativo. Editar o
+próprio nome/login segue liberado.
+
+### 25.4 — O ajuste ± do depósito não respeitava o teto do estoque
+
+Criar item limitava a quantidade a 1.000.000; o `delta` dos botões ± não tinha
+limite nenhum e gravava 1.000.000.000 unidades de um cabo. O piso em 0 existia; o
+teto, não. Agora `LIMITE_QUANTIDADE` é exportado de `lib/validations.ts` e vale
+para os dois caminhos.
+
+### 25.5 — Login sem freio de força bruta
+
+Doze tentativas erradas seguidas passavam sem atraso. O login protege um cofre de
+senhas em texto, então isso não serve. `lib/rate-limit.ts` é um contador em
+memória (sem dependência nova): 10 erros por 5 min por **IP + login**, 429 com
+`Retry-After`, e acertar a senha limpa o histórico. A chave inclui o login para
+que um errante não tranque os colegas atrás do mesmo NAT, e inclui o IP para que
+trocar de usuário não zere o freio.
+
+**Limite conhecido:** o contador é por processo. Uma instância única (o container
+na LAN) é o caso real; com várias instâncias o teto efetivo viraria N × 10 e isto
+precisaria de contador compartilhado.
+
+### 25.6 — CSP entrou (revendo a decisão 9)
+
+A decisão 9 deixou a CSP de fora para não quebrar os estilos inline do
+Next/Tailwind. Ela entrou mantendo `'unsafe-inline'` para script e estilo (o Next
+injeta os dois; removê-los exigiria nonce por requisição) — ainda assim
+`default-src 'self'` barra script, iframe, fonte e conexão de outra origem,
+`form-action 'self'` impede que um HTML injetado poste o cofre para fora e
+`object-src 'none'` mata plugin legado. O app não usa nenhum recurso externo, então
+nada foi restringido do que já existia.
+
+### 25.7 — Mensagens do zod em inglês na tela do TI
+
+Erro de tipo caía no texto embutido do zod: *"Expected string, received number"*,
+*"Invalid enum value. Expected 'ativo' | ..."*, *"Required; Required"* — do lado
+de "Identificador é obrigatório", em português. `lib/zod-ptbr.ts` instala um error
+map global (chamado uma vez por `lib/validations.ts`, que toda rota importa).
+Mensagem escrita no schema continua ganhando; só o fallback mudou de idioma.
+
+### 25.8 — Movimentação de sala mentia "ok" para id que não existe
+
+Um lote com id inexistente respondia `200 {ok:true, computadores:1}` e ignorava o
+resto em silêncio: quem estava com a tela velha aberta (item removido em outra
+aba) lia sucesso onde nada aconteceu. Agora a seleção inteira é conferida antes —
+ou move tudo, ou 404 pedindo para atualizar a página. Efeito colateral desejado:
+`computadores: 0` passou a significar uma coisa só, "já estavam lá".
+
+### O que a varredura confirmou que está certo
+
+Vale registrar para não virar dúvida depois: guardas de rota (toda página
+redireciona, toda API responde 401), ausência de enumeração de usuário no login,
+XSS armazenado inofensivo (React escapa; `<img onerror>` e `<script>` renderizam
+como texto), injeção SQL sem efeito (Prisma parametrizado), concorrência otimista,
+travas do último administrador, 404 em id inexistente, 409 com contagem para
+tipo/sala em uso, paginação que não estoura com parâmetro absurdo, exclusão de
+funcionário em dois passos (409 → `?liberar=1`) e o Excel com as quatro abas.
+
+### Mobile: ainda sem confirmação visual
+
+A estrutura foi auditada no código e não tem impedimento — o layout empilha em
+`md:` e as tabelas rolam dentro do próprio container (`overflow-auto` no wrapper
+do shadcn), com a de funcionários precisando de 795px de largura mínima. O que
+falta é olho em 390px de verdade (tamanho de fonte, diálogos, alvo de toque: 13
+dos 39 alvos ficam abaixo de 36px, incluindo os botões de tema com 26×26 — passam
+o mínimo AA de 24px, mas são apertados para dedo). Não deu para medir ao vivo
+nesta rodada: o gerenciador de janelas ignora redimensionamento, popup é
+bloqueado e iframe é barrado pelo próprio `X-Frame-Options` do app.
+
+---
+
+## 26. Importação de CSV nas sete entidades
+
+Carga em massa por planilha em **funcionários, computadores, celulares, depósito,
+tipos, salas e usuários** — `POST /api/importar` + o diálogo único
+`components/importar-csv.tsx` nas sete telas. Só administrador.
+
+### Validação não se repete: quem valida é o schema da tela
+
+O ponto que decidiu o desenho: `lib/importacao.ts` **não valida nada**. Cada
+entidade converte a linha num objeto e entrega ao MESMO schema zod que o
+formulário usa. Consequências que valem o trabalho:
+
+- data inexistente, "1.234,90", e-mail, teto de estoque e limite de texto já
+  chegam resolvidos — a decisão 25.2 protege a importação sem uma linha a mais;
+- regra nova na tela vale na importação no mesmo commit, sem ninguém lembrar;
+- a mensagem de erro que o TI lê na prévia é a mesma da tela.
+
+O que sobra para o `lib/importacao.ts` é o que é só da planilha: sinônimo de
+coluna, "Sim/Não" → booleano, "06/08/2026" → ISO, "Administrador" → `ADMIN` e a
+resolução de **relação por nome**.
+
+### Relação por nome, porque planilha não tem cuid
+
+A planilha diz "Ana Souza" e "Sala 93", não `cmsh…`. Resolver isso é onde a
+importação mais erra, então cada falha é específica: nome que não existe diz qual
+nome, e **nome repetido no cadastro é recusado em vez de escolher um** — o banco
+tem duas "Ana Souza" de verdade, e adivinhar qual delas ganharia o notebook não
+é decisão de software.
+
+### Prévia antes de gravar, e tudo-ou-nada por padrão
+
+Duas fases na mesma rota: `aplicar: false` devolve o plano linha por linha sem
+escrever; `aplicar: true` executa numa transação. Se houver qualquer linha com
+erro, **nada** é gravado — a menos que o TI marque "importar só as linhas
+válidas". Importação é a operação com maior chance de estragar dados em silêncio;
+ver o plano antes é o que separa "carreguei a planilha" de "carreguei a planilha
+errada em cima do inventário".
+
+A fase de aplicar reprocessa o arquivo do zero em vez de confiar num plano
+guardado no servidor: a rota fica sem estado e o que vale é o banco no instante
+da escrita.
+
+### Célula vazia NÃO apaga
+
+A regra mais importante para não destruir cadastro: campo em branco numa planilha
+quase sempre significa "não sei", não "apague". Célula vazia é **omitida** do
+objeto, então reimportar uma planilha com metade das colunas preenchidas não
+zera o resto. Limpar um campo continua sendo trabalho da tela (onde `""` → null,
+decisão 8). Há teste dedicado a isso.
+
+### O CSV que o Excel brasileiro cospe
+
+`lib/csv.ts` é parser próprio (nenhuma dependência nova) porque o arquivo real
+tem: delimitador `;` (a vírgula é decimal em pt-BR), **BOM** UTF-8, CRLF, campo
+entre aspas com `;` e quebra de linha dentro, e `""` como aspa literal. O
+delimitador é detectado contando fora das aspas **só no cabeçalho** — contar o
+arquivo inteiro deixaria um campo de observações cheio de vírgulas vencer o `;`
+que separa as colunas. O cabeçalho é normalizado sem acento, então "Patrimônio",
+"patrimonio" e "PATRIMÔNIO" são a mesma coluna.
+
+Dois bugs meus que os testes pegaram e que valem registro: **"Não" com acento**
+não casava com "nao" (minúscula não é o mesmo que sem acento — daí `semAcentos()`
+separado de `normalizarCabecalho()`, que precisa preservar o "-"), e o **BOM do
+modelo** não chegava no arquivo. O modelo sai com BOM de propósito: sem ele o
+Excel abre em ANSI e "Memória" vira "MemÃ³ria".
+
+O arquivo é lido no navegador tentando **UTF-8 estrito** e caindo para
+**Windows-1252** se não for válido — planilha salva como CSV no Windows costuma
+sair em 1252, e decodificar isso como UTF-8 estraga todo acento.
+
+### Chave natural, e o que "atualizar" significa
+
+Casar linha com registro usa a chave natural: `identificador` (computador,
+celular), `login` (usuário), `nome` (tipo, sala, funcionário, item de depósito).
+Onde o banco garante unicidade, atualizar é seguro. Em **funcionário e item de
+depósito não existe unique**, e aí o casamento por nome só acontece quando há
+**exatamente um** registro com aquele nome; havendo dois, a linha é recusada.
+Chave repetida dentro do próprio arquivo também é erro, apontando a linha
+anterior — sem isso a segunda linha sobrescreveria a primeira em silêncio.
+
+### Usuários: senha e as travas que já existiam
+
+Senha vinda da planilha (ou **sorteada**, quando a coluna vem vazia) nasce
+provisória, e a sorteada é devolvida **uma única vez** na resposta para o TI
+distribuir. O hash é calculado ANTES da transação: scrypt é caro de propósito e
+prender a transação do SQLite durante N hashes travaria o resto do app.
+
+A importação não é porta dos fundos para o que a tela impede: a linha da
+**própria conta de quem importa** é recusada (decisão 25.3). Não existe checagem
+de "ficaria sem administrador" porque ela seria inalcançável — quem importa é um
+admin ativo, a própria linha já foi recusada e a importação nunca remove ninguém;
+código que teste nenhum consegue exercitar é pior que nenhum código.
+
+### Limites e auditoria
+
+2 MB de texto e 1000 linhas por importação, para uma planilha gigante não prender
+o processo numa transação só. A auditoria recebe **um evento por importação** com
+as contagens, não um por linha — mesma escolha da contagem ± do depósito
+(decisão 17): o histórico serve para saber que houve uma carga, e os registros em
+si já aparecem na entidade.
+
+### O que ficou de fora
+
+Componentes de hardware não têm importação: cada linha precisaria apontar
+computador **e** tipo, e o caminho natural é importar as máquinas e depois usar a
+tela. Chamados e manutenções também não — são eventos, não cadastro.
+
+---
+
+## 27. Papel de cobrança e a porta do `/chat`
+
+**Contexto:** a Cobratec é uma empresa de cobrança, e o atendimento ao devedor
+por WhatsApp vai passar a acontecer dentro deste sistema — com o dossiê da
+carteira (vindo do Siscobra, o CRM) ao lado da conversa. Isso traz para dentro
+do app um **segundo ofício**, que não é o TI, e uma classe de dado que o
+inventário nunca teve: dado pessoal de terceiro (CPF, dívida, negociação).
+
+**Decisão:** papel `COBRANCA`, separado, com destino próprio (`/chat`). Esta
+rodada entrega o **papel inteiro** — schema, API, tela de usuários, importação,
+middleware, navegação e testes — e a tela do chat como **fase 0**: o portão e o
+lugar existem, o serviço de conversas ainda não.
+
+### Papel novo, e não operador com uma flag
+
+A pergunta "quem pode ler conversa com devedor?" é de outra natureza que "quem
+pode abrir chamado". Se cobrança fosse `OPERADOR` + flag, todo operador de
+helpdesk herdaria a porta do dado pessoal no dia em que o `/chat` subisse — a
+falha teria a forma de um `if` esquecido, não de uma decisão. Papel separado
+torna o alcance uma escolha explícita em três lugares que se espelham:
+`exigirChat` (API), `PERMITIDO_COBRANCA` (middleware) e `podeChat` (navegação).
+
+### O supervisor de sala fica de fora
+
+Deliberado, e é o ponto mais fácil de errar: o supervisor tem **as mesmas
+permissões sobre um recorte** (decisão 24), então a tentação é dar a ele a
+conversa da "sua" sala. Não. Cobrança não é assunto de sala — o alcance sobre
+dado pessoal de devedor se decide pelo **ofício** da pessoa, nunca pelo lugar
+onde ela senta. Por isso nada em `lib/supervisao.ts` se ramifica para `COBRANCA`:
+lá ela cai exatamente onde o operador cai (só os próprios chamados), e o alcance
+extra dela vive fora, em `exigirChat`.
+
+O caminho inverso também vale: cobrança **não enxerga inventário**, nem o
+dashboard. Ela entra no sistema para atender, e leva junto só o que o operador
+tem (abrir chamado para o TI, trocar a própria senha) porque também é
+funcionária da casa.
+
+### A lista de papéis passou a ser importada, não repetida
+
+`lib/sessao.ts` validava o papel do cookie contra uma lista literal. Acrescentar
+`COBRANCA` sem tocar nesse arquivo faria o cookie ser **recusado na leitura**: a
+pessoa logaria e cairia fora na página seguinte, sem erro nenhum que explicasse
+por quê — o parente próximo do bug 25.1, que nasceu exatamente de duas cópias da
+mesma lista discordando. Agora `PAPEIS` vem de `lib/supervisao.ts` e o compilador
+cobra o resto. Papel novo se acrescenta em um lugar só.
+
+### `siscobraUsucod`: um número solto, de propósito
+
+Para atribuir uma conversa a quem de fato trabalhou o caso (e medir conversão) é
+preciso o `usuario.usucod` da operadora no Siscobra — as regras de atribuição de
+lá (acionamento, acordo) são todas por esse código.
+
+Ele é `Int?` e **não** relação porque o Siscobra é outro banco, PostgreSQL e
+**somente leitura**: guardar o código solto é o único vínculo possível. A
+consequência assumida é que ele pode apontar para um operador que não existe mais
+lá, e quem consome trata o vazio — melhor isso do que o SQLite prometer uma
+integridade que não tem como cumprir.
+
+**O código anda colado ao papel**, nos dois sentidos e nos três caminhos de
+escrita (POST, PATCH e importação): só é gravado para `COBRANCA`, e sair do papel
+o zera. Mesma razão dos vínculos de sala do supervisor — um código pendurado num
+papel que não atende devedor é uma atribuição que ninguém usa e que **voltaria a
+valer sozinha** no dia em que o papel mudasse de novo.
+
+Na importação isso significa três regras: código com papel errado **erra a
+linha** (é engano de planilha, e avisar é melhor que ignorar calado), rebaixar
+por planilha **solta** o código, e célula vazia de quem continua na cobrança
+**não apaga** o que está gravado (decisão 26). O valor vai como texto cru para o
+`usuarioSchema`, que agora coage — a conversão de célula não se repete fora do
+schema, e `null` continua distinguível de zero porque o `.nullable()` corta antes
+da coerção.
+
+### Conversas não é item de menu
+
+No desktop o `/chat` é um bloco destacado logo acima do perfil, não uma linha na
+lista; no mobile, o primeiro item da barra. A lista de navegação é o inventário —
+e para quem atende cobrança o chat não é "mais uma tela", é a única porta que
+importa. Ela precisa cair nela sem procurar.
+
+### Fase 0: a tela existe antes do serviço
+
+`/chat` hoje explica que o serviço ainda não está conectado e o que virá. Foi
+escolha, não sobra de trabalho: sem ela o middleware mandaria a operadora de
+cobrança para uma rota inexistente no primeiro login. O portão real continua
+sendo `exigirChat` em cada rota de `/api/chat` — a checagem na página é só
+navegação, no mesmo espírito das outras telas.
+
+**O que falta para a fase 1:** ligar o número de WhatsApp, subir o serviço de
+conversas, a leitura somente-leitura do Siscobra para o dossiê e as regras de
+negociação por carteira. Nada disso muda o desenho do papel — que é justamente o
+motivo de ele ter sido fechado primeiro.
+
+---
+
+## 28. O chatbot de cobrança: quem faz o quê
+
+**Contexto:** a decisão 27 entregou o papel `COBRANCA` e a porta (`/chat`) sem o
+serviço atrás dela. Esta decisão liga o serviço — um chatbot de WhatsApp que
+atende o devedor, consulta o Siscobra e passa para a operadora quando precisa.
+
+**Decisão:** três peças com fronteiras rígidas.
+
+| Peça | Responsabilidade | Não faz |
+|---|---|---|
+| **WAHA** (Docker, LAN) | ser o canal do WhatsApp | não decide nada |
+| **n8n** (já em uso) | **é o chatbot**: classifica, consulta o Siscobra, redige, decide escalar | não guarda o atendimento |
+| **Inventário** (este app) | registro do atendimento + tela da operadora | **não fala com o Siscobra nem com o WhatsApp** |
+
+### O inventário não abre conexão com o Siscobra
+
+Foi a escolha estrutural da rodada, e a mais fácil de fazer errado — a tentação
+era óbvia: já existe schema mapeado e SQL validado no projeto irmão, bastava um
+`pg` no `package.json` e uma rota `/api/chat/.../dossie`.
+
+Não. O que isso custaria: uma segunda conexão de banco num app que hoje é um
+arquivo SQLite, credencial do CRM guardada aqui, pool aberto contra um Postgres
+de produção que não é nosso, e uma dependência nova na única aplicação que o TI
+precisa conseguir subir sozinha. O n8n **já** tem a credencial, já é o dono da
+integração, e passa por lá de qualquer forma para atender o devedor.
+
+Então o dossiê chega **empurrado**, como snapshot em JSON (`Conversa.dossie`,
+mesmo padrão de `Componente.especificacoes`). Efeito colateral que virou
+qualidade: congelado tem valor próprio — é o que a operadora tinha à frente
+quando negociou, e não o que o CRM diz hoje. Em cobrança essa diferença é a
+resposta de uma contestação.
+
+O mesmo raciocínio vale para o envio: o app chama um webhook do n8n
+(`CHAT_ENVIO_URL`), não o gateway. Trocar WAHA por WPPConnect amanhã é mexer no
+fluxo do n8n — sem migration, sem deploy, sem tocar em código de autenticação.
+
+### Evolution API estava de pé e ficou de fora
+
+Havia um bot funcionando (`Cobratec/evolution_api`: Evolution + Flask + Ollama,
+com histórico próprio em SQLite). A escolha do TI foi começar do zero com n8n. O
+que se ganha: o fluxo passa a ser editável por quem não programa, e a
+orquestração deixa de morar num arquivo Python que só uma pessoa mexe. O que se
+perde, e vale registrar: aquele projeto já tinha o **padrão de 2 chamadas**
+desenhado (classificar → responder) e a regra de ouro do domínio escrita. As
+duas coisas foram trazidas para cá em vez de redescobertas —
+`docs/conversas/prompts.md` é herdeiro direto daquele `SYSTEM_PROMPT`.
+
+**Gateway:** WAHA com motor **NOWEB** (Baileys, sem navegador), porque a máquina
+já roda Supabase, Postgres e o inventário — um Chromium headless por sessão
+custaria centenas de MB para nada. Alternativa registrada: WPPConnect (Apache
+2.0). **Risco assumido e dito em voz alta:** todo gateway não-oficial contraria
+os termos do WhatsApp e pode levar ao banimento do número. Chip dedicado, nunca
+a linha principal.
+
+### A trava do domínio é código, não prompt
+
+A regra: **nenhum valor sai antes de o devedor provar quem é** (CPF **e** data de
+nascimento — a dupla verificação anti-enumeração que o "Negocie Online" já usa).
+
+Ela vive em `lib/conversas.ts` (`podeRevelarValores`, `propostaCabeNaRegra`), não
+no prompt, e a diferença não é estilo: prompt é sugestão, e um modelo que alucina
+não consulta o prompt antes de responder. O fluxo do n8n só injeta saldo no
+contexto do redator quando a conversa está identificada — o modelo não pode dizer
+um número que nunca recebeu.
+
+`identificadaEm` existe separado de `siscobraDevcod` exatamente por isso: o n8n
+também faz um **palpite** por telefone (para a saudação), e palpite preenche o
+código sem preencher a data. Só os dois juntos liberam valor. Um campo só teria
+transformado "achamos que é a Maria" em "pode falar o saldo da Maria".
+
+A segunda trava é a **regra oficial da carteira** (`acordo_regras` /
+`acordo_regras_parcela`): o robô só fecha dentro do que está cadastrado, e
+carteira **sem** regra ativa não negocia — escala. Como só ~20 carteiras têm
+regra ativa, o caminho comum é a operadora, o que é o correto: sem documento
+oficial, quem inventa condição é gente que responde por ela.
+
+### Entregar primeiro, gravar depois
+
+A ordem no envio da resposta da operadora é deliberada e vale contra o instinto
+de "grava e tenta mandar":
+
+- **gravar antes** produz a tela mostrando uma resposta que o devedor nunca
+  recebeu. A operadora segue em frente e ninguém descobre até a cobrança azedar;
+- **entregar antes** produz, no pior caso, mensagem duplicada quando a resposta
+  do gateway se perde.
+
+Mensagem repetida é constrangimento. Mensagem fantasma é uma promessa que a
+empresa não sabe que fez. Escolhemos o constrangimento — e a tela diz, em toast
+que não some sozinho, quando o envio falhou.
+
+### A situação só anda para frente
+
+`bot → fila → humana → encerrada`, e **de humana não se volta para bot**.
+Devolver ao robô uma conversa em que a atendente acabou de prometer algo é a
+receita para a máquina contradizê-la na frente do devedor. Voltar ao robô exige
+encerrar e o devedor escrever de novo — aí é outro atendimento, e o webhook
+reabre sozinho.
+
+Pelo mesmo motivo, o webhook **nunca** tira uma conversa de quem assumiu: o robô
+pedindo escalonamento numa conversa já `humana` não mexe em nada.
+
+### Idempotência mora no banco
+
+`ConversaMensagem.waId` é `UNIQUE`, e a violação é tratada como **sucesso** na
+rota. Webhook reentrega — é o comportamento normal de qualquer gateway —, e sem
+essa trava a fala do devedor apareceria duas vezes no histórico. Um "já existe?"
+em código não bastaria: dois webhooks simultâneos passariam pelos dois lados do
+`if`. E responder erro faria o n8n tentar para sempre.
+
+### O n8n não é um usuário
+
+`exigirServico` (token estático, comparado em tempo constante) em vez de um
+`Usuario` com papel COBRANCA para o robô. Um usuário-robô apareceria na fila,
+poderia assumir conversa e teria senha no cofre. O n8n não é uma atendente — é o
+canal.
+
+O webhook é a única rota "pública" no middleware junto com login e healthcheck,
+e a liberação é por **caminho exato**: `startsWith("/api/chat")` abriria a fila e
+o dossiê inteiros para quem não tem cookie nenhum. Há teste para os dois lados.
+
+### Sem token configurado, 503 e não 401
+
+Falta de configuração se anuncia. Um 401 mandaria o TI caçar credencial errada
+por horas quando o problema é uma variável em branco — mesmo espírito do
+`AUTH_SECRET` obrigatório (decisão 19).
+
+### O que ficou de fora, e por quê
+
+- **Mídia** (áudio, foto, boleto): só texto. Áudio é o próximo pedido óbvio e
+  precisa de transcrição no n8n antes de virar coluna aqui.
+- **Realtime**: a fila recarrega a cada 15s. Para dezenas de conversas serve;
+  SSE entra quando incomodar, não antes.
+- **Escrever no Siscobra** (virar ocorrência em `retorno`): a conexão é somente
+  leitura por decisão do TI, e escrever no CRM de produção é decisão que não se
+  toma de passagem.
+- **Horário legal de atendimento**: cobrança tem restrição de horário e o robô
+  hoje responde a qualquer hora. Fica no fluxo do n8n até virar regra de negócio
+  de verdade.
+
+---
+
+## 29. Modo direto: WhatsApp sem n8n, para testar
+
+**Contexto:** a decisão 28 deixou o desenho pronto e nada ligado. Para ver a
+primeira mensagem entrar era preciso, antes: subir o gateway, parear um número,
+montar dois fluxos de n8n, criar a credencial do Siscobra e escrever os prompts.
+Cinco peças, e um erro em qualquer uma aparece como "não funcionou" — sem dizer
+onde. O pedido era outro e menor: **conectar no WhatsApp para testar**, sem
+Twilio e sem API oficial da Meta.
+
+**Decisão:** um segundo caminho, ligado por variável de ambiente, em que o
+inventário fala com o gateway diretamente:
+
+```
+produção (28)   WhatsApp → WAHA → n8n (o chatbot) → inventário
+teste    (29)   WhatsApp → WAHA ────────────────→ inventário
+```
+
+Liga com `WAHA_URL` no `.env`; sem ela, nada deste caminho existe. Pareamento em
+**/chat → Conexão** (só admin): botão, QR na tela, celular lê, pronto.
+
+### A fronteira da decisão 28 continua de pé
+
+O que aquela decisão protege não é "o app não fala com gateway" — é **onde mora
+a integração**. E o que ela protege de verdade continua intacto: o inventário
+segue **sem conexão com o Siscobra**, o dossiê segue chegando empurrado, e o
+caminho de produção segue sendo o do n8n. O que o modo direto encurta é só o
+trecho do canal, e só quando alguém pede.
+
+**`CHAT_ENVIO_URL` (n8n) tem precedência.** Com os dois configurados, o n8n
+manda. Se fosse o contrário, uma variável esquecida no `.env` silenciaria o
+chatbot inteiro — e ninguém perceberia até o devedor reclamar que ninguém
+respondeu.
+
+### Sem robô, a mensagem vai para a fila
+
+No modo direto não há nada do outro lado: toda mensagem que chega entra
+**escalada** (`motivoEscalonamento: "sem robô ligado (modo direto)"`), e a
+conversa cai em `fila`. Parar em `bot` — o padrão do webhook do n8n — deixaria o
+devedor esperando um atendimento automático que ninguém ligou.
+
+Isso reaproveita a máquina de estados existente em vez de criar uma paralela, e
+foi o motivo de extrair `registrarEntrada` (`lib/chat-registro.ts`): as duas
+portas de webhook precisam da **mesma** regra de conversa criada sem corrida,
+encerrada que reabre, reentrega que não duplica e robô que não rouba o que já
+está com gente. Duas cópias divergiriam no pior momento.
+
+### Um segredo só, um portão só
+
+O webhook do gateway usa o **mesmo** `exigirServico` e o **mesmo**
+`CHAT_SERVICE_TOKEN` do webhook do n8n. Isso é possível porque o WAHA aceita
+`customHeaders` por sessão — e a sessão é criada **pelo próprio app**, no botão
+"Conectar", já com o `Authorization: Bearer`. Foi verificado contra o container:
+a variável de ambiente `WHATSAPP_HOOK_URL` do compose não suporta cabeçalho
+nenhum, e por isso ela fica **vazia** no modo direto.
+
+Consequência prática: conectar sem `CHAT_SERVICE_TOKEN` é recusado com 503. Uma
+conexão que recebe mensagem e a joga fora em 401 é pior que uma que não sobe.
+
+### O eco
+
+A resposta da operadora sai por este mesmo gateway e voltaria como evento. Por
+isso a sessão do modo direto assina só `message` (não `message.any`), e mesmo
+assim o parser descarta `fromMe`. Duas travas para o mesmo defeito porque ele é
+invisível na revisão e óbvio na tela: a mesma fala duas vezes na thread.
+
+Também não viram conversa: **grupo** (cobrar dívida na frente de terceiro é
+exposição de dado pessoal, e não há como saber quem está no grupo), broadcast e
+mensagem sem texto — o modelo só guarda texto, como na decisão 28. Tudo isso
+responde **200 "ignorado"**: recusar faria o gateway reentregar para sempre algo
+que nunca seria aceito.
+
+### Quem se pendura na rede de quem
+
+Os dois containers se falam pelo **nome**, na mesma rede Docker, e é o **gateway
+que entra na rede do inventário**. A direção não é arbitrária: o inventário é o
+sistema do TI e precisa subir sozinho, sem saber que existe WhatsApp — a stack
+opcional é que depende da principal.
+
+O primeiro desenho errou nisso. O gateway publicava só em `127.0.0.1:3001` (para
+não expor o número da empresa na rede, o que continua certo) e o app tentava
+alcançá-lo por `host.docker.internal` — que resolve para o IP da ponte do
+Docker, onde o loopback do host **não escuta**. Resultado: `connection refused`,
+com as duas pontas no ar e configuradas. A porta publicada continua existindo,
+mas agora com o papel certo: é para **gente** (painel do WAHA, diagnóstico) e
+para o caso de o inventário rodar fora do Docker.
+
+### O QR passa pelo app
+
+A imagem vem por `/api/chat/conexao/qr`, e não do gateway direto no `<img>`: a
+chave da API é segredo de servidor, o gateway só escuta na LAN, e a CSP
+(`img-src 'self'`, decisão 25) barraria outra origem. A rota é `no-store` — QR é
+credencial de pareamento com validade de segundos.
+
+**Quem pareia é o admin**, não a operadora de cobrança: ela usa a linha o dia
+inteiro, mas derrubar a conexão da equipe não é ação dela. Mesma divisão de
+`/usuarios` e do catálogo.
+
+### O risco, de novo
+
+WAHA se conecta como "aparelho conectado" do WhatsApp Web. Isso contraria os
+termos do WhatsApp e **o número pode ser banido** — em cobrança, perder a linha
+é prejuízo operacional. Chip dedicado, nunca a principal. Quando o volume
+justificar o custo por conversa, o caminho é a API oficial da Meta; o app não
+muda, porque quem conhece o canal é o gateway (ou o n8n).
+
+---
+
+## 30. Anexo do devedor e fila ao vivo
+
+**Contexto:** com o número pareado, o primeiro teste real mostrou dois buracos
+que só aparecem com gente de verdade do outro lado. Um foi diagnóstico, e é o
+mais importante da rodada.
+
+### O defeito de fundo era o silêncio
+
+A mensagem não apareceu na fila. O gateway dizia ter entregado, o app respondia
+**200**, e não havia rastro nenhum de onde ela morreu — o filtro descartava sem
+dizer nada. Um `if` que joga fora em silêncio transforma qualquer defeito numa
+caça sem pista.
+
+Agora todo evento ignorado grava uma linha com o motivo. Ela **não leva conteúdo
+nem número** (LGPD — log de servidor não é lugar de mensagem de devedor): só o
+tipo do evento, o domínio do endereço e os sinalizadores. É o suficiente para
+responder "por que isto não apareceu?" e nada além disso.
+
+### Mídia entra, mesmo sem o arquivo
+
+Antes, mensagem sem texto era descartada — quem mandava um áudio simplesmente
+não existia para quem atende. Agora vira mensagem com marcador (`[áudio]`,
+`[imagem] segue o comprovante`) e o anexo é baixado do gateway em seguida.
+
+A ordem importa e é a mesma regra da decisão 28: **a fala é gravada primeiro, o
+anexo depois**, e a falha do download é engolida. O pior caso vira "a operadora
+vê `[áudio]` e não consegue ouvir" — nunca "a conversa sumiu porque um download
+falhou".
+
+O arquivo fica **fora do banco**, ao lado do `dev.db`, no mesmo volume: SQLite
+com blob de áudio vira um arquivo de gigabytes que o backup copia inteiro toda
+noite. E o nome do arquivo é derivado do id da mensagem (hash), nunca do nome que
+veio do WhatsApp — nome de arquivo de terceiro é entrada não confiável, e
+`../../dev.db` gravaria fora da pasta. Servir passa pelo **mesmo portão da
+conversa** (`exigirChat`), com a mensagem buscada amarrada ao id da conversa da
+URL: sem isso, um id de mensagem de outra conversa serviria por qualquer rota.
+
+Também vale o cuidado com o endereço do download: a URL vem do webhook, e só a
+**origem do gateway** é aceita. Buscar de um endereço arbitrário que chegou de
+fora seria pedir para o servidor varrer a rede interna (SSRF).
+
+### O endereço do remetente pode não ser telefone
+
+O WhatsApp está migrando para **LID** (`1234567@lid`), um identificador que não é
+número. Como `Conversa.telefone` é a identidade (UNIQUE), gravar um LID ali
+criaria uma segunda conversa da mesma pessoa e quebraria o envio da resposta.
+O número passa a ser procurado nos campos vizinhos; **não havendo nenhum, a
+mensagem é ignorada e o motivo vai para o log** — chutar seria pior.
+
+### Fila ao vivo: SSE e um barramento de processo
+
+A fila recarregava a cada 15s. Pouco no relógio, muito na prática: quem atende
+deixa a aba num monitor lateral, e um devedor esperando quinze segundos sem nada
+piscando é um devedor que ninguém viu.
+
+**SSE, não WebSocket:** o fluxo é de mão única (servidor → tela), e SSE é HTTP
+puro — passa pelo mesmo cookie, pela mesma CSP (`connect-src 'self'`) e pelo
+mesmo middleware, sem servidor separado nem biblioteca nova.
+
+**Barramento em memória, não Redis:** mesmo espírito do SQLite deste projeto. O
+limite fica dito no arquivo: só funciona com **um processo**. Com duas
+instâncias, o aviso nasce numa e a tela está pendurada na outra — e o conserto
+será trocar `lib/chat-eventos.ts` por um canal de verdade, sem tocar na tela.
+
+Por isso **a consulta periódica não foi removida**, só afrouxada para 60s quando
+o canal está vivo. Se o canal cair, o pior caso volta a ser "a fila demora um
+pouco", nunca "a fila congelou e ninguém percebeu". A tela diz qual dos dois
+está valendo, porque para quem atende "está quieto" e "parou de atualizar" não
+podem ser a mesma coisa.
+
+O que se protege com teste, e é o que só apareceria depois de dias no ar:
+ouvinte que sobrevive à aba fechada (vazamento clássico de SSE) e ouvinte
+quebrado derrubando a gravação que o originou.

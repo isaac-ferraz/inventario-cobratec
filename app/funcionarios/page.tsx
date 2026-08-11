@@ -10,6 +10,7 @@ import { useConfirmar } from "@/components/ui/confirmar-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { ImportarCsv } from "@/components/importar-csv";
 import {
   Card,
   CardContent,
@@ -203,9 +204,12 @@ export default function FuncionariosPage() {
             Donos dos computadores. Cargo é texto livre.
           </p>
         </div>
-        <Button onClick={abrirNovo}>
-          <Plus /> Novo funcionário
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportarCsv entidade="funcionarios" onPronto={carregar} />
+          <Button onClick={abrirNovo}>
+            <Plus /> Novo funcionário
+          </Button>
+        </div>
       </div>
 
       <Card>

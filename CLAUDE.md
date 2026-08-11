@@ -273,6 +273,105 @@ cadastrar/remover registros, catálogo de tipos, depósito, usuários, auditoria
 exportação. No helpdesk o supervisor vê os chamados da sala mas age como
 operador (a fila é do TI, e a nota interna não é dele).
 
+**Rodada de caça a bugs (decisão 25):** varredura no navegador + API achou e
+corrigiu oito defeitos. O mais grave: o login assinava o cookie de um
+**SUPERVISOR como OPERADOR**, e como o middleware julga a navegação só pelo
+cookie (roda no Edge), o papel da decisão 24 era **inalcançável na prática** — a
+conversão virou `papelDe()` em `lib/supervisao.ts`, ponto único usado pelo login e
+pela releitura server-side. Os outros: data inexistente no calendário (`2026-13-01`
+dava 500; `2026-02-31` era gravada calada como 03/03), admin conseguia **inativar
+a própria conta** e se trancar fora, o ajuste ± do depósito ignorava o teto de
+estoque, login sem freio de força bruta (agora `lib/rate-limit.ts`, 10 erros/5 min
+por IP+login), **CSP** entrou revendo a decisão 9, mensagens do zod em inglês
+viraram pt-BR (`lib/zod-ptbr.ts`) e a movimentação de sala não mais responde "ok"
+para id inexistente. Cobertura foi de 177 para 244 testes, incluindo os dois
+arquivos que faltavam: `tests/api/sessao.test.ts` (papel gravado no cookie) e
+`tests/api/middleware.test.ts` (portão de navegação, papel por papel).
+
+**Importação de CSV (decisão 26):** carga em massa nas sete entidades
+(funcionários, computadores, celulares, depósito, tipos, salas, usuários) via
+`POST /api/importar` + o diálogo único `components/importar-csv.tsx` no cabeçalho
+de cada tela; só admin. **A validação não é duplicada:** `lib/importacao.ts`
+converte a linha e entrega ao **mesmo schema zod da tela**, então data do
+calendário, "1.234,90", e-mail e tetos vêm de graça. Relação vem **por nome**
+("Ana Souza", "Sala 93") e nome ambíguo é recusado em vez de adivinhado. Fluxo em
+duas fases: **prévia** linha por linha sem escrever, depois transação
+tudo-ou-nada (com opção de "só as linhas válidas"). **Célula vazia não apaga** o
+que já está gravado. `lib/csv.ts` é parser próprio para o CSV do Excel-BR
+(delimitador `;`, BOM, CRLF, aspas), com modelo para baixar por entidade.
+Componentes, chamados e manutenções ficaram de fora de propósito.
+
+**Papel de cobrança e `/chat` (decisão 27):** a Cobratec é empresa de cobrança, e
+o atendimento ao devedor por WhatsApp passa a morar aqui — um **segundo ofício**
+dentro do app, com dado pessoal de terceiro que o inventário nunca teve. Papel
+`COBRANCA` separado (não operador com flag: senão todo operador de helpdesk
+herdaria a porta do dado do devedor). Ela entra em `/chat` — bloco destacado
+fora da lista de navegação, porque para quem atende é a única porta que importa
+— e **não enxerga inventário nenhum**, nem o dashboard; leva só o que o operador
+tem (abrir chamado, trocar a senha). O **supervisor de sala fica de fora** das
+conversas de propósito: alcance sobre dado de devedor se decide pelo ofício, não
+pela sala — por isso nada em `lib/supervisao.ts` se ramifica para `COBRANCA`, e o
+alcance extra vive em `exigirChat` (`lib/autorizacao.ts`), espelhado por
+`PERMITIDO_COBRANCA` (middleware) e `podeChat` (nav). `Usuario.siscobraUsucod` é
+o código da operadora no Siscobra (CRM, PostgreSQL **somente leitura**): `Int?`
+solto e não relação, porque é outro banco; anda **colado ao papel** nos três
+caminhos de escrita (POST, PATCH e importação) — sair de `COBRANCA` zera. A tela
+`/chat` está em **fase 0**: portão e lugar prontos, serviço de WhatsApp e dossiê
+do Siscobra ainda por ligar.
+
+**Chatbot de cobrança (decisão 28):** o `/chat` da decisão 27 ganhou serviço.
+Modelos `Conversa` (telefone como identidade, `situacao` bot|fila|humana|
+encerrada, `siscobraDevcod`/`identificadaEm`, `dossie` JSON em texto) e
+`ConversaMensagem` (autor devedor|bot|operadora|sistema, `waId` UNIQUE).
+Fronteiras: **n8n é o chatbot** (classifica → consulta Siscobra → redige →
+decide escalar), **WAHA** é o gateway (Docker, `docker-compose.waha.yml`), e o
+inventário **não abre conexão com o Siscobra nem com o WhatsApp** — o dossiê
+chega empurrado pelo webhook e fica congelado como prova do que a operadora
+tinha à frente. As regras vivem em **funções puras** em `lib/conversas.ts`:
+nenhum valor antes de CPF **e** nascimento (`podeRevelarValores` — código, não
+prompt), nenhuma proposta fora da regra oficial da carteira
+(`propostaCabeNaRegra`), e a situação **só anda para frente** (de `humana` não
+volta para `bot`). Ao responder, **entrega primeiro e grava depois**: mensagem
+fantasma é pior que mensagem repetida. `exigirServico` (token, não sessão) é o
+portão do n8n, e `/api/chat/webhook` é público no middleware por **caminho
+exato**. Guia de ligação, SQL do Siscobra e prompts em
+[`docs/conversas/`](./docs/conversas/README.md).
+
+**Modo direto do WhatsApp (decisão 29):** dá para **conectar um número e
+conversar sem o n8n** — sem Twilio e sem API oficial da Meta. É o caminho de
+**teste**, ligado só por `WAHA_URL` no `.env`; `CHAT_ENVIO_URL` (n8n) tem
+precedência, senão uma variável esquecida silenciaria o chatbot inteiro. O
+pareamento é um QR na tela **`/chat` → Conexão** (`app/chat/conexao`, só admin;
+a rota `/api/chat/conexao` fala com o gateway por `lib/waha.ts`). A fronteira da
+decisão 28 continua: **nada de Siscobra aqui**, e o dossiê segue empurrado — o
+que encurta é só o trecho do canal. Sem robô do outro lado, toda mensagem entra
+**escalada** e cai na fila. As duas portas de webhook (`/api/chat/webhook`, do
+n8n, e `/api/chat/waha/webhook`, do gateway) dividem a mesma máquina de estados
+em **`lib/chat-registro.ts`** e o mesmo `CHAT_SERVICE_TOKEN` — o WAHA manda o
+`Authorization` porque a sessão é criada pelo próprio app, com `customHeaders`.
+Não viram conversa: eco da própria resposta (`fromMe`), grupo e broadcast — tudo
+responde 200 "ignorado", porque recusar faria o gateway reentregar para sempre.
+**Risco dito em voz alta:** gateway não-oficial contraria os termos do WhatsApp
+e o número pode ser banido — chip dedicado.
+
+**Anexo e fila ao vivo (decisão 30):** o primeiro teste com gente de verdade
+expôs que o filtro descartava **em silêncio** — o gateway entregava, o app
+respondia 200 e não havia rastro. Agora todo evento ignorado grava o motivo, sem
+conteúdo nem número (LGPD). **Mídia entra**: áudio, foto e PDF viram mensagem com
+marcador (`[áudio]`) e o arquivo é baixado depois, **fora do banco**, ao lado do
+`dev.db`; falha de download não derruba a fala, e servir passa pelo mesmo portão
+da conversa (`exigirChat`), com a mensagem amarrada ao id da conversa. Endereço
+do download só da origem do gateway (SSRF), nome do arquivo derivado do id da
+mensagem (nunca o nome que veio do WhatsApp). Remetente em **LID** (`@lid`, o
+novo endereçamento do WhatsApp) tem o telefone procurado nos campos vizinhos —
+não havendo, ignora e registra, porque LID no lugar do telefone criaria uma
+segunda conversa da mesma pessoa. A **fila é ao vivo** por SSE
+(`/api/chat/eventos`) sobre um barramento de processo (`lib/chat-eventos.ts`) —
+sem Redis, e o limite de uma-instância-só está dito lá; a consulta periódica
+continua como rede de segurança (60s com o canal vivo, 15s sem ele) e a tela diz
+qual dos dois está valendo. Fluxos do n8n prontos para importar em
+[`docs/conversas/n8n/`](./docs/conversas/n8n/).
+
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
   `exceljs` não cria gráficos nativos na escrita (decisão 6).
@@ -287,12 +386,17 @@ operador (a fila é do TI, e a nota interna não é dele).
   **headers de segurança** em todas as respostas; Next fixado na linha 14.2.x
   (14.2.35). A antiga auth Basic opcional foi removida (decisões 9 e 19).
 
-**Autenticação e papéis (decisões 19 e 24):** o sistema **exige login**. Model
-`Usuario` (login único, `senhaHash` scrypt, papel `ADMIN`|`SUPERVISOR`|`OPERADOR`, `ativo`,
-`senhaProvisoria`, vínculo opcional com `Funcionario`) + CRUD em `/usuarios` (só
+**Autenticação e papéis (decisões 19, 24 e 27):** o sistema **exige login**. Model
+`Usuario` (login único, `senhaHash` scrypt, papel
+`ADMIN`|`SUPERVISOR`|`COBRANCA`|`OPERADOR`, `ativo`, `senhaProvisoria`, vínculo
+opcional com `Funcionario` e `siscobraUsucod`) + CRUD em `/usuarios` (só
 admin). **Administrador** faz tudo; **supervisor de sala** vê e edita o que está nas
 salas dele (inclusive o cofre de senhas da equipe) e não alcança as telas globais;
-**operador** só alcança `/chamados` e `/trocar-senha`. Sessão em cookie httpOnly assinado por HMAC (`lib/sessao.ts`,
+**cobrança** alcança as conversas (`/chat`) e nada do inventário;
+**operador** só alcança `/chamados` e `/trocar-senha`. A lista de papéis vive em
+um lugar só (`PAPEIS`/`papelDe`, em `lib/supervisao.ts`) e é importada pelo
+cookie, pelo login e pela releitura — duas cópias dela já divergiram uma vez
+(decisão 25.1). Sessão em cookie httpOnly assinado por HMAC (`lib/sessao.ts`,
 Web Crypto — funciona no Edge do middleware), com **reconferência no banco** em
 `lib/sessao-servidor.ts` (papel e `ativo` valem os do banco, não os do cookie).
 Autorização em duas camadas: `middleware.ts` (portão de navegação) **e**

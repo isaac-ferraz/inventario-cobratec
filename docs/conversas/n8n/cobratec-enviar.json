@@ -1,0 +1,106 @@
+{
+  "name": "Cobratec — enviar (operadora → WhatsApp)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cobratec-enviar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-enviar",
+      "name": "Inventário pede envio",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-560, 300],
+      "webhookId": "cobratec-enviar"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.headers.authorization }}",
+              "rightValue": "=Bearer {{ $env.CHAT_SERVICE_TOKEN }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "conferir-token",
+      "name": "Token confere?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-340, 300],
+      "notes": "Sem isto, qualquer um na rede manda mensagem pelo número da empresa."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAHA_URL }}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Api-Key", "value": "={{ $env.WAHA_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: String($json.body.telefone).replace(/\\D/g, '') + '@c.us', text: $json.body.corpo }) }}",
+        "options": {}
+      },
+      "id": "enviar",
+      "name": "Enviar pelo WAHA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-120, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ waId: $json.id ?? null }) }}",
+        "options": {}
+      },
+      "id": "responder-ok",
+      "name": "Confirmar ao inventário",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [100, 200],
+      "notes": "SÓ DEPOIS do envio confirmado. Responder antes faria a operadora ver na tela uma resposta que o devedor nunca recebeu."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 401,
+        "responseBody": "={{ JSON.stringify({ erro: 'token de serviço inválido' }) }}",
+        "options": {}
+      },
+      "id": "responder-401",
+      "name": "Recusar",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-120, 420]
+    }
+  ],
+  "connections": {
+    "Inventário pede envio": {
+      "main": [[{ "node": "Token confere?", "type": "main", "index": 0 }]]
+    },
+    "Token confere?": {
+      "main": [
+        [{ "node": "Enviar pelo WAHA", "type": "main", "index": 0 }],
+        [{ "node": "Recusar", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar pelo WAHA": {
+      "main": [
+        [{ "node": "Confirmar ao inventário", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

@@ -68,6 +68,28 @@ export async function PATCH(req: Request, { params }: Params) {
       });
       if (!atual) return erro("Usuário não encontrado.", 404);
 
+      // Trava anti-pé-no-próprio-laço: mexer no PRÓPRIO acesso derruba quem
+      // está agindo AGORA — inativar mata a sessão na requisição seguinte
+      // (lib/sessao-servidor.ts reconfere `ativo` no banco) e rebaixar fecha as
+      // telas do TI na cara. O DELETE já barrava remover a própria conta; estes
+      // eram os dois caminhos que sobravam para se trancar do lado de fora.
+      // Nota: a trava vale mesmo havendo outro admin — o problema aqui não é o
+      // sistema ficar sem administrador, é a pessoa perder o acesso sem aviso.
+      if (auth.usuario.id === params.id) {
+        if (ativoNovo === false) {
+          return erro(
+            "Você não pode inativar a própria conta — isso derrubaria sua sessão agora mesmo. Peça a outro administrador.",
+            409,
+          );
+        }
+        if (papelNovo !== undefined && papelNovo !== "ADMIN") {
+          return erro(
+            "Você não pode rebaixar a própria conta. Peça a outro administrador.",
+            409,
+          );
+        }
+      }
+
       const seguiraAdminAtivo =
         (papelNovo ?? atual.papel) === "ADMIN" && (ativoNovo ?? atual.ativo);
 
@@ -101,11 +123,20 @@ export async function PATCH(req: Request, { params }: Params) {
     // salas antigas voltarem a valer sozinhas se alguém promovesse a pessoa de
     // novo meses depois, sem ninguém ter decidido isso.
     const mexeEmSalas = "salaIds" in r.data || papelNovo !== undefined;
+    const mexeEmUsucod = "siscobraUsucod" in r.data || papelNovo !== undefined;
     let salasNovas: string[] | null = null;
-    if (mexeEmSalas) {
+    if (mexeEmSalas || mexeEmUsucod) {
       const papelFinal = papelNovo ?? (await papelAtual(params.id));
-      salasNovas =
-        papelFinal === "SUPERVISOR" ? [...new Set(r.data.salaIds ?? [])] : [];
+      if (mexeEmSalas) {
+        salasNovas =
+          papelFinal === "SUPERVISOR" ? [...new Set(r.data.salaIds ?? [])] : [];
+      }
+      // Pelo mesmo motivo das salas: sair de COBRANCA solta o código do
+      // Siscobra, para ele não ressuscitar sozinho numa promoção futura.
+      if (mexeEmUsucod) {
+        dados.siscobraUsucod =
+          papelFinal === "COBRANCA" ? (r.data.siscobraUsucod ?? null) : null;
+      }
     }
 
     const atualizado = await prisma.usuario.update({

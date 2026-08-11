@@ -9,15 +9,45 @@
 // filtragem acontecer NO BANCO — filtrar depois de ler já teria vazado o dado
 // para a memória do processo e, num descuido, para o JSON.
 
-export type Papel = "ADMIN" | "SUPERVISOR" | "OPERADOR";
+export type Papel = "ADMIN" | "SUPERVISOR" | "COBRANCA" | "OPERADOR";
 
-export const PAPEIS: Papel[] = ["ADMIN", "SUPERVISOR", "OPERADOR"];
+export const PAPEIS: Papel[] = ["ADMIN", "SUPERVISOR", "COBRANCA", "OPERADOR"];
+
+/**
+ * Normaliza o papel gravado no banco. É o PONTO ÚNICO DE VERDADE desta
+ * conversão, e existe por um bug real: o login assinava o cookie colapsando
+ * tudo que não era ADMIN em OPERADOR, enquanto a releitura server-side
+ * reconhecia SUPERVISOR. Como o middleware roda no Edge e só tem o cookie, o
+ * supervisor era barrado na porta de toda tela de inventário — o papel
+ * simplesmente não funcionava. Quem converte papel converte por aqui.
+ *
+ * Valor desconhecido cai no menos privilegiado: lixo na coluna vira acesso de
+ * operador, nunca de admin.
+ */
+export function papelDe(valor: string | null | undefined): Papel {
+  return valor === "ADMIN" || valor === "SUPERVISOR" || valor === "COBRANCA"
+    ? valor
+    : "OPERADOR";
+}
 
 export const ROTULO_PAPEL: Record<Papel, string> = {
   ADMIN: "Administrador",
   SUPERVISOR: "Supervisor de sala",
+  COBRANCA: "Operadora de cobrança",
   OPERADOR: "Operador",
 };
+
+// COBRANCA é a operadora que fala com o devedor no /chat. Ela NÃO é do TI: não
+// enxerga inventário nem sala nenhuma — o escopo dela é a conversa, não o
+// parque. Por isso, de propósito, NADA neste arquivo se ramifica para ela: em
+// todo filtro e alcance daqui ela cai exatamente onde o OPERADOR cai (só os
+// próprios chamados), que é o comportamento correto. O alcance extra dela vive
+// fora daqui, em `exigirChat` (lib/autorizacao.ts) e no middleware.
+//
+// Ela é papel separado, e não OPERADOR com uma flag, porque "quem pode ler
+// conversa com devedor?" é pergunta de outra natureza que "quem pode abrir
+// chamado" — juntar as duas faria todo operador de helpdesk herdar acesso a
+// dado pessoal de devedor no dia em que o /chat subisse.
 
 /** Quem está pedindo, e sobre quais salas manda. */
 export type Escopo = {

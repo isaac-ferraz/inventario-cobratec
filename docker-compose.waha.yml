@@ -1,0 +1,94 @@
+# Gateway de WhatsApp (WAHA) — o canal por onde a conversa com o devedor entra
+# e sai. Sobe SEPARADO do inventário de propósito:
+#
+#   docker compose -f docker-compose.waha.yml up -d
+#
+# Por que arquivo próprio e não um serviço no docker-compose.yml: o inventário é
+# o sistema do TI e precisa subir sozinho, sem depender de um gateway de
+# WhatsApp que pode estar desconectado, atualizando ou fora do ar. Um `docker
+# compose up` do inventário nunca deve esperar por WhatsApp.
+#
+# ─────────────────────────── por que WAHA ───────────────────────────
+#
+# Open source, Docker, API REST + webhook, e nó oficial de n8n. O motor NOWEB
+# (Baileys, sem navegador) foi escolhido em vez do WEBJS (Chrome headless)
+# porque esta máquina já roda Supabase, Postgres e o próprio inventário —
+# um Chromium a mais por sessão custaria centenas de MB para nada.
+#
+# Alternativa registrada, se a divisão Core/Plus do WAHA incomodar:
+# **WPPConnect Server** (Apache 2.0, brasileiro, mesma ideia de REST+webhook).
+# Trocar é mexer NESTE arquivo e no fluxo do n8n — o inventário não sabe qual
+# gateway está do outro lado (decisão 28), então nada muda no app.
+#
+# ─────────────────────────── o risco, dito ───────────────────────────
+#
+# Qualquer gateway não-oficial (WAHA, WPPConnect, Evolution, Baileys puro)
+# automatiza o WhatsApp Web/multi-device, o que contraria os termos do WhatsApp
+# e pode levar ao BANIMENTO do número. Em cobrança, perder a linha é prejuízo
+# operacional real: use um chip dedicado, nunca o número principal do
+# escritório, e trate a migração para a API oficial da Meta como o caminho
+# quando o volume justificar o custo por conversa.
+name: cobratec-whatsapp
+
+services:
+  waha:
+    image: devlikeapro/waha:noweb
+    container_name: cobratec-waha
+    ports:
+      # SÓ LOOPBACK. Expor o gateway na rede daria a qualquer um a chance de
+      # mandar mensagem pelo número da empresa.
+      #
+      # Esta porta é para GENTE (painel do WAHA, diagnóstico) e para o
+      # inventário quando ele roda fora do Docker. O container do app NÃO chega
+      # aqui — 127.0.0.1 do host não aceita conexão vinda da rede do Docker —,
+      # e é por isso que existe a rede compartilhada abaixo.
+      - "127.0.0.1:3001:3000"
+    # Alcança a máquina hospedeira por `host.docker.internal` (no Linux o nome
+    # não existe sozinho). Só é usado quando o inventário roda FORA do Docker,
+    # com `npm run dev`; com os dois em container vale a rede compartilhada
+    # declarada no fim deste arquivo.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Chave da API do gateway. Quem usa é o n8n (produção) ou o próprio
+      # inventário (modo direto); ninguém mais precisa.
+      WHATSAPP_API_KEY: "${WAHA_API_KEY:?defina WAHA_API_KEY no .env}"
+      # Para onde o WAHA avisa que chegou mensagem.
+      #
+      # OPCIONAL, e o padrão diz qual caminho está em uso:
+      #   - produção (decisão 28): aponte para o webhook do n8n, que classifica,
+      #     consulta o Siscobra e decide responder ou escalar;
+      #   - modo direto (decisão 29, testes): DEIXE VAZIO. Quem configura o
+      #     webhook é o próprio inventário, ao criar a sessão pelo botão
+      #     "Conectar" — e só assim ele consegue mandar junto o cabeçalho de
+      #     autenticação (`customHeaders`), que esta variável não suporta.
+      WHATSAPP_HOOK_URL: "${WAHA_HOOK_URL:-}"
+      # Vale só junto com a linha acima (caminho do n8n). O modo direto assina
+      # os eventos dele na própria sessão, e de propósito NÃO assina
+      # `message.any`: lá a resposta da operadora sai por este mesmo gateway e
+      # voltaria como eco, duplicada na thread.
+      WHATSAPP_HOOK_EVENTS: "message,message.any,session.status"
+      # Sessão persistida: sem isto, cada reinício pediria o QR code de novo.
+      WHATSAPP_RESTART_ALL_SESSIONS: "True"
+      WAHA_PRINT_QR: "False"
+    volumes:
+      - waha-sessions:/app/.sessions
+    restart: unless-stopped
+
+volumes:
+  waha-sessions:
+
+# O gateway entra na rede DO INVENTÁRIO, e não o contrário. Assim os dois se
+# alcançam pelo nome do container (`http://cobratec-waha:3000` daqui para lá,
+# `http://inventario-cobratec:3000` de lá para cá) sem passar pelo host e sem
+# publicar o gateway para fora do loopback.
+#
+# A direção da dependência é deliberada: o inventário é o sistema do TI e sobe
+# sozinho, sem saber que existe WhatsApp; o gateway é o opcional, e é ele que se
+# pendura na rede do outro. Consequência: esta stack exige o inventário no ar
+# (`docker compose up -d` primeiro). Se o inventário for rodar fora do Docker,
+# apague este bloco e use `WAHA_URL=http://127.0.0.1:3001`.
+networks:
+  default:
+    name: inventario-cobratec_default
+    external: true
