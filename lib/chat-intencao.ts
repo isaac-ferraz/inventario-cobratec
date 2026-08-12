@@ -228,17 +228,23 @@ export function lerSaidaDoModelo(bruta: unknown, mensagem: string): Leitura {
 /**
  * O prompt do classificador.
  *
- * Ele é curto porque agora pode ser: não precisa ensinar tom, educação, o que a
- * empresa faz nem o que não dizer — nada disso é trabalho dele. Some com o
- * tom, some a chance de o tom sair errado.
+ * Não precisa ensinar tom, educação nem o que a empresa faz — nada disso é
+ * trabalho dele. Some com o tom, some a chance de o tom sair errado.
  *
- * Sem exemplo de resposta em português, também: não há resposta em português.
+ * **Os exemplos estão aqui porque foram medidos.** Sem eles, o 3B acertava
+ * 20/26 e tinha um ímã: qualquer frase que ele não entendia virava `despedida`
+ * — inclusive "já paguei isso" e "manda o boleto", que são casos de gente. Com
+ * os exemplos, 26/26 e nenhum erro para o lado perigoso.
+ *
+ * E uma instrução a mais PIOROU: acrescentar "olhe o que a pessoa quer, não a
+ * educação da frase" derrubou para 25/26. Exemplo ensina; explicação atrapalha.
+ * Se for mexer aqui, meça antes — o script da medição está em decisões (32).
  */
-export const PROMPT_CLASSIFICADOR = `Classifique a intenção da última mensagem de uma pessoa no WhatsApp de uma empresa de cobrança.
+export const PROMPT_CLASSIFICADOR = `Você classifica a intenção de mensagens recebidas no WhatsApp de uma empresa de cobrança.
 
 Responda SÓ com JSON: {"intencao":"<rótulo>","parcelas":<número ou null>}
 
-Rótulos possíveis:
+Use EXATAMENTE um destes rótulos:
 saudacao - cumprimento, "oi", "bom dia"
 identificar - mandou CPF, data de nascimento ou nome para se identificar
 consultar_saldo - quer saber quanto deve, qual o valor, qual a dívida
@@ -246,10 +252,25 @@ quer_negociar - quer parcelar, desconto, acordo, "como faço para pagar"
 aceita - concorda com o que foi oferecido
 recusa - não concorda, acha caro, não pode pagar
 quer_boleto - pede boleto, código de barras, pix, segunda via
-despedida - agradece ou se despede
+despedida - agradece ou se despede, "obrigado", "tchau"
 ja_pagou - afirma que já pagou
 contesta - diz que a dívida não é dele, não reconhece, fala em golpe
 juridico - cita advogado, Procon, processo, justiça
 outro - qualquer outra coisa
 
-"parcelas" só quando a pessoa disser um número de vezes ("em 6x" = 6). Senão null.`;
+Na dúvida entre dois rótulos, responda "outro".
+
+Exemplos:
+"bom dia" -> {"intencao":"saudacao","parcelas":null}
+"quanto eu devo" -> {"intencao":"consultar_saldo","parcelas":null}
+"da pra parcelar em 6x" -> {"intencao":"quer_negociar","parcelas":6}
+"pode ser" -> {"intencao":"aceita","parcelas":null}
+"ta caro demais" -> {"intencao":"recusa","parcelas":null}
+"manda o boleto" -> {"intencao":"quer_boleto","parcelas":null}
+"ja paguei isso" -> {"intencao":"ja_pagou","parcelas":null}
+"essa divida nao e minha" -> {"intencao":"contesta","parcelas":null}
+"vou chamar meu advogado" -> {"intencao":"juridico","parcelas":null}
+"obrigado, tchau" -> {"intencao":"despedida","parcelas":null}
+"quanto custa uma pizza" -> {"intencao":"outro","parcelas":null}
+
+"parcelas" só quando a pessoa disser um número de vezes. Senão null.`;

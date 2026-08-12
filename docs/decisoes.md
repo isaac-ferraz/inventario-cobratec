@@ -1635,3 +1635,110 @@ fila. O 3B na GPU respondeu tudo entre 1s e 2s. Se o robô for para valer, o
 caminho não é afinar prompt: é uma máquina com GPU **dentro da rede**.
 
 Testes: 552 → **554**.
+
+## 32. O modelo classifica, o código responde
+
+**Contexto:** as decisões 31, 31.1 e 31.2 são a mesma história contada três
+vezes. Cada medição achava uma invenção nova — "empresa de tecnologia", "um
+serviço de pagamento da Receita Federal", um telefone que não existe, um horário
+de sábado — e cada correção era um remendo depois do fato: barrar o texto pronto,
+escalar mais um assunto, pôr mais um fato no prompt. O robô ficava mais seguro e
+mais inútil a cada rodada, até sobrar "receber bem e passar adiante".
+
+A pergunta estava errada. "Como impedir o modelo de inventar?" não tem resposta
+boa. A pergunta certa é **"por que ele está escrevendo?"**.
+
+Ele não precisa. Classificar intenção é o que um modelo pequeno faz bem; redigir
+fato que ele não tem é o que ele faz mal. Então ele só classifica.
+
+### O desenho
+
+    devedor  →  [lista de palavras]  →  modelo  →  [lista de 12 rótulos]
+                       ↓ grave                            ↓
+                     gente                          lib/chat-fluxo.ts
+                                                          ↓
+                                    Siscobra (só leitura) + regra da carteira
+                                                          ↓
+                                    lib/chat-respostas.ts  →  o que o devedor lê
+
+O modelo devolve **uma palavra**. Cada frase que chega ao devedor sai de um molde
+preenchido com campo do banco. A garantia que se buscava desde a decisão 31 deixa
+de ser uma promessa sobre comportamento e vira uma propriedade da estrutura:
+**nenhum número, nome ou data que o devedor lê passou pelo modelo** — não porque
+ele foi instruído a não inventar, mas porque não tem por onde.
+
+Rótulo fora da lista vira `outro`, e `outro` é gente. O caminho do erro é o
+caminho seguro, em todas as três travas: palavra na entrada, rótulo na saída, e
+o fluxo não ter molde para o caso.
+
+### O que isso destrava: o robô pode conversar
+
+Antes ele passava para gente quase de imediato, e estava certo — sem dado, cada
+turno era uma chance a mais de inventar. Agora **o risco não cresce com o número
+de turnos**, porque nenhum turno é redigido. Então ele conduz até onde uma
+decisão humana é necessária:
+
+- identifica em dois tempos ("recebi o CPF, agora me diga a data") em vez de
+  exigir tudo numa mensagem só;
+- informa saldo e vencimento, com o valor vindo de `devsalatu`;
+- **oferece acordo** dentro de `acordo_regras`, com parcela e desconto
+  calculados por `montarOferta` e conferidos por `propostaCabeNaRegra` antes de
+  virarem texto — a mesma função que julga proposta de gente;
+- avisa antes de sumir. Escalar deixou de ser silêncio: silêncio depois de uma
+  pergunta é onde o devedor desiste, porque ele não sabe se foi ouvido.
+
+Onde ele para, por decisão e não por limitação: fechar acordo (quem grava no CRM
+é a operadora), qualquer coisa fora da regra, carteira sem regra ativa, duas
+carteiras para o mesmo CPF, e todo assunto com consequência jurídica.
+
+### Siscobra ligado — e a decisão 28 revertida
+
+A decisão 28 dizia que o inventário não abre conexão com o Siscobra; o dossiê
+chegava empurrado pelo n8n. Aquele desenho supunha o n8n como chatbot. Sem ele, a
+alternativa era o robô não ter dado nenhum — que é exatamente o que o fazia
+inventar.
+
+A fronteira não sumiu, ficou mais estreita: **somente leitura**, quatro consultas
+fixas e parametrizadas em `lib/siscobra.ts`, usuário de banco com `GRANT SELECT`
+apenas. As armadilhas de `docs/conversas/siscobra.sql` estão respeitadas —
+`conati = 0` é em aberto, o saldo é `convalsal` (`convalconatu` está zerada e
+diria "você deve R$ 0,00"), `devvenmaisantigo` em vez da sentinela do contrato,
+e nenhum filtro de vigência na regra.
+
+**E o dado não vai para o modelo.** É o que permite o modelo continuar rodando
+fora da rede (31.1) sem que a fala do devedor saia da empresa: o que sai daqui
+alimenta molde, não prompt.
+
+### O prompt, afinado por medição
+
+O classificador foi medido contra 26 falas reais de cobrança, com `llama3.2:3b`:
+
+| prompt | acertos | erros para o lado perigoso |
+|---|---|---|
+| sem exemplos | 20/26 | 4 |
+| **com exemplos (adotado)** | **26/26** | **0** |
+| exemplos + uma instrução a mais | 25/26 | 0 |
+
+O prompt sem exemplos tinha um ímã: frase que o modelo não entendia virava
+`despedida` — inclusive "já paguei isso" e "manda o boleto", que são casos de
+gente. Os exemplos resolveram.
+
+E a terceira linha é a mais instrutiva: acrescentar *"olhe o que a pessoa quer,
+não a educação da frase"* **piorou**. Exemplo ensina; explicação atrapalha. Quem
+for mexer no prompt, meça — a intuição erra aqui.
+
+### O 1B não serve para isto
+
+O mesmo teste com `llama3.2:1b`: **10/26**, e o erro dele tende a `saudacao` —
+justamente o rótulo que o robô atende sozinho. "Essa dívida não é minha" foi
+classificado como cumprimento. A trava de palavras na entrada salva a maioria
+desses casos, mas o veredicto é claro: **o classificador precisa de 3B ou mais**.
+Com GPU ele responde em ~1,1s; é o argumento mais forte até agora para uma
+máquina com GPU dentro da rede (ver 31.1).
+
+Testes: 554 → **584**. `lib/chat-fluxo.test.ts` cobre a conversa turno a turno
+sem banco, sem rede e sem modelo — é onde as regras moram.
+
+**Dependência nova:** `pg`. Justificada por ser o cliente oficial de PostgreSQL
+e a única forma de ler o Siscobra sem um segundo Prisma apontando para outro
+banco.
