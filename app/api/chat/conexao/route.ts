@@ -9,6 +9,7 @@ import {
   statusSessao,
   type SessaoWaha,
 } from "@/lib/waha";
+import { configBot } from "@/lib/chat-bot";
 
 // Conexão do número de WhatsApp — parear, conferir e desligar.
 //
@@ -26,8 +27,23 @@ type Estado = {
   sessao: SessaoWaha | null;
   /** Endereço que o gateway usa para avisar este app. */
   webhookUrl: string | null;
+  /**
+   * Tem robô local triando (decisão 31)? A tela precisa saber porque o destino
+   * de quem escreve muda: com robô a conversa começa COM ELE, sem robô toda
+   * mensagem cai na fila. Dizer a coisa errada aqui faria o TI procurar defeito
+   * onde está a configuração.
+   *
+   * Só o nome do modelo — o endereço do Ollama é infraestrutura e não ajuda
+   * quem olha a tela.
+   */
+  robo: { ligado: boolean; modelo: string | null };
   erro: string | null;
 };
+
+function estadoDoRobo(): Estado["robo"] {
+  const cfg = configBot();
+  return { ligado: !!cfg, modelo: cfg?.modelo ?? null };
+}
 
 function pendenciasDe(temWaha: boolean): string[] {
   const faltando: string[] = [];
@@ -50,6 +66,8 @@ export async function GET(req: Request): Promise<NextResponse> {
       pendencias: [],
       sessao: null,
       webhookUrl: null,
+      // Com o n8n no meio, quem responde é o robô dele — o local não opera.
+      robo: { ligado: false, modelo: null },
       erro: null,
     });
   }
@@ -60,6 +78,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       pendencias: pendenciasDe(false),
       sessao: null,
       webhookUrl: null,
+      robo: estadoDoRobo(),
       erro: null,
     });
   }
@@ -70,6 +89,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     pendencias: pendenciasDe(true),
     sessao: r.ok ? r.dados : null,
     webhookUrl: cfg.webhookUrl,
+    robo: estadoDoRobo(),
     erro: r.ok ? null : r.motivo,
   });
 }

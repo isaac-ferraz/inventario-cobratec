@@ -246,6 +246,17 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     vizinhos. E a **fila é ao vivo** por SSE, com a consulta periódica virando
     rede de segurança. Fluxos do n8n prontos para importar em
     [`conversas/n8n/`](./conversas/n8n/). Testes: 463 → **490**.
+23. **Robô local de triagem** (decisão 31): um modelo rodando **na própria
+    máquina** (Ollama) recebe o devedor e passa para gente assim que o assunto
+    encosta em dívida. Local porque conversa de devedor não sai da empresa — sem
+    chave, sem nuvem, sem contrato de tratamento de dado por causa de um "olá".
+    O desenho veio de medir: com um modelo pequeno, "já paguei" recebeu **"Não,
+    ainda não"** e "vou chamar meu advogado" fez o modelo **inventar um
+    telefone**. Então a ordem se inverteu — **o código decide o que é perigoso**
+    (`assuntoExigeGente`) e o modelo só é consultado no que sobra; depois,
+    `avaliarResposta` confere o texto pronto antes de ele sair. Toda saída que
+    não é "respondeu" termina em **escalar, nunca em silêncio**. Liga com
+    `OLLAMA_URL`; vazio mantém tudo caindo na fila. Testes: 490 → **534**.
 
 ### O que sobrou para depois
 - **Deploy**: `docs/deploy.md` está escrito (Oracle Always Free + Docker), mas o
@@ -256,8 +267,13 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
   impedimento (layout empilha em `md:`, tabelas rolam no próprio container), mas
   falta olhar numa tela de celular de verdade — fonte, diálogos e alvo de toque
   (13 dos 39 alvos ficam abaixo de 36px). Ver o fim da decisão 25.
-- **O chatbot em si**: o número já conecta e a conversa já acontece (modo
-  direto, decisão 29), mas quem responde é gente. Falta montar os dois fluxos do
-  n8n, a credencial de leitura do Siscobra e os prompts — tudo escrito em
+- **O chatbot que negocia**: o número conecta, a conversa acontece e o robô
+  local já **tria** (decisão 31) — mas quem fala de dívida é gente, porque ele
+  não tem dado nenhum. Falta montar os dois fluxos do n8n, a credencial de
+  leitura do Siscobra e os prompts — tudo escrito em
   [`docs/conversas/`](./conversas/README.md), nada disso muda o desenho do papel
-  `COBRANCA` (decisão 27).
+  `COBRANCA` (decisão 27) nem a fronteira da decisão 28.
+- **Medir o robô com gente de verdade**: as travas foram calibradas contra
+  `llama3.2:1b` numa máquina apertada. Vale reler os motivos de escalonamento
+  depois de uns dias no ar — se quase tudo estiver caindo na fila, o modelo é
+  pequeno demais para o pouco que sobrou para ele.

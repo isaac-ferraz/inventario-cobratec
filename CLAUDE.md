@@ -372,6 +372,25 @@ continua como rede de segurança (60s com o canal vivo, 15s sem ele) e a tela di
 qual dos dois está valendo. Fluxos do n8n prontos para importar em
 [`docs/conversas/n8n/`](./docs/conversas/n8n/).
 
+**Robô local de triagem (decisão 31):** o modo direto ganhou um cérebro que roda
+**na própria máquina** (Ollama), ligado só por `OLLAMA_URL` — vazio mantém tudo
+caindo na fila, o comportamento da decisão 29. Local porque conversa de devedor
+não sai da empresa; o preço é caber um modelo de 1B–3B em CPU, e é daí que vem o
+desenho. Medindo com `llama3.2:1b`, "já paguei" recebeu **"Não, ainda não"** e
+"advogado" fez o modelo **inventar um telefone** — não é falha de prompt, é o
+tamanho do modelo. Então a ordem se inverteu: **o código decide o que é
+perigoso** (`assuntoExigeGente` manda dívida, pagamento, menção jurídica, dado
+pessoal, contestação e pergunta operacional para a fila **sem** consultar o
+modelo) e o robô só atende o que sobra — saudação, "quem é você". Depois de
+pronta, a resposta ainda passa por `avaliarResposta`, que barra cheiro de valor,
+telefone, promessa de atendente sem escalar e eco do formulário; **`escalar`
+ausente escala**, porque a decisão perigosa não pode ser a que acontece quando o
+modelo entende menos. Toda saída que não é "respondeu" termina em **escalar,
+nunca em silêncio**. O robô fala **por último** (grava → fila pisca → pensa) e
+`escalarConversa` filtra por `situacao: "bot"` no `updateMany`, então ele nunca
+tira conversa de quem já assumiu. Continua **sem Siscobra**: é o degrau entre
+"ninguém responde" e o chatbot da decisão 28. Regras puras em `lib/chat-bot.ts`.
+
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
   `exceljs` não cria gráficos nativos na escrita (decisão 6).

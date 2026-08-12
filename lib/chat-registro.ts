@@ -46,6 +46,24 @@ export type ResultadoEntrada = {
   mensagemId: string | null;
 };
 
+/**
+ * Passa a conversa do robô para a fila de gente.
+ *
+ * `updateMany` com `situacao: "bot"` no filtro, e não `update` pelo id: é a
+ * mesma trava do webhook em forma de consulta — se uma operadora assumiu entre
+ * a mensagem chegar e o robô desistir, a linha não é tocada. O robô nunca tira
+ * uma conversa de quem já está atendendo.
+ */
+export async function escalarConversa(
+  conversaId: string,
+  motivo: string,
+): Promise<void> {
+  await prisma.conversa.updateMany({
+    where: { id: conversaId, situacao: "bot" },
+    data: { situacao: "fila", motivoEscalonamento: motivo.slice(0, 200) },
+  });
+}
+
 export async function registrarEntrada(
   d: EntradaConversa,
 ): Promise<ResultadoEntrada> {

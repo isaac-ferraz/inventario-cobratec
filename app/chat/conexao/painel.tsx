@@ -40,6 +40,7 @@ type Estado = {
   pendencias: string[];
   sessao: Sessao | null;
   webhookUrl: string | null;
+  robo: { ligado: boolean; modelo: string | null };
   erro: string | null;
 };
 
@@ -263,11 +264,41 @@ export function PainelConexao() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardContent className="space-y-2 py-4 text-sm">
+              <p className="font-medium">Quem fala primeiro com o devedor</p>
+              {estado?.robo.ligado ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    <span className="tom-ok rounded px-1.5 py-0.5">
+                      Um robô local recebe e tria
+                    </span>{" "}
+                    (modelo <code>{estado.robo.modelo}</code>, rodando nesta
+                    rede). Ele responde saudação e passa para a fila assim que o
+                    assunto for a dívida.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Ele não tem acesso a dado nenhum: nunca fala de valor, acordo
+                    ou pagamento — isso é garantido por código, não pelo texto
+                    que ele recebe. Para desligar, apague{" "}
+                    <code>OLLAMA_URL</code> do .env.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Ninguém: toda mensagem que chega cai direto na fila da
+                  operadora. Para ligar a triagem automática, defina{" "}
+                  <code>OLLAMA_URL</code> no .env (veja{" "}
+                  <code>docs/conversas/README.md</code>).
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <p className="text-xs text-muted-foreground">
             Modo de teste: o número é pareado como &quot;aparelho conectado&quot;,
             sem API oficial. Use um chip dedicado — a automação contraria os
-            termos do WhatsApp e a linha pode ser banida. Sem robô do outro lado,
-            toda mensagem que chega cai direto na fila da operadora.
+            termos do WhatsApp e a linha pode ser banida.
           </p>
         </>
       )}

@@ -1396,3 +1396,132 @@ podem ser a mesma coisa.
 O que se protege com teste, e é o que só apareceria depois de dias no ar:
 ouvinte que sobrevive à aba fechada (vazamento clássico de SSE) e ouvinte
 quebrado derrubando a gravação que o originou.
+
+## 31. Um robô local que só sabe triar
+
+**Contexto:** o modo direto (decisão 29) conectou o número, mas deixou o
+atendimento inteiro na mão de gente — "oi" chega na fila do mesmo jeito que
+"quero negociar". Do outro lado, o chatbot da decisão 28 depende de n8n de pé,
+credencial do Siscobra e prompts revisados. Entre não ter robô nenhum e ter o
+desenho completo cabia um passo: um modelo **local** fazendo o que não precisa
+de dado — receber bem e passar para gente.
+
+### Local, e não uma API na nuvem
+
+A conversa aqui é com devedor: nome, telefone, o que ele deve, o que ele alega.
+Mandar isso para uma API de terceiro para redigir um "olá" é exportar dado
+pessoal de gente que não faz negócio com o terceiro. O Ollama roda na própria
+máquina, e **nenhuma conversa sai da empresa** — o que também dispensa chave,
+fatura e um contrato de tratamento de dados que ninguém quer assinar por causa
+de uma saudação.
+
+O custo dessa escolha é o tamanho do modelo: cabe um 1B–3B em CPU, não um
+modelo de fronteira. E é daí que vem o resto desta decisão.
+
+### O que se aprendeu medindo (e inverteu o desenho)
+
+O plano inicial era o óbvio — mandar tudo ao modelo e confiar no prompt para
+ele escalar o que fosse grave. O teste com `llama3.2:1b` derrubou isso em quatro
+medições:
+
+- "já paguei mês passado" → **"Não, ainda não"**. O modelo *negou um pagamento*
+  sem ter nenhum dado. Em cobrança isso não é gafe, é o art. 42 do CDC.
+- "vou chamar meu advogado" → o modelo **inventou um telefone** na resposta.
+- "bom dia, tudo bem?" → respondeu **"O que dizer"**, o rótulo do campo JSON.
+  Modelo pequeno copia o formulário em vez de preenchê-lo.
+- "vocês atendem sábado?" → **"Não, não atendemos sábados"**, inventado. Fato
+  sobre a empresa também é dado que ele não tem.
+
+Nenhum desses é problema de prompt: é o tamanho do modelo. Então a ordem se
+inverteu. **O código decide o que é perigoso; o modelo só é consultado no que
+sobra.** `assuntoExigeGente` (em `lib/chat-bot.ts`) é a trava de entrada —
+dívida, pagamento, menção jurídica, dado pessoal, contestação e pergunta
+operacional vão para a fila **sem passar pelo modelo**. De quebra ficou mais
+rápido: o caso grave não paga inferência.
+
+O que sobra para o robô é pequeno de propósito: saudação, "quem é você", "como
+funciona". É uma recepcionista, não uma negociadora.
+
+### Prompt orienta; código impede
+
+A decisão 28 já dizia que a trava do domínio é código e não prompt. Aqui isso
+fica literal: o prompt pede para não falar de valor **e** `avaliarResposta`
+confere o texto pronto antes de ele sair. Um modelo que alucina não relê o
+prompt antes de responder.
+
+A conferência é sobre o **texto final**, não sobre a intenção declarada — o
+modelo pode dizer `escalar: false` e ter inventado um número no meio da frase, e
+é exatamente esse caso que precisa ser barrado. Barram a saída: cheiro de valor
+(`R$`, `10%`, `3x`, "desconto", "parcelar", "boleto", "pix"), telefone, promessa
+de atendente sem escalar de verdade, eco do rótulo do formulário, texto vazio e
+texto longo demais.
+
+Uma regra merece nome próprio: **campo `escalar` ausente escala**. Tratar
+ausência como `false` faria a decisão mais perigosa — falar com o devedor — ser
+justamente a que acontece quando o modelo entendeu menos. Na dúvida sobre o que
+o modelo quis dizer, quem atende é gente.
+
+E toda saída que não é "respondeu" termina em **escalar, nunca em silêncio**:
+modelo fora do ar, estouro de tempo, formato quebrado, valor inventado e falha
+de entrega caem todos no mesmo lugar — a conversa na fila, com o motivo escrito.
+Um devedor esperando um robô que travou é o defeito que ninguém vê acontecer.
+
+### A ordem: grava, pisca a fila, e só então fala
+
+O robô é a **última** coisa do webhook. A mensagem é gravada, a fila ao vivo
+pisca (decisão 30), e só aí ele pensa. Assim, se ele demorar, travar ou dizer
+bobagem, o devedor já está visível para quem atende — o atendimento nunca fica
+pendurado na saúde do modelo.
+
+Ele também não fala em conversa que não é dele: só age quando a `situacao` do
+registro é `bot`, e `escalarConversa` usa `updateMany` filtrando por
+`situacao: "bot"` em vez de `update` pelo id. É a trava da decisão 28 em forma de
+consulta — se uma operadora assumiu entre a mensagem chegar e o robô desistir, a
+linha não é tocada. **O robô nunca tira uma conversa de quem já está atendendo.**
+
+Reentrega do gateway também não vira fala dobrada: mensagem duplicada é detectada
+pelo `waId` UNIQUE e o robô não é chamado de novo.
+
+### O prompt é curto por medida, não por gosto
+
+Rodando local em CPU, **ler** o prompt custa mais que escrever a resposta: numa
+máquina sob pressão de memória, 390 tokens de sistema levaram 235s dos 263s de
+uma resposta inteira. Cada frase do prompt é paga em segundos de espera do
+devedor, a cada mensagem. Encurtar não afrouxou nada, porque quem segura o robô
+é `avaliarResposta`.
+
+Na mesma linha: `temperature: 0` (em cobrança não se quer criatividade),
+`num_predict: 120` (2 frases cabem folgadas, e resposta longa sem dado é resposta
+que inventa), `format: "json"` (é o que faz modelo pequeno devolver JSON de
+verdade), `keep_alive: "30m"` (sem isso, uma pausa de minutos paga a carga do
+modelo de novo) e teto de 45s.
+
+### Como liga, e quem tem precedência
+
+Só `OLLAMA_URL` no `.env`. **Vazio = sem robô**, e tudo continua caindo na fila
+como na decisão 29 — o comportamento anterior é o padrão, não uma opção. O n8n
+(`CHAT_ENVIO_URL`) continua com precedência sobre o modo direto: uma variável
+esquecida não pode silenciar o chatbot inteiro.
+
+O Ollama roda no **host**, não em container: do app conteinerizado o endereço é
+`host.docker.internal:11434`, e ele precisa escutar fora do loopback
+(`OLLAMA_HOST=0.0.0.0 ollama serve`).
+
+### O que este robô não é
+
+Não fala com o Siscobra, não conhece saldo, contrato nem regra de carteira — a
+fronteira da decisão 28 está intacta. Ele é o degrau entre "ninguém responde
+fora do horário" e o chatbot completo, e continua valendo o risco dito em voz
+alta na decisão 29: gateway não-oficial contraria os termos do WhatsApp, chip
+dedicado.
+
+### Um defeito achado de brinde: o `.env` entrando no teste
+
+A suíte quebrou em duas asserções de "cai na fila" — na máquina de quem tinha
+`OLLAMA_URL` ligado. O `@prisma/client` carrega o `.env` do projeto ao ser
+importado, então o ambiente do desenvolvedor entrava no processo de teste. Na
+CI, que não tem `.env`, passava. Teste que muda de resultado conforme a máquina
+não protege nada: o `beforeEach` de `tests/api/chat-waha.test.ts` passa a apagar
+a variável explicitamente, como já fazia com `CHAT_ENVIO_URL`.
+
+Testes: 490 → **534**.

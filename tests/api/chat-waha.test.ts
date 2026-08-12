@@ -4,9 +4,11 @@
 //   1. o portão de máquina é o MESMO do webhook do n8n (token, não cookie);
 //   2. sem robô do outro lado, a mensagem cai na FILA — não em "bot", que
 //      esconderia o devedor esperando um atendimento que ninguém ligou;
-//   3. o que NÃO pode virar conversa: eco da própria resposta, grupo, áudio;
+//   3. o que NÃO pode virar conversa: eco da própria resposta, grupo, broadcast;
 //   4. quem liga e desliga a linha é o TI, não a operadora;
-//   5. mensagem só é gravada se o gateway aceitou entregar.
+//   5. mensagem só é gravada se o gateway aceitou entregar;
+//   6. o robô só fala onde não tem como fazer estrago — assunto de dívida,
+//      pagamento ou advogado vai para gente sem passar pelo modelo.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -48,6 +50,13 @@ beforeEach(async () => {
   process.env.WAHA_API_KEY = "chave-de-teste";
   // O ponto do modo direto: NÃO existe n8n configurado.
   delete process.env.CHAT_ENVIO_URL;
+  // Nem robô — quem quiser um o liga no próprio bloco. Isto não é zelo: o
+  // Prisma carrega o `.env` do projeto ao ser importado, então a máquina de
+  // quem roda o teste entra no processo. Sem esta linha, o desenvolvedor com
+  // `OLLAMA_URL` ligado via os testes de "cai na fila" falharem — e a CI, que
+  // não tem `.env`, passar. Teste que muda de resultado conforme a máquina não
+  // protege nada.
+  delete process.env.OLLAMA_URL;
 });
 
 afterEach(() => {
@@ -306,6 +315,163 @@ describe("anexo do devedor", () => {
   });
 });
 
+describe("robô local (Ollama) no modo direto", () => {
+  const OLLAMA = "http://ollama-de-teste:11434";
+  // Fala INOCENTE de propósito: o `FALA` do resto do arquivo fala em dívida, e
+  // agora isso é escalado antes de o modelo abrir a boca (`assuntoExigeGente`).
+  // Para exercitar o robô é preciso um assunto que ele possa mesmo atender.
+  const OLA = { ...FALA, body: "oi, tudo bem?" };
+
+  beforeEach(() => {
+    process.env.OLLAMA_URL = OLLAMA;
+    process.env.OLLAMA_MODELO = "llama3.2";
+  });
+
+  afterEach(() => {
+    delete process.env.OLLAMA_URL;
+    delete process.env.OLLAMA_MODELO;
+  });
+
+  // Encaminha cada chamada para o destino certo: o modelo devolve o JSON, o
+  // gateway confirma o envio.
+  function simular(respostaDoModelo: unknown, gatewayOk = true) {
+    const chamadas: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      chamadas.push(u);
+      if (u.startsWith(OLLAMA)) {
+        return new Response(
+          JSON.stringify({
+            message: { content: JSON.stringify(respostaDoModelo) },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return gatewayOk
+        ? new Response(JSON.stringify({ id: "true_wa_bot" }), { status: 200 })
+        : new Response(JSON.stringify({ error: "sessão caiu" }), { status: 422 });
+    });
+    return chamadas;
+  }
+
+  it("com robô ligado, a conversa fica COM ELE e a resposta sai", async () => {
+    const chamadas = simular({ resposta: "Olá! Como posso ajudar?", escalar: false });
+
+    const { corpo } = await entregar(eventoDe(OLA));
+    expect(corpo.situacao).toBe("bot");
+
+    expect(chamadas.some((c) => c.startsWith(`${OLLAMA}/api/chat`))).toBe(true);
+    expect(chamadas.some((c) => c === `${GATEWAY}/api/sendText`)).toBe(true);
+
+    const falas = await prisma.conversaMensagem.findMany({
+      orderBy: { criadoEm: "asc" },
+    });
+    expect(falas.map((m) => m.autor)).toEqual(["devedor", "bot"]);
+    expect(falas[1].corpo).toBe("Olá! Como posso ajudar?");
+    expect(falas[1].waId).toBe("true_wa_bot");
+  });
+
+  // A trava do domínio, agora ponta a ponta: o modelo diz que não é para
+  // escalar e inventa um valor. Nada disso pode chegar ao devedor.
+  it("valor inventado NÃO é enviado — a conversa vai para a fila", async () => {
+    const chamadas = simular({
+      resposta: "Seu débito é R$ 1.240,00 e consigo 50% de desconto.",
+      escalar: false,
+    });
+
+    await entregar(eventoDe(OLA));
+
+    expect(chamadas.some((c) => c === `${GATEWAY}/api/sendText`)).toBe(false);
+    const conversa = await prisma.conversa.findFirst();
+    expect(conversa?.situacao).toBe("fila");
+    expect(conversa?.motivoEscalonamento).toMatch(/valor/);
+    expect(await prisma.conversaMensagem.count({ where: { autor: "bot" } })).toBe(0);
+  });
+
+  it("robô que pede ajuda humana escala com o motivo dele", async () => {
+    simular({ resposta: "Vou chamar uma atendente.", escalar: true, motivo: "quer negociar" });
+    await entregar(eventoDe(OLA));
+
+    const conversa = await prisma.conversa.findFirst();
+    expect(conversa?.situacao).toBe("fila");
+    expect(conversa?.motivoEscalonamento).toBe("quer negociar");
+  });
+
+  // Modelo fora do ar não pode virar devedor esquecido numa conversa muda.
+  it("modelo fora do ar escala em vez de silenciar", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).startsWith(OLLAMA)) throw new Error("conexão recusada");
+      return new Response("{}", { status: 200 });
+    });
+
+    const { status } = await entregar(eventoDe(OLA));
+    expect(status).toBe(200);
+    const conversa = await prisma.conversa.findFirst();
+    expect(conversa?.situacao).toBe("fila");
+    expect(conversa?.motivoEscalonamento).toMatch(/fora do ar/);
+  });
+
+  // Entrega primeiro, grava depois: se o WhatsApp recusou, a fala do robô não
+  // pode aparecer na thread como se tivesse sido entregue.
+  it("gateway recusando o envio não grava a fala do robô", async () => {
+    simular({ resposta: "Olá! Como posso ajudar?", escalar: false }, false);
+    await entregar(eventoDe(OLA));
+
+    expect(await prisma.conversaMensagem.count({ where: { autor: "bot" } })).toBe(0);
+    const conversa = await prisma.conversa.findFirst();
+    expect(conversa?.situacao).toBe("fila");
+  });
+
+  // A regra mais importante da decisão 28, agora com um robô de verdade atrás.
+  it("o robô CALA quando uma operadora já assumiu", async () => {
+    simular({ resposta: "Olá!", escalar: false });
+    await entregar(eventoDe(OLA));
+    const c = await prisma.conversa.findFirst();
+    await prisma.conversa.update({
+      where: { id: c!.id },
+      data: { situacao: "humana", responsavelId: cobranca.id },
+    });
+
+    const chamadas = simular({ resposta: "Oi de novo!", escalar: false });
+    await entregar(
+      eventoDe({ ...OLA, id: "false_x_2", body: "tem alguém aí?" }),
+    );
+
+    expect(chamadas.some((c) => c.startsWith(`${OLLAMA}/api/chat`))).toBe(false);
+    const depois = await prisma.conversa.findUnique({ where: { id: c!.id } });
+    expect(depois?.situacao).toBe("humana");
+  });
+
+  // A trava de entrada: assunto grave não paga inferência nem depende de o
+  // modelo ter acertado hoje.
+  it("assunto de dívida vai para a fila SEM consultar o modelo", async () => {
+    const chamadas = simular({ resposta: "não deveria ser usada", escalar: false });
+
+    await entregar(
+      eventoDe({ ...FALA, body: "quanto eu devo? quero negociar" }),
+    );
+
+    expect(chamadas.some((c) => c.startsWith(OLLAMA))).toBe(false);
+    const conversa = await prisma.conversa.findFirst();
+    expect(conversa?.situacao).toBe("fila");
+    expect(conversa?.motivoEscalonamento).toMatch(/dívida/);
+  });
+
+  it("quem diz que já pagou fala com gente, não com o robô", async () => {
+    const chamadas = simular({ resposta: "não deveria ser usada", escalar: false });
+    await entregar(eventoDe({ ...FALA, body: "já paguei isso mês passado" }));
+
+    expect(chamadas.some((c) => c.startsWith(OLLAMA))).toBe(false);
+    expect((await prisma.conversa.findFirst())?.motivoEscalonamento).toMatch(/pagou/);
+  });
+
+  it("sem OLLAMA_URL, tudo continua caindo na fila", async () => {
+    delete process.env.OLLAMA_URL;
+    const { corpo } = await entregar(eventoDe(OLA));
+    expect(corpo.situacao).toBe("fila");
+  });
+});
+
 describe("canal ao vivo", () => {
   it("mensagem nova acende a fila de quem está olhando", async () => {
     const avisos: unknown[] = [];
@@ -412,7 +578,31 @@ describe("conexão do número: quem liga a linha", () => {
       await conexao(await requisicao("GET", "/api/chat/conexao", { usuario: admin })),
     );
     expect(corpo.modo).toBe("n8n");
+    // Nem o robô local: quem responde ali é o robô do n8n.
+    expect(corpo.robo).toEqual({ ligado: false, modelo: null });
     delete process.env.CHAT_ENVIO_URL;
+  });
+
+  // A tela diz ao TI quem atende primeiro. Se ela mentir sobre isso, ele vai
+  // procurar defeito no gateway enquanto o problema é uma variável de ambiente.
+  it("a tela sabe se existe robô triando, e qual modelo", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status: "WORKING" }), { status: 200 }),
+    );
+
+    const semRobo = await ler(
+      await conexao(await requisicao("GET", "/api/chat/conexao", { usuario: admin })),
+    );
+    expect(semRobo.corpo.robo).toEqual({ ligado: false, modelo: null });
+
+    process.env.OLLAMA_URL = "http://ollama-de-teste:11434";
+    process.env.OLLAMA_MODELO = "llama3.2:1b";
+    const comRobo = await ler(
+      await conexao(await requisicao("GET", "/api/chat/conexao", { usuario: admin })),
+    );
+    expect(comRobo.corpo.robo).toEqual({ ligado: true, modelo: "llama3.2:1b" });
+    delete process.env.OLLAMA_URL;
+    delete process.env.OLLAMA_MODELO;
   });
 
   // Conexão que recebe e joga fora é pior que conexão que não sobe.

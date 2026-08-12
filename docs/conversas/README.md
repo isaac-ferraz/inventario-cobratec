@@ -149,6 +149,7 @@ antes de existir fluxo de n8n. Sem Twilio e sem API oficial da Meta.
 
 ```
 WhatsApp → WAHA → inventário (/chat)
+                      └─ opcional: robô local de triagem (Ollama, passo 4)
 ```
 
 ### Passo 1 — as variáveis
@@ -201,9 +202,9 @@ manda junto o cabeçalho de autenticação, que a variável do compose não supo
 ### Passo 3 — conferir
 
 Mande uma mensagem de outro celular para o número pareado. Ela aparece em
-**/chat** na hora (a fila recarrega a cada 15s), em **Esperando atendente**:
-sem robô do outro lado, tudo cai direto na fila. Clique em **Assumir** e
-responda — a resposta sai pelo mesmo gateway.
+**/chat** na hora — a fila é ao vivo (SSE, decisão 30) — em **Esperando
+atendente**: sem robô do outro lado, tudo cai direto na fila. Clique em
+**Assumir** e responda — a resposta sai pelo mesmo gateway.
 
 Se preferir testar sem celular nenhum, simule o que o gateway entrega:
 
@@ -217,6 +218,46 @@ curl -s -X POST http://localhost:3000/api/chat/waha/webhook \
 # → {"ok":true,"conversaId":"...","situacao":"fila"}
 ```
 
+### Passo 4 (opcional) — o robô local de triagem
+
+Sem isto, toda mensagem espera uma pessoa, inclusive "oi". Com um modelo rodando
+**na própria máquina**, o robô recebe, responde o que é inofensivo e passa para
+gente assim que o assunto encosta em dívida (decisão 31). Ele **não tem dado
+nenhum** — não negocia, não diz valor, não confirma pagamento.
+
+```bash
+# 1. instalar e baixar o modelo (na máquina, não em container)
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull llama3.2:1b
+
+# 2. deixá-lo escutar fora do loopback, senão o container não alcança
+OLLAMA_HOST=0.0.0.0 ollama serve
+```
+
+```bash
+# 3. no .env do inventário
+#   app em container → host.docker.internal ;  npm run dev → 127.0.0.1
+OLLAMA_URL="http://host.docker.internal:11434"
+OLLAMA_MODELO="llama3.2:1b"
+```
+
+`docker compose up -d --build` para reler o `.env`. Para **desligar o robô**,
+apague `OLLAMA_URL`: tudo volta a cair na fila, sem remover mais nada.
+
+Confira mandando um "oi" — a conversa fica em **Com o robô** e a resposta chega
+em segundos. Depois mande "quanto eu devo?": ela vai para a fila na hora, **sem
+consultar o modelo**, com o motivo escrito no card.
+
+**Escolha do modelo, medindo:** `llama3.2:1b` responde em ~5s numa máquina
+apertada; o 3B redige melhor e pede RAM livre. Meça antes de decidir —
+`time ollama run llama3.2:1b "oi"` já dá a ordem de grandeza. Modelo grande
+demais estoura o teto de 45s e a conversa cai na fila do mesmo jeito, só que
+depois de a pessoa esperar.
+
+**Não adianta trocar o prompt para ele falar de valor.** A trava não está no
+prompt: `lib/chat-bot.ts` barra o assunto na entrada e confere o texto na saída.
+Robô que fala de dívida é o da decisão 28, e esse precisa do Siscobra.
+
 ### Quando o chatbot entrar
 
 Preencha `CHAT_ENVIO_URL` (fluxo 2 do n8n) e aponte `WAHA_HOOK_URL` para o
@@ -227,10 +268,11 @@ nada. A tela **Conexão** passa a avisar que o pareamento é assunto do n8n.
 
 | | n8n (produção) | direto (teste) |
 |---|---|---|
-| Quem responde o devedor | o robô, e escala quando precisa | ninguém: cai na fila |
+| Quem responde o devedor | o robô, e escala quando precisa | o robô local **tria**, se ligado; senão, cai na fila |
+| Fala de valor e acordo | sim, com o dossiê na mão | **nunca** — barrado por código |
 | Dossiê do Siscobra | chega empurrado pelo n8n | não existe |
 | Pareamento do número | fluxo do n8n / painel do WAHA | tela **Conexão** |
-| Mídia (áudio, foto) | ignorada | ignorada |
+| Mídia (áudio, foto) | depende do fluxo — a rota do n8n não trata | vira mensagem com marcador e o arquivo baixa |
 | Grupo | descartado no fluxo | descartado na rota |
 
 ## O que ainda não existe

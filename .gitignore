@@ -10,6 +10,7 @@ prisma/dev.db-shm
 backups
 tmp
 .claude/settings.local.json
+.claude-backup-sessao
 next-env.d.ts
 *.tsbuildinfo
 .DS_Store
