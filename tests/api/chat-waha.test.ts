@@ -434,17 +434,18 @@ describe("robô local no modo direto", () => {
     expect(depois?.situacao).toBe("humana");
   });
 
-  // A trava de ENTRADA: assunto grave não paga inferência nem depende de o
-  // modelo ter acertado hoje.
-  it("assunto de dívida vai para a fila SEM consultar o modelo", async () => {
+  // A trava de ENTRADA: assunto sem molde honesto não paga inferência nem
+  // depende de o modelo ter acertado hoje. Depois da decisão 32 ela é curta —
+  // dívida e CPF saíram dela, porque o robô passou a saber tratá-los.
+  it("contestação vai para a fila SEM consultar o modelo", async () => {
     const chamadas = simular({ intencao: "saudacao" });
 
-    await entregar(eventoDe({ ...FALA, body: "quanto eu devo? quero negociar" }));
+    await entregar(eventoDe({ ...FALA, body: "essa dívida não é minha, é golpe" }));
 
     expect(chamadas.some((c) => c.startsWith(OLLAMA))).toBe(false);
     const conversa = await prisma.conversa.findFirst();
     expect(conversa?.situacao).toBe("fila");
-    expect(conversa?.motivoEscalonamento).toMatch(/dívida/);
+    expect(conversa?.motivoEscalonamento).toMatch(/contesta/);
   });
 
   it("quem diz que já pagou fala com gente, não com o robô", async () => {

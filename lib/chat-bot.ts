@@ -95,40 +95,42 @@ export function ehLocal(url: string): boolean {
 /**
  * Assuntos que vão para gente SEM passar pelo modelo.
  *
- * Esta função é a lição mais cara desta rodada, e veio de medir: com
- * `llama3.2:1b`, "já paguei mês passado" recebeu **"Não, ainda não"**, e
- * "vou chamar meu advogado" fez o modelo INVENTAR um telefone. Nenhuma das duas
- * é falha de prompt — é o tamanho do modelo.
+ * Esta lista já foi bem maior, e **encolher foi o conserto**. Ela nasceu na
+ * decisão 31, quando o robô redigia: naquele desenho, qualquer assunto que
+ * encostasse em dinheiro era perigoso, porque o modelo inventava o número.
+ * Barrar "dívida", "parcelar", "desconto" e "cpf" era o que impedia o estrago.
  *
- * Então a ordem se inverte: o código decide o que é perigoso, e o modelo só é
- * consultado no que sobra (saudação, "quem é você", "como funciona"). Onde há
- * risco jurídico ou de dado, quem responde é gente — sem depender de o modelo
- * ter acertado hoje.
+ * Com a decisão 32 o modelo parou de escrever — e a lista virou uma armadilha:
+ * ela bloqueava justamente o que o robô passou a saber fazer. "Meu CPF é..."
+ * batia em `\bcpf\b` e ia para a fila, então a identificação nunca acontecia;
+ * "dá pra parcelar" batia em `parcel`, então a oferta nunca era feita. O robô
+ * novo estava desligado na prática, e os testes de unidade não viam porque
+ * chamam `decidir` direto, pulando esta função. Quem pegou foi o teste de rota.
  *
- * De quebra fica mais rápido: os casos graves nem pagam a inferência.
+ * O critério mudou junto. Antes era "o modelo pode inventar aqui?". Agora é
+ * **"existe molde honesto para isto?"** — e onde não existe, quem responde é
+ * gente, mesmo que o modelo classifique com toda a confiança do mundo:
+ *
+ *   • pagamento alegado  — o robô não consegue conferir baixa no CRM;
+ *   • jurídico           — advogado, Procon, processo;
+ *   • contestação        — "não é minha", golpe, fraude;
+ *   • dado bancário      — quem começa a mandar cartão/conta está perdido, e
+ *                          nenhum molde nosso pede isso;
+ *   • horário e endereço — fatos que o CÓDIGO também não tem.
  */
 const ASSUNTO_DE_GENTE: Array<[RegExp, string]> = [
   [/\bj[áa]\s+paguei|\bpaguei\b|\bpagamento\s+feito|comprovante/i, "diz que pagou"],
   [/advogad|procon|process|justi[çc]a|juizado|reclame\s*aqui/i, "menção jurídica"],
-  [
-    /d[íi]vida|d[ée]bito|negoci|acordo|desconto|parcel|boleto|\bpix\b|\bvalor\b|quanto\s+(eu\s+)?devo|\br\$/i,
-    "assunto de dívida",
-  ],
-  [/\bcpf\b|\brg\b|nascimento|\bconta\b\s+banc|cart[ãa]o/i, "pediu ou ofereceu dado pessoal"],
   [/gol[pe]|fraude|n[ãa]o\s+(é|e)\s+minha|n[ãa]o\s+reconhe[çc]|engano/i, "contesta a cobrança"],
-  // Fato sobre a empresa também é dado que o robô não tem. Medido: perguntado
-  // se atendia sábado, o 1B respondeu "Não, não atendemos sábados" — inventado.
-  // Informação errada dada pela empresa é problema mesmo quando não é sobre
-  // dinheiro.
+  [/\bconta\b\s+banc|cart[ãa]o\s+de\s+cr[ée]dito|n[úu]mero\s+do\s+cart[ãa]o/i, "ofereceu dado bancário"],
+  // Medido: perguntado se atendia sábado, o 1B respondeu "Não, não atendemos
+  // sábados" — inventado. Informação errada dada pela empresa é problema mesmo
+  // quando não é sobre dinheiro, e aqui não há molde possível: o código não
+  // sabe o horário.
   [
     /hor[áa]rio|que\s+horas|atendem?\s|funcionam?\s|endere[çc]o|onde\s+fica|telefone|ligar\s+para/i,
     "pergunta operacional sobre a empresa",
   ],
-  // "Quem é a Cobratec?" ficou aqui um tempo, escalada, porque o modelo
-  // respondia "empresa de tecnologia" e "serviço de pagamento da Receita
-  // Federal" (decisão 31.2). Saiu na 32: agora essa resposta é uma string fixa
-  // em `chat-respostas.ts`, e string fixa não inventa. Horário e endereço
-  // continuam escalando — esses são fatos que o código também não tem.
 ];
 
 /**

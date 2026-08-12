@@ -25,15 +25,12 @@ describe("o que nem chega a ser perguntado ao modelo", () => {
     ["mandei o comprovante ontem", /pagou/],
     ["vou chamar meu advogado", /jurídic/],
     ["vou no Procon", /jurídic/],
-    ["quanto eu devo?", /dívida/],
-    ["quero negociar", /dívida/],
-    ["me manda o boleto", /dívida/],
-    ["faz por pix?", /dívida/],
-    ["meu cpf é 123.456.789-00", /dado pessoal/],
-    ["essa dívida não é minha", /dívida/],
+    ["essa dívida não é minha", /contesta/],
     ["isso é golpe", /contesta/],
-    // Fato sobre a empresa também é dado que o robô não tem: medido, ele
-    // inventou que a Cobratec não atende aos sábados.
+    ["não reconheço essa cobrança", /contesta/],
+    ["te passo o número do cartão", /dado bancário/],
+    // Fato sobre a empresa que o CÓDIGO também não tem — não há molde honesto.
+    // Medido: o modelo inventou que a Cobratec não atende aos sábados.
     ["vocês atendem sábado?", /operacional/],
     ["qual o horário de vocês?", /operacional/],
     ["qual o endereço?", /operacional/],
@@ -45,15 +42,35 @@ describe("o que nem chega a ser perguntado ao modelo", () => {
     });
   }
 
-  // Se tudo escalasse, o robô não serviria para nada — a conversa fiada é
-  // exatamente o que sobra para ele.
+  // ─────────── o que SAIU desta lista, e por que isso é o conserto ───────────
+  //
+  // Estas falas escalavam até a decisão 32, quando o robô ainda redigia e
+  // qualquer assunto de dinheiro era perigoso. Com o texto virando molde, a
+  // lista virou uma armadilha: bloqueava justamente o que o robô passou a saber
+  // fazer, e o deixava desligado na prática. Quem pegou isso foi o teste de
+  // rota (`tests/api/chat-siscobra.test.ts`) — os de unidade chamam `decidir`
+  // direto e pulam esta função.
+  const agoraDoRobo = [
+    "quanto eu devo?",        // → informa o saldo, depois de identificar
+    "quero negociar",         // → oferta dentro da regra da carteira
+    "da pra parcelar em 6x?", // → idem
+    "tem desconto?",          // → idem
+    "meu cpf é 529.982.247-25", // → é assim que a identificação começa!
+    "nasci em 12/04/1985",
+    "me manda o boleto",      // → escala, mas com aviso e pelo rótulo, não pela palavra
+  ];
+  for (const texto of agoraDoRobo) {
+    it(`"${texto}" chega ao robô`, () => {
+      expect(assuntoExigeGente(texto)).toBeNull();
+    });
+  }
+
+  // Se tudo escalasse, o robô não serviria para nada.
   it("saudação e pergunta inocente seguem para o robô", () => {
     expect(assuntoExigeGente("oi")).toBeNull();
     expect(assuntoExigeGente("bom dia, tudo bem?")).toBeNull();
     expect(assuntoExigeGente("obrigado!")).toBeNull();
     expect(assuntoExigeGente("")).toBeNull();
-    // Continua com o robô: é a abertura mais comum e os dois modelos medidos
-    // respondem certo ("sou a recepcionista da Cobratec").
     expect(assuntoExigeGente("quem fala?")).toBeNull();
   });
 

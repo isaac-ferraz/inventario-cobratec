@@ -4,8 +4,14 @@
 //
 //   1. `CHAT_ENVIO_URL` — o webhook do n8n. É a PRODUÇÃO (decisão 28): o
 //      inventário não fala com gateway nenhum, e o n8n é quem sabe qual está
-//      ligado, qual sessão usar e como formatar. Mesmo motivo pelo qual este app
-//      não abre conexão com o Siscobra: a integração toda mora num lugar só.
+//      ligado, qual sessão usar e como formatar: a integração com o WhatsApp
+//      mora num lugar só.
+//
+//      (Este argumento já valeu também para o Siscobra, e não vale mais: a
+//      decisão 32 trouxe a leitura do CRM para dentro do app. A diferença é que
+//      ler saldo é uma consulta parametrizada e fixa; falar com gateway de
+//      WhatsApp é sessão, pareamento e formato que mudam com o fornecedor.)
+//
 //      Trocar de gateway amanhã é mexer no fluxo do n8n — sem migration, sem
 //      deploy do inventário, sem tocar em código de autenticação.
 //

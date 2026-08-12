@@ -1742,3 +1742,57 @@ sem banco, sem rede e sem modelo — é onde as regras moram.
 **Dependência nova:** `pg`. Justificada por ser o cliente oficial de PostgreSQL
 e a única forma de ler o Siscobra sem um segundo Prisma apontando para outro
 banco.
+
+### 32.1 — A trava de entrada estava desligando o robô novo
+
+**Contexto:** o robô da decisão 32 foi construído, testado turno a turno e
+commitado — e não funcionava. Em produção ele nunca teria identificado ninguém
+nem oferecido acordo nenhum.
+
+`assuntoExigeGente` é a lista de palavras que manda a mensagem para a fila
+**antes** do modelo. Ela nasceu na decisão 31, quando o robô redigia: naquele
+desenho, qualquer assunto que encostasse em dinheiro era perigoso, e barrar
+"dívida", "parcelar", "desconto" e "cpf" era o que impedia o estrago.
+
+Com o texto virando molde, a mesma lista virou uma armadilha:
+
+- *"meu CPF é 529…"* batia em `\bcpf\b` → fila. **A identificação nunca
+  começava** — e ela é o primeiro passo de tudo.
+- *"dá pra parcelar?"* batia em `parcel` → fila. A oferta nunca era feita.
+- *"quanto eu devo?"* batia em `dívida` → fila. O saldo nunca era informado.
+
+O robô sabia fazer três coisas novas e estava proibido de fazer as três.
+
+### Por que os testes não pegaram
+
+`lib/chat-fluxo.test.ts` cobre as regras chamando `decidir` **direto** — e é
+certo que ele faça isso, é o que o torna rápido e sem banco. Só que `decidir`
+está *depois* da trava. Nenhum teste percorria o caminho inteiro.
+
+Quem pegou foi `tests/api/chat-siscobra.test.ts`, escrito para uma pergunta
+diferente ("o que a rota grava?"): a primeira mensagem de teste era "meu cpf é
+529…", e a conversa foi para a fila em vez de identificar. **O teste de
+integração encontrou o que trinta testes de unidade não viam** — não porque
+fossem fracos, mas porque testavam um pedaço que estava certo.
+
+Junto veio outro defeito da mesma família: o `update` do Prisma recebia
+`devcod`/`carcod` (nomes do fluxo) em vez de `siscobraDevcod`/`siscobraCarcod`
+(nomes da tabela), e falhava. Agora existe `paraOBanco()`, uma tradução
+explícita — espalhar um objeto no outro parecia funcionar e não funcionava.
+
+### O critério novo da trava
+
+Antes: *"o modelo pode inventar aqui?"* — pergunta que fazia sentido quando ele
+escrevia. Agora: **"existe molde honesto para isto?"**. Onde não existe, quem
+responde é gente, mesmo que o modelo classifique com toda a confiança:
+
+- **pagamento alegado** — o robô não confere baixa no CRM;
+- **jurídico** — advogado, Procon, processo;
+- **contestação** — "não é minha", golpe, fraude;
+- **dado bancário oferecido** — nenhum molde nosso pede cartão ou conta;
+- **horário e endereço** — fatos que o *código* também não tem.
+
+Dívida, valor, parcelamento, desconto e CPF saíram: para todos eles existe molde,
+e o molde diz a verdade.
+
+Testes: 568 → **578**, agora com o caminho inteiro coberto.

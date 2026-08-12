@@ -866,9 +866,10 @@ function hora(iso: string): string {
   });
 }
 
-// O dossiê vem do n8n com as chaves que a consulta do Siscobra produziu. Em vez
-// de travar um formato aqui (o que obrigaria a mexer nesta tela a cada campo
-// novo), a tela renderiza o que vier e só embeleza os nomes que já conhece.
+// O dossiê é montado por `lib/siscobra.ts` (decisão 32) — antes vinha empurrado
+// pelo n8n. Em vez de travar um formato aqui, o que obrigaria a mexer nesta tela
+// a cada campo novo, ela renderiza o que vier e só embeleza os nomes que já
+// conhece. Campo novo no dossiê aparece sozinho; só o rótulo bonito é opcional.
 const ROTULOS: Record<string, string> = {
   nome: "Nome",
   cpf: "CPF",

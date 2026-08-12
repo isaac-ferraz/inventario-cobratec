@@ -6,7 +6,7 @@ import { escalarConversa, registrarEntrada } from "@/lib/chat-registro";
 import { baixarMidia } from "@/lib/chat-midia";
 import { publicar } from "@/lib/chat-eventos";
 import { assuntoExigeGente, classificar, configBot } from "@/lib/chat-bot";
-import { decidir, type OfertaFeita } from "@/lib/chat-fluxo";
+import { decidir, type EstadoConversa, type OfertaFeita } from "@/lib/chat-fluxo";
 import { dossieDe, identificar, regraDaCarteira } from "@/lib/siscobra";
 import { enviarPeloGateway } from "@/lib/chat-envio";
 import { configWaha, diagnosticoDoEvento, mensagemDoEvento, urlDaMidia } from "@/lib/waha";
@@ -190,15 +190,9 @@ async function responderComRobo(
   }
 
   if (acao.estado) {
-    // `oferta` vai como JSON: o SQLite não tem coluna de objeto, e o mesmo
-    // padrão já vale para `dossie` e `Componente.especificacoes`.
-    const { oferta, ...resto } = acao.estado;
     await prisma.conversa.update({
       where: { id: conversaId },
-      data: {
-        ...resto,
-        ...(oferta !== undefined ? { oferta: oferta ? JSON.stringify(oferta) : null } : {}),
-      },
+      data: paraOBanco(acao.estado),
     });
     // Identificou agora: o dossiê é buscado uma vez e congelado, para a
     // operadora ter o quadro ao assumir sem o app consultar o CRM a cada tela.
@@ -217,6 +211,33 @@ async function responderComRobo(
     }
   }
   publicar({ tipo: "mensagem", conversaId });
+}
+
+/**
+ * Traduz o estado do fluxo para as colunas da conversa.
+ *
+ * Existe porque os dois lados chamam a mesma coisa por nomes diferentes, e com
+ * razão: no fluxo é `devcod` (o conceito do Siscobra), no banco é
+ * `siscobraDevcod` (a origem, explícita entre dezenas de outras colunas).
+ * Espalhar um no outro parecia funcionar e não funciona — o Prisma recusa a
+ * chave que não conhece, e a identificação inteira se perdia num erro que só
+ * aparecia com a rota rodando.
+ *
+ * Só escreve o que veio: chave ausente no parcial não vira `null` no banco.
+ */
+function paraOBanco(e: Partial<EstadoConversa>) {
+  const dados: Record<string, unknown> = {};
+  if ("devcod" in e) dados.siscobraDevcod = e.devcod;
+  if ("carcod" in e) dados.siscobraCarcod = e.carcod;
+  if ("identificadaEm" in e) dados.identificadaEm = e.identificadaEm;
+  if ("nome" in e) dados.nome = e.nome;
+  if ("saldo" in e) dados.saldo = e.saldo;
+  if ("vencidoDesde" in e) dados.vencidoDesde = e.vencidoDesde;
+  if ("cpfPendente" in e) dados.cpfPendente = e.cpfPendente;
+  if ("nascimentoPendente" in e) dados.nascimentoPendente = e.nascimentoPendente;
+  // JSON em texto: o SQLite não tem coluna de objeto, mesmo padrão de `dossie`.
+  if ("oferta" in e) dados.oferta = e.oferta ? JSON.stringify(e.oferta) : null;
+  return dados;
 }
 
 /**

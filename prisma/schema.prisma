@@ -110,11 +110,14 @@ model Usuario {
 // O atendimento por WhatsApp ao devedor. Duas coisas que este modelo NÃO é, e
 // que explicam o resto do desenho:
 //
-// 1. Não é o estado do robô. Quem orquestra a conversa é o n8n (classificar,
-//    consultar o Siscobra, decidir responder ou escalar). O que mora aqui é o
-//    REGISTRO do atendimento: o que a operadora precisa ver para assumir, e o
-//    que a empresa precisa conseguir provar depois — cobrança é área regulada
+// 1. É o registro do atendimento — o que a operadora precisa ver para assumir,
+//    e o que a empresa precisa conseguir provar depois. Cobrança é área regulada
 //    (CDC art. 42 e 71), e "o que foi dito ao devedor" é a pergunta que aparece.
+//
+//    Desde a decisão 32 é TAMBÉM a memória do robô entre uma mensagem e a
+//    seguinte (cpfPendente, saldo congelado, oferta feita). Antes o estado da
+//    conversa morava no n8n; com o robô local, ele mora aqui — senão cada
+//    mensagem recomeçaria do zero, pedindo CPF a quem acabou de mandar.
 //
 // 2. Não é espelho do Siscobra. O CRM não guarda mensagem de WhatsApp
 //    (confirmado no mapa do schema), então este é o único lugar onde a conversa
@@ -160,9 +163,14 @@ model Conversa {
   // Dossiê do Siscobra (saldo, contratos, regra de parcelamento da carteira),
   // como JSON serializado — mesmo padrão de `Componente.especificacoes`.
   //
-  // É um SNAPSHOT empurrado pelo n8n, e não uma consulta que este app faz: o
-  // inventário não abre conexão com o Siscobra (ver decisão 28). Congelado tem
-  // valor próprio — é o que a operadora tinha à frente quando negociou.
+  // É um SNAPSHOT, e o congelamento tem valor próprio: é o que a operadora
+  // tinha à frente quando negociou, não o que o CRM diz agora.
+  //
+  // Quem o consulta mudou. A decisão 28 dizia que o inventário nunca abriria
+  // conexão com o Siscobra e que o dossiê chegaria empurrado pelo n8n; a 32
+  // reverteu isso — `lib/siscobra.ts` lê o CRM (somente leitura) porque sem
+  // dado o robô inventava. Ele guarda nome, CPF mascarado, carteira, saldo,
+  // vencimento e contratos.
   dossie   String?
   dossieEm DateTime?
 
