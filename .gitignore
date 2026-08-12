@@ -14,3 +14,4 @@ tmp
 next-env.d.ts
 *.tsbuildinfo
 .DS_Store
+.ipynb_checkpoints

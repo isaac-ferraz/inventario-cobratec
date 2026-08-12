@@ -275,7 +275,16 @@ produção, alguém esqueceu o `.env` apontado para o Colab.
 
 O notebook fecha a porta que o Ollama deixa aberta: ele não expõe o Ollama
 direto (que não tem autenticação nenhuma), e sim um proxy que exige
-`OLLAMA_TOKEN` e libera só duas rotas. Some com a sessão do Colab: o endereço
+`OLLAMA_TOKEN` e libera só duas rotas. Essa trava tem teste — roda à mão, porque
+o código mora num notebook e o vitest não o alcança:
+
+```bash
+python3 docs/conversas/colab/testa-proxy.py
+```
+
+Ele extrai a célula do proxy do **próprio** notebook e a exercita contra um
+Ollama de mentira (sem token, token errado, rota fora da lista), conferindo que
+o que foi barrado não chegou do outro lado. Mexeu na célula, rode isto. Some com a sessão do Colab: o endereço
 **muda a cada execução**, a sessão cai depois de ~90 min ociosa e tem teto de
 ~12h. Quando cair, ou você atualiza as três variáveis, ou apaga `OLLAMA_URL` e o
 atendimento volta inteiro para a fila da operadora — sem quebrar nada.

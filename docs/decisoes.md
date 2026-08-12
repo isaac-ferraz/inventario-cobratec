@@ -1566,6 +1566,12 @@ Ollama nasce fechada, e um `DELETE /api/delete` vindo da internet não apaga o
 modelo no meio do atendimento. Proxy recusando o token é falha como outra
 qualquer: **escala**, não silencia.
 
+Essa trava tem teste, e ele roda **à mão** (`docs/conversas/colab/testa-proxy.py`):
+o código sob teste mora num `.ipynb`, onde o vitest não chega. O script extrai a
+célula do proxy do próprio notebook e a executa contra um Ollama de mentira —
+testar uma cópia colada seria testar algo que envelhece em silêncio enquanto o
+notebook muda.
+
 **O que o notebook mede, e por que isso importa mais que a velocidade.** A
 pendência aberta na decisão 31 era saber se o modelo pequeno consegue triar o
 pouco que sobrou para ele. A célula de medição roda as falas típicas e compara
