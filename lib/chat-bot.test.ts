@@ -5,8 +5,13 @@
 // inventado é CDC art. 42, é contestação, é a empresa presa a uma promessa que
 // não fez. `avaliarResposta` é o que confere se o modelo obedeceu — e na dúvida
 // ela ESCALA, porque atenção de operadora é barato perto disso.
-import { describe, expect, it } from "vitest";
-import { assuntoExigeGente, avaliarResposta } from "@/lib/chat-bot";
+import { describe, expect, it, vi } from "vitest";
+import {
+  assuntoExigeGente,
+  avaliarResposta,
+  ehLocal,
+  pensar,
+} from "@/lib/chat-bot";
 
 function resposta(texto: string, escalar = false) {
   return JSON.stringify({ resposta: texto, escalar, motivo: "" });
@@ -184,5 +189,81 @@ describe("quando o robô desiste", () => {
     const d = avaliarResposta(resposta("a".repeat(700)));
     expect(d.responder).toBe(false);
     if (!d.responder) expect(d.motivo).toMatch(/estendeu/);
+  });
+});
+
+// Onde o modelo mora deixou de ser detalhe de infraestrutura quando o Colab
+// entrou (decisão 31.1): fora da rede, a fala do devedor sai da empresa. Quem
+// decide o que a tela mostra é esta função, então ela precisa errar para o lado
+// seguro — na dúvida, "não é local".
+describe("dentro ou fora da rede", () => {
+  const dentro = [
+    "http://127.0.0.1:11434",
+    "http://localhost:11434",
+    "http://host.docker.internal:11434",
+    "http://10.0.0.5:11434",
+    "http://192.168.1.20:11434",
+    "http://172.20.0.3:11434",
+    "http://servidor-ti:11434", // nome de container/host da LAN
+    "http://ollama.local:11434",
+  ];
+  for (const url of dentro) {
+    it(`local: ${url}`, () => expect(ehLocal(url)).toBe(true));
+  }
+
+  const fora = [
+    "https://abc-def.trycloudflare.com",
+    "https://1a2b3c.ngrok-free.app",
+    "http://8.8.8.8:11434",
+    // Faixa vizinha da privada: 172.15 e 172.32 são internet.
+    "http://172.15.0.1:11434",
+    "http://172.32.0.1:11434",
+    "não é uma url",
+  ];
+  for (const url of fora) {
+    it(`fora: ${url}`, () => expect(ehLocal(url)).toBe(false));
+  }
+});
+
+describe("o segredo do proxy", () => {
+  it("sem OLLAMA_TOKEN, a chamada vai sem Authorization", async () => {
+    const espiao = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ message: { content: resposta("Olá!") } })),
+    );
+    await pensar({ url: "http://127.0.0.1:11434", modelo: "m", token: null }, []);
+
+    const enviados = espiao.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(enviados.authorization).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+
+  // Sem este cabeçalho o proxy do notebook responde 401 e o robô escala —
+  // o atendimento não quebra, mas o modelo nunca é usado.
+  it("com OLLAMA_TOKEN, vai como Bearer", async () => {
+    const espiao = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ message: { content: resposta("Olá!") } })),
+    );
+    await pensar(
+      { url: "https://abc.trycloudflare.com", modelo: "m", token: "segredo" },
+      [],
+    );
+
+    const enviados = espiao.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(enviados.authorization).toBe("Bearer segredo");
+    vi.restoreAllMocks();
+  });
+
+  // Proxy recusando o token é falha como qualquer outra: escala, não silencia.
+  it("proxy recusando o token escala em vez de silenciar", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response('{"error":"token inválido"}', { status: 401 }),
+    );
+    const d = await pensar(
+      { url: "https://abc.trycloudflare.com", modelo: "m", token: "errado" },
+      [],
+    );
+    expect(d.responder).toBe(false);
+    if (!d.responder) expect(d.motivo).toMatch(/401/);
+    vi.restoreAllMocks();
   });
 });

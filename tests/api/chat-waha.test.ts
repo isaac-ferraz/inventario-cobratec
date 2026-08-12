@@ -579,7 +579,7 @@ describe("conexão do número: quem liga a linha", () => {
     );
     expect(corpo.modo).toBe("n8n");
     // Nem o robô local: quem responde ali é o robô do n8n.
-    expect(corpo.robo).toEqual({ ligado: false, modelo: null });
+    expect(corpo.robo).toEqual({ ligado: false, modelo: null, local: true });
     delete process.env.CHAT_ENVIO_URL;
   });
 
@@ -593,14 +593,45 @@ describe("conexão do número: quem liga a linha", () => {
     const semRobo = await ler(
       await conexao(await requisicao("GET", "/api/chat/conexao", { usuario: admin })),
     );
-    expect(semRobo.corpo.robo).toEqual({ ligado: false, modelo: null });
+    expect(semRobo.corpo.robo).toEqual({
+      ligado: false,
+      modelo: null,
+      local: true,
+    });
 
     process.env.OLLAMA_URL = "http://ollama-de-teste:11434";
     process.env.OLLAMA_MODELO = "llama3.2:1b";
     const comRobo = await ler(
       await conexao(await requisicao("GET", "/api/chat/conexao", { usuario: admin })),
     );
-    expect(comRobo.corpo.robo).toEqual({ ligado: true, modelo: "llama3.2:1b" });
+    expect(comRobo.corpo.robo).toEqual({
+      ligado: true,
+      modelo: "llama3.2:1b",
+      local: true,
+    });
+    delete process.env.OLLAMA_URL;
+    delete process.env.OLLAMA_MODELO;
+  });
+
+  // O aviso da decisão 31.1: com o modelo no Colab a fala do devedor sai da
+  // empresa, e a tela precisa poder gritar isso. Se este campo mentir, o aviso
+  // some e a escolha vira invisível.
+  it("modelo fora da rede é sinalizado como tal", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status: "WORKING" }), { status: 200 }),
+    );
+    process.env.OLLAMA_URL = "https://abc-def.trycloudflare.com";
+    process.env.OLLAMA_MODELO = "llama3.2:3b";
+
+    const { corpo } = await ler(
+      await conexao(await requisicao("GET", "/api/chat/conexao", { usuario: admin })),
+    );
+    expect(corpo.robo).toEqual({
+      ligado: true,
+      modelo: "llama3.2:3b",
+      local: false,
+    });
+
     delete process.env.OLLAMA_URL;
     delete process.env.OLLAMA_MODELO;
   });

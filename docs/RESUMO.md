@@ -257,6 +257,15 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     `avaliarResposta` confere o texto pronto antes de ele sair. Toda saída que
     não é "respondeu" termina em **escalar, nunca em silêncio**. Liga com
     `OLLAMA_URL`; vazio mantém tudo caindo na fila. Testes: 490 → **534**.
+24. **Modelo no Colab** (decisão 31.1): quando a máquina do escritório não
+    aguenta o modelo, o notebook
+    [`conversas/colab/`](./conversas/colab/ollama-colab.ipynb) sobe o Ollama numa
+    GPU do Colab, **mede** as falas típicas contra o teto de 45s e imprime as
+    linhas do `.env`. É **caminho de teste**: modelo fora da rede quer dizer que
+    a fala do devedor sai da empresa. O desenho não impede, mas não deixa
+    invisível — a tela **Conexão** avisa em vermelho quando é o caso. O túnel
+    não expõe o Ollama direto (que não tem autenticação): um proxy exige
+    `OLLAMA_TOKEN` e libera só duas rotas. Testes: 534 → **552**.
 
 ### O que sobrou para depois
 - **Deploy**: `docs/deploy.md` está escrito (Oracle Always Free + Docker), mas o
@@ -276,4 +285,10 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
 - **Medir o robô com gente de verdade**: as travas foram calibradas contra
   `llama3.2:1b` numa máquina apertada. Vale reler os motivos de escalonamento
   depois de uns dias no ar — se quase tudo estiver caindo na fila, o modelo é
-  pequeno demais para o pouco que sobrou para ele.
+  pequeno demais para o pouco que sobrou para ele. A comparação 1B × 3B já está
+  pronta para rodar no notebook do Colab (decisão 31.1).
+- **Onde o modelo vai morar de verdade**: o Colab resolve o teste, não a
+  produção (sessão que cai, endereço que muda, e a fala do devedor saindo da
+  empresa). Se o 3B provar valer a pena, a decisão seguinte é uma máquina com
+  GPU dentro da rede — ou aceitar o 1B local, que já atende o pouco que sobrou
+  para o robô.

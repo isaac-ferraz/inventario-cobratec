@@ -258,6 +258,28 @@ depois de a pessoa esperar.
 prompt: `lib/chat-bot.ts` barra o assunto na entrada e confere o texto na saída.
 Robô que fala de dívida é o da decisão 28, e esse precisa do Siscobra.
 
+#### Se a máquina não aguentar: modelo no Colab
+
+Quando a máquina do escritório engasga com o modelo, dá para rodá-lo numa GPU do
+Google Colab e apontar o inventário para lá:
+[`colab/ollama-colab.ipynb`](./colab/ollama-colab.ipynb) (abra pelo
+[Colab](https://colab.research.google.com/) → *Upload*, escolha **T4 GPU** e rode
+as células em ordem — ele imprime as três linhas prontas para o `.env`).
+
+**Isto é caminho de teste, não de produção.** O modelo fora da rede significa
+que a mensagem do devedor **sai da empresa**, que é justamente o que a decisão
+31 recusou. Serve para medir modelo e afinar a triagem com falas inventadas; com
+devedor real, o modelo mora numa máquina sua. A tela **Conexão** avisa em
+vermelho enquanto o robô estiver fora da rede — se esse aviso aparecer em
+produção, alguém esqueceu o `.env` apontado para o Colab.
+
+O notebook fecha a porta que o Ollama deixa aberta: ele não expõe o Ollama
+direto (que não tem autenticação nenhuma), e sim um proxy que exige
+`OLLAMA_TOKEN` e libera só duas rotas. Some com a sessão do Colab: o endereço
+**muda a cada execução**, a sessão cai depois de ~90 min ociosa e tem teto de
+~12h. Quando cair, ou você atualiza as três variáveis, ou apaga `OLLAMA_URL` e o
+atendimento volta inteiro para a fila da operadora — sem quebrar nada.
+
 ### Quando o chatbot entrar
 
 Preencha `CHAT_ENVIO_URL` (fluxo 2 do n8n) e aponte `WAHA_HOOK_URL` para o

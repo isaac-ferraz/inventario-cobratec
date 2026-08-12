@@ -40,7 +40,7 @@ type Estado = {
   pendencias: string[];
   sessao: Sessao | null;
   webhookUrl: string | null;
-  robo: { ligado: boolean; modelo: string | null };
+  robo: { ligado: boolean; modelo: string | null; local: boolean };
   erro: string | null;
 };
 
@@ -271,12 +271,30 @@ export function PainelConexao() {
                 <>
                   <p className="text-xs text-muted-foreground">
                     <span className="tom-ok rounded px-1.5 py-0.5">
-                      Um robô local recebe e tria
+                      Um robô recebe e tria
                     </span>{" "}
-                    (modelo <code>{estado.robo.modelo}</code>, rodando nesta
-                    rede). Ele responde saudação e passa para a fila assim que o
-                    assunto for a dívida.
+                    (modelo <code>{estado.robo.modelo}</code>). Ele responde
+                    saudação e passa para a fila assim que o assunto for a
+                    dívida.
                   </p>
+                  {estado.robo.local ? (
+                    <p className="text-xs text-muted-foreground">
+                      Roda <strong>nesta rede</strong>: nenhuma conversa sai da
+                      empresa.
+                    </p>
+                  ) : (
+                    <p className="text-xs">
+                      <span className="tom-alerta rounded px-1.5 py-0.5">
+                        O modelo está fora da rede
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        — a mensagem do devedor sai da empresa para ser
+                        respondida. É o modo de teste (Colab). Não use com
+                        devedor real: para valer, aponte{" "}
+                        <code>OLLAMA_URL</code> para um modelo dentro da rede.
+                      </span>
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Ele não tem acesso a dado nenhum: nunca fala de valor, acordo
                     ou pagamento — isso é garantido por código, não pelo texto

@@ -9,7 +9,7 @@ import {
   statusSessao,
   type SessaoWaha,
 } from "@/lib/waha";
-import { configBot } from "@/lib/chat-bot";
+import { configBot, ehLocal } from "@/lib/chat-bot";
 
 // Conexão do número de WhatsApp — parear, conferir e desligar.
 //
@@ -34,15 +34,21 @@ type Estado = {
    * onde está a configuração.
    *
    * Só o nome do modelo — o endereço do Ollama é infraestrutura e não ajuda
-   * quem olha a tela.
+   * quem olha a tela. `local` é a exceção: com o modelo fora da rede (Colab,
+   * decisão 31.1) a fala do devedor sai da empresa, e isso é grande demais para
+   * ficar escondido num arquivo de configuração.
    */
-  robo: { ligado: boolean; modelo: string | null };
+  robo: { ligado: boolean; modelo: string | null; local: boolean };
   erro: string | null;
 };
 
 function estadoDoRobo(): Estado["robo"] {
   const cfg = configBot();
-  return { ligado: !!cfg, modelo: cfg?.modelo ?? null };
+  return {
+    ligado: !!cfg,
+    modelo: cfg?.modelo ?? null,
+    local: cfg ? ehLocal(cfg.url) : true,
+  };
 }
 
 function pendenciasDe(temWaha: boolean): string[] {
@@ -67,7 +73,7 @@ export async function GET(req: Request): Promise<NextResponse> {
       sessao: null,
       webhookUrl: null,
       // Com o n8n no meio, quem responde é o robô dele — o local não opera.
-      robo: { ligado: false, modelo: null },
+      robo: { ligado: false, modelo: null, local: true },
       erro: null,
     });
   }

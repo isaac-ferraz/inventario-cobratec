@@ -17,7 +17,12 @@
 // Em cobrança o preço de um número inventado não é constrangimento: é o CDC
 // (art. 42), é contestação, é a empresa presa a uma promessa que não fez.
 
-export type ConfigBot = { url: string; modelo: string };
+export type ConfigBot = {
+  url: string;
+  modelo: string;
+  /** Segredo do proxy quando o modelo está fora da rede (Colab). */
+  token: string | null;
+};
 
 // 3B em CPU responde em segundos, mas "segundos" varia com a máquina ocupada.
 // O teto existe para o webhook não ficar pendurado: estourou, a conversa vai
@@ -28,7 +33,50 @@ const TIMEOUT_MS = 45_000;
 export function configBot(): ConfigBot | null {
   const url = (process.env.OLLAMA_URL ?? "").trim().replace(/\/+$/, "");
   if (!url) return null;
-  return { url, modelo: process.env.OLLAMA_MODELO?.trim() || "llama3.2" };
+  return {
+    url,
+    modelo: process.env.OLLAMA_MODELO?.trim() || "llama3.2",
+    token: process.env.OLLAMA_TOKEN?.trim() || null,
+  };
+}
+
+/**
+ * O modelo está dentro da rede da empresa?
+ *
+ * Existe por causa do caminho do Colab (decisão 31.1): apontar `OLLAMA_URL`
+ * para um túnel público muda o que acontece com a fala do devedor — ela passa a
+ * sair da empresa. Isso não pode ser invisível na tela do TI, e a tela não pode
+ * afirmar "roda nesta rede" só porque existe robô ligado.
+ *
+ * Endereço que a internet não alcança conta como local: loopback, faixas
+ * privadas, `host.docker.internal` e nome de container (sem ponto). O resto é
+ * fora — inclusive um IP público da própria empresa, e está certo assim: quem
+ * expôs o Ollama na internet tomou a mesma decisão de quem usa o Colab.
+ */
+export function ehLocal(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return false; // URL que nem parseia não vai ser chamada de segura.
+  }
+
+  if (host === "localhost" || host === "::1" || host.endsWith(".localhost")) return true;
+  if (host === "host.docker.internal" || host.endsWith(".local")) return true;
+  // Nome de container/host da LAN: `cobratec-waha`, `servidor-ti`.
+  if (!host.includes(".") && !host.includes(":")) return true;
+
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    if (a === 127 || a === 10) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+
+  return false;
 }
 
 // O prompt é curto por MEDIDA, não por gosto.
@@ -250,7 +298,14 @@ export async function pensar(
   try {
     const res = await fetch(`${cfg.url}/api/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        // O Ollama não tem autenticação nenhuma. Enquanto ele mora na LAN isso
+        // é aceitável; num túnel público seria um modelo aberto ao mundo. Quem
+        // fecha a porta é o proxy do notebook (decisão 31.1), e este cabeçalho
+        // é o que ele confere.
+        ...(cfg.token ? { authorization: `Bearer ${cfg.token}` } : {}),
+      },
       body: JSON.stringify({
         model: cfg.modelo,
         messages: mensagens,

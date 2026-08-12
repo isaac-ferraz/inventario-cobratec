@@ -391,6 +391,16 @@ nunca em silêncio**. O robô fala **por último** (grava → fila pisca → pen
 tira conversa de quem já assumiu. Continua **sem Siscobra**: é o degrau entre
 "ninguém responde" e o chatbot da decisão 28. Regras puras em `lib/chat-bot.ts`.
 
+**Modelo no Colab (decisão 31.1):** quando a máquina não aguenta o modelo, o
+notebook [`docs/conversas/colab/`](./docs/conversas/colab/ollama-colab.ipynb)
+sobe o Ollama numa GPU do Colab, **mede** as falas típicas contra o teto de 45s
+e imprime as linhas do `.env`. É **caminho de teste**: modelo fora da rede
+significa que a fala do devedor sai da empresa, que é o que a decisão 31
+recusou. O desenho não impede, mas não deixa invisível — `ehLocal()` decide se o
+endereço é alcançável da internet (na dúvida responde "fora") e a tela
+`/chat → Conexão` avisa em vermelho. O túnel não expõe o Ollama direto, que não
+tem autenticação nenhuma: um proxy exige `OLLAMA_TOKEN` e libera só duas rotas.
+
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
   `exceljs` não cria gráficos nativos na escrita (decisão 6).

@@ -1525,3 +1525,53 @@ não protege nada: o `beforeEach` de `tests/api/chat-waha.test.ts` passa a apaga
 a variável explicitamente, como já fazia com `CHAT_ENVIO_URL`.
 
 Testes: 490 → **534**.
+
+### 31.1 — O modelo no Colab, e por que ele não vira produção
+
+**Contexto:** a máquina que roda o inventário é a mesma que roda o modelo, e ela
+é apertada — foi ela que produziu os 263s de uma resposta sob pressão de
+memória. O Colab dá uma GPU T4 de graça, e um 3B nela responde em menos de um
+segundo. A tentação é óbvia.
+
+O notebook está em [`conversas/colab/`](./conversas/colab/ollama-colab.ipynb) e
+faz o caminho inteiro: sobe o Ollama com GPU, **mede** as falas típicas contra o
+teto de 45s do webhook, abre um túnel e imprime as três linhas prontas para o
+`.env`.
+
+**E ele é de teste, de propósito.** A decisão 31 escolheu rodar local por um
+motivo que não muda com a velocidade: a fala do devedor não sai da empresa.
+Apontar `OLLAMA_URL` para um túnel manda a mensagem para uma VM do Google — o
+mesmo tratamento de dado pessoal de terceiro que a decisão recusou. Some a isso
+o que o Colab é: sessão que cai em ~90 min ociosa, teto de ~12h, endereço novo a
+cada execução e nenhuma promessa de servir tráfego. Nada disso é defeito do
+notebook; é o que ele é.
+
+Então o desenho não tenta impedir — tenta **não deixar a escolha invisível**:
+
+- `ehLocal()` decide se o endereço é alcançável da internet, e a tela
+  `/chat → Conexão` **avisa em vermelho** quando o modelo está fora da rede. A
+  versão anterior do card dizia "rodando nesta rede" em texto fixo — que viraria
+  mentira no primeiro `.env` apontado para o Colab, exatamente o defeito que a
+  decisão 31 tinha acabado de corrigir na frase vizinha.
+- Na dúvida, `ehLocal` responde "fora": URL que nem parseia não é chamada de
+  segura, e um IP público da própria empresa conta como fora — quem expôs o
+  Ollama na internet tomou a mesma decisão de quem usa o Colab.
+
+**A porta que o Ollama deixa aberta.** Ele não tem autenticação nenhuma; na LAN
+isso passa, num túnel público seria um modelo aberto para quem achasse o
+endereço — e endereço não é segredo. Por isso quem atende o túnel é um proxy de
+vinte linhas que exige `Bearer` (`OLLAMA_TOKEN`, novo) e libera **duas rotas**:
+conversar e listar modelos. Lista de permissão, não de bloqueio — rota nova do
+Ollama nasce fechada, e um `DELETE /api/delete` vindo da internet não apaga o
+modelo no meio do atendimento. Proxy recusando o token é falha como outra
+qualquer: **escala**, não silencia.
+
+**O que o notebook mede, e por que isso importa mais que a velocidade.** A
+pendência aberta na decisão 31 era saber se o modelo pequeno consegue triar o
+pouco que sobrou para ele. A célula de medição roda as falas típicas e compara
+com o teto de 45s — porque resposta acima do teto é conversa que a operadora vai
+atender de qualquer jeito, só que depois de a pessoa esperar. Se o 3B com GPU
+não triar visivelmente melhor que o 1B local, a resposta certa é ficar com o
+1B: a dependência de um túnel não se paga.
+
+Testes: 534 → **552**.
