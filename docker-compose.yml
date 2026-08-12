@@ -50,6 +50,15 @@ services:
       OLLAMA_MODELO: "${OLLAMA_MODELO:-llama3.2:1b}"
       # Só quando o modelo mora fora da rede (Colab): segredo do proxy.
       OLLAMA_TOKEN: "${OLLAMA_TOKEN:-}"
+      # Siscobra (PostgreSQL do CRM), SOMENTE LEITURA — decisão 32. Sem estas
+      # variáveis o robô não identifica ninguém e toda conversa que encostar em
+      # valor vai para a operadora: falha segura, mas silenciosa. O usuário do
+      # banco deve ter GRANT SELECT apenas.
+      DB_HOST: "${DB_HOST:-}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_USER: "${DB_USER:-}"
+      DB_PASSWORD: "${DB_PASSWORD:-}"
+      DB_NAME: "${DB_NAME:-}"
     # Alcança serviços publicados na máquina hospedeira. Não é o caminho do
     # gateway (esse é pela rede, acima), mas destrava integrações que morem no
     # host — no Linux este nome não existe sem esta linha.

@@ -34,9 +34,17 @@
 -- ───────────────────────────────────────────────────────────────────────────
 -- 1) PALPITE por telefone — quem PODE ser este número.
 --
--- Serve para a saudação ("Falo com Maria?"), NUNCA para liberar valor: o
--- telefone pode ter trocado de dono. O resultado daqui vai para o inventário
--- como `siscobraDevcod` SEM `identificado: true`.
+-- ATENÇÃO, duas coisas descobertas rodando isto de verdade (12/08/2026):
+--
+-- 1. O JOIN ABAIXO ESTAVA ERRADO e nunca havia sido executado: `devedor` não
+--    tem `pescod`. Quem liga as duas é `pessoa`, pelo par (carcod, devcod). E
+--    `telefone` não tem `telnum` — o número vem partido em `teldddtel` +
+--    `teltel`. A versão corrigida está abaixo.
+--
+-- 2. O INVENTÁRIO NÃO USA ESTA CONSULTA, de propósito (decisão 32). Saudar
+--    "Olá, Maria!" antes de identificar confirma a quem herdou a linha que a
+--    Maria é devedora — vazamento pelo caminho mais banal, o da simpatia. Se
+--    for usá-la no n8n, saiba que está aceitando esse risco.
 -- ───────────────────────────────────────────────────────────────────────────
 -- $1 = telefone só com dígitos, sem o 55 (ex.: '12997654321')
 SELECT DISTINCT
@@ -45,10 +53,12 @@ SELECT DISTINCT
     ca.carnom                                   AS carteira,
     split_part(d.devnom, ' ', 1)                AS primeiro_nome
 FROM telefone t
-JOIN pessoa  p  ON p.pescod = t.pescod
-JOIN devedor d  ON d.pescod = p.pescod
+JOIN pessoa   p  ON p.pescod = t.pescod
+JOIN devedor  d  ON d.devcod = p.devcod AND d.carcod = p.carcod
 JOIN carteira ca ON ca.carcod = d.carcod
-WHERE regexp_replace(t.telnum::text, '\D', '', 'g') LIKE '%' || $1
+WHERE regexp_replace(
+        coalesce(t.teldddtel::text, '') || coalesce(t.teltel::text, ''),
+        '\D', '', 'g') LIKE '%' || $1
   AND d.devsalatu > 0
 LIMIT 5;
 

@@ -12,8 +12,8 @@
 //   • SOMENTE LEITURA. Nenhum INSERT/UPDATE/DELETE existe neste arquivo, e o
 //     usuário do banco deve ter apenas GRANT SELECT. Acordo fechado continua
 //     sendo gravado pela operadora no Siscobra — o robô não escreve no CRM.
-//   • CONSULTAS FIXAS. Quatro, parametrizadas, escritas aqui. Não existe
-//     caminho por onde SQL montada com texto do devedor chegue ao banco.
+//   • CONSULTAS FIXAS. Três, parametrizadas, escritas aqui. Não existe caminho
+//     por onde SQL montada com texto do devedor chegue ao banco.
 //   • NADA VAI PARA O MODELO. O que sai daqui alimenta os moldes de
 //     `chat-respostas.ts`. O modelo classifica intenção e nunca vê estes campos
 //     (decisão 32) — é o que mantém dado do devedor dentro da empresa mesmo com
@@ -21,7 +21,12 @@
 //
 // As armadilhas comentadas abaixo não são teoria: são colunas que existem, têm
 // nome convincente e estão erradas neste banco. Vieram de
-// `docs/conversas/siscobra.sql`, validado ao vivo em 21/07/2026.
+// `docs/conversas/siscobra.sql`.
+//
+// As três consultas foram RODADAS contra o Siscobra em 12/08/2026, com
+// parâmetros que não retornam ninguém — e foi assim que se descobriu que a
+// consulta de telefone daquele arquivo nunca havia sido executada (ver abaixo).
+// SQL que ninguém rodou é SQL que não funciona.
 import { Pool } from "pg";
 
 let pool: Pool | null = null;
@@ -78,42 +83,16 @@ export type RegraCarteiraDb = {
   descontoMaximoPercentual: number | null;
 };
 
-/**
- * Palpite por telefone: quem PODE ser este número.
- *
- * Serve só para a saudação ("Olá, Maria!"). **Nunca** para liberar valor — o
- * telefone troca de dono, e tratar palpite como identificação vazaria o dado de
- * uma pessoa para outra. Quem autoriza valor é `identificar`, com CPF e
- * nascimento.
- */
-export async function palpitePorTelefone(
-  telefone: string,
-): Promise<{ primeiroNome: string | null } | null> {
-  const db = conexao();
-  if (!db) return null;
-  const numero = telefone.replace(/\D/g, "").replace(/^55/, "");
-  if (numero.length < 8) return null;
-
-  try {
-    const r = await db.query<{ primeiro_nome: string | null }>(
-      `SELECT DISTINCT split_part(d.devnom, ' ', 1) AS primeiro_nome
-         FROM telefone t
-         JOIN pessoa   p ON p.pescod = t.pescod
-         JOIN devedor  d ON d.pescod = p.pescod
-        WHERE regexp_replace(t.telnum::text, '\\D', '', 'g') LIKE '%' || $1
-          AND d.devsalatu > 0
-        LIMIT 2`,
-      [numero],
-    );
-    // Dois cadastros diferentes para o mesmo telefone = não sei de quem é.
-    // Chamar a pessoa errada pelo nome é pior que não chamar por nome nenhum.
-    if (r.rowCount !== 1) return null;
-    return { primeiroNome: r.rows[0].primeiro_nome };
-  } catch (e) {
-    console.error("[siscobra] palpite:", (e as Error).message);
-    return null;
-  }
-}
+// ─── o que este arquivo NÃO tem, e é decisão ───
+//
+// Não existe consulta "quem é este telefone". A referência em
+// `docs/conversas/siscobra.sql` traz uma (para saudar por nome antes de
+// identificar), e ela ficou de fora: número troca de dono, e responder "Olá,
+// Maria!" a quem herdou a linha confirma a um estranho que a Maria é devedora.
+// É vazamento pelo caminho mais banal possível — o da simpatia.
+//
+// O nome continua sendo usado, no lugar em que ele é seguro: depois de CPF e
+// nascimento conferidos, quando já se sabe com quem se está falando.
 
 /**
  * A única consulta que autoriza falar de valores: CPF **e** nascimento.
