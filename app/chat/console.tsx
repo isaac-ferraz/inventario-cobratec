@@ -71,6 +71,7 @@ type ConversaDetalhe = ConversaLista & {
   siscobraCarcod: number | null;
   dossie: Record<string, unknown> | null;
   dossieEm: string | null;
+  oferta: string | null;
   encerradaEm: string | null;
   mensagens: Mensagem[];
 };
@@ -780,6 +781,8 @@ function Dossie({ conversa }: { conversa: ConversaDetalhe | null }) {
           </p>
         )}
 
+        <OfertaDoRobo bruta={conversa.oferta} />
+
         {conversa.siscobraDevcod && (
           <p className="text-[11px] text-muted-foreground">
             Siscobra: devedor {conversa.siscobraDevcod}
@@ -788,6 +791,56 @@ function Dossie({ conversa }: { conversa: ConversaDetalhe | null }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * O que o robô já prometeu ao devedor.
+ *
+ * Fica separado do dossiê porque não é dado do Siscobra: é um COMPROMISSO feito
+ * nesta conversa. Quem assume no meio de uma negociação precisa ler isto antes
+ * de falar — dois números diferentes para a mesma dívida, na mesma janela do
+ * WhatsApp, é contestação na certa.
+ */
+function OfertaDoRobo({ bruta }: { bruta: string | null }) {
+  if (!bruta) return null;
+
+  let o: {
+    parcelas?: number;
+    valorParcela?: number;
+    descontoPercentual?: number;
+    valorAVista?: number;
+    em?: string;
+  };
+  try {
+    o = JSON.parse(bruta);
+  } catch {
+    return null;
+  }
+
+  const dinheiro = (v?: number) =>
+    typeof v === "number"
+      ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+      : "—";
+
+  return (
+    <div className="tom-alerta rounded-md px-2.5 py-2 text-xs">
+      <p className="font-medium">O robô já ofereceu:</p>
+      <ul className="mt-1 space-y-0.5">
+        <li>
+          à vista {dinheiro(o.valorAVista)}
+          {o.descontoPercentual ? ` (${o.descontoPercentual}% de desconto)` : ""}
+        </li>
+        <li>
+          {o.parcelas}x de {dinheiro(o.valorParcela)}
+        </li>
+      </ul>
+      {o.em && (
+        <p className="mt-1 opacity-80">
+          em {new Date(o.em).toLocaleString("pt-BR")}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -817,11 +870,15 @@ function hora(iso: string): string {
 // de travar um formato aqui (o que obrigaria a mexer nesta tela a cada campo
 // novo), a tela renderiza o que vier e só embeleza os nomes que já conhece.
 const ROTULOS: Record<string, string> = {
+  nome: "Nome",
+  cpf: "CPF",
   saldo: "Saldo devedor",
   saldoDevedor: "Saldo devedor",
   carteira: "Carteira",
   vencidoDesde: "Vencido desde",
-  contratos: "Contratos",
+  contratos: "Contratos em aberto",
+  saldoContratos: "Soma dos contratos",
+  ultimoContato: "Último contato",
   maxParcelas: "Máx. parcelas",
   valorMinimoParcela: "Parcela mínima",
   descontoMaximoPercentual: "Desconto máximo",

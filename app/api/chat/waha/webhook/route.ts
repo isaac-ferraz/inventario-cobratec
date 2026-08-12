@@ -6,7 +6,7 @@ import { escalarConversa, registrarEntrada } from "@/lib/chat-registro";
 import { baixarMidia } from "@/lib/chat-midia";
 import { publicar } from "@/lib/chat-eventos";
 import { assuntoExigeGente, classificar, configBot } from "@/lib/chat-bot";
-import { decidir } from "@/lib/chat-fluxo";
+import { decidir, type OfertaFeita } from "@/lib/chat-fluxo";
 import { dossieDe, identificar, regraDaCarteira } from "@/lib/siscobra";
 import { enviarPeloGateway } from "@/lib/chat-envio";
 import { configWaha, diagnosticoDoEvento, mensagemDoEvento, urlDaMidia } from "@/lib/waha";
@@ -141,7 +141,7 @@ async function responderComRobo(
     select: {
       nome: true, siscobraDevcod: true, siscobraCarcod: true,
       identificadaEm: true, saldo: true, vencidoDesde: true,
-      cpfPendente: true, nascimentoPendente: true, ofertou: true,
+      cpfPendente: true, nascimentoPendente: true, oferta: true,
     },
   });
   if (!conversa) return;
@@ -166,7 +166,7 @@ async function responderComRobo(
       vencidoDesde: conversa.vencidoDesde,
       cpfPendente: conversa.cpfPendente,
       nascimentoPendente: conversa.nascimentoPendente,
-      ofertou: conversa.ofertou,
+      oferta: conversa.oferta ? (JSON.parse(conversa.oferta) as OfertaFeita) : null,
     },
     { identificar, regraDaCarteira },
   );
@@ -190,7 +190,16 @@ async function responderComRobo(
   }
 
   if (acao.estado) {
-    await prisma.conversa.update({ where: { id: conversaId }, data: acao.estado });
+    // `oferta` vai como JSON: o SQLite não tem coluna de objeto, e o mesmo
+    // padrão já vale para `dossie` e `Componente.especificacoes`.
+    const { oferta, ...resto } = acao.estado;
+    await prisma.conversa.update({
+      where: { id: conversaId },
+      data: {
+        ...resto,
+        ...(oferta !== undefined ? { oferta: oferta ? JSON.stringify(oferta) : null } : {}),
+      },
+    });
     // Identificou agora: o dossiê é buscado uma vez e congelado, para a
     // operadora ter o quadro ao assumir sem o app consultar o CRM a cada tela.
     if (acao.estado.devcod && acao.estado.carcod) {

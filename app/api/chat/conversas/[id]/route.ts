@@ -26,6 +26,7 @@ export async function GET(req: Request, { params }: Params) {
       siscobraCarcod: true,
       identificadaEm: true,
       dossie: true,
+      oferta: true,
       dossieEm: true,
       criadoEm: true,
       ultimaMensagemEm: true,

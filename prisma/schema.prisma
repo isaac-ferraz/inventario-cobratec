@@ -180,7 +180,13 @@ model Conversa {
   nascimentoPendente String? // AAAA-MM-DD, idem
   saldo              Float?
   vencidoDesde       String? // já formatado DD/MM/AAAA, como veio do Siscobra
-  ofertou            Boolean @default(false)
+  // A oferta que o robô colocou na mesa, como JSON (parcelas, valor, desconto).
+  //
+  // Era um booleano `ofertou`, e booleano não bastava: a operadora assume a
+  // conversa no meio de uma negociação e precisa saber O QUE foi prometido. Sem
+  // isso ela contradiz o robô na frente do devedor — que em cobrança é
+  // contestação, não constrangimento.
+  oferta             String?
 
   criadoEm         DateTime  @default(now())
   ultimaMensagemEm DateTime  @default(now())

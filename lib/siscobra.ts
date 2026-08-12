@@ -68,7 +68,18 @@ export type Identificacao = {
   vencidoDesde: string | null;
 };
 
+/**
+ * O quadro que a operadora tem à frente ao assumir a conversa.
+ *
+ * A ordem das chaves é a ordem em que a tela desenha, e ela segue o que a
+ * pessoa precisa PRIMEIRO: com quem estou falando, e sobre o quê. O CPF vem
+ * **mascarado** de propósito — serve para conferir com o devedor ("termina em
+ * 25?") sem duplicar um dado pessoal inteiro num segundo sistema. Quem precisa
+ * do cadastro completo abre pelo `devcod`, que também está aqui.
+ */
 export type Dossie = {
+  nome: string | null;
+  cpf: string | null;
   carteira: string;
   saldoDevedor: number;
   vencidoDesde: string | null;
@@ -159,7 +170,12 @@ export async function dossieDe(
   if (!db) return null;
   try {
     const r = await db.query(
-      `SELECT ca.carnom AS carteira,
+      `SELECT d.devnom AS nome,
+              -- Mascarado na CONSULTA, não na tela: assim o CPF inteiro nunca
+              -- chega a trafegar nem a ser gravado do lado do inventário.
+              left(lpad(d.devcpf::text, 11, '0'), 3) || '.***.***-'
+                || right(lpad(d.devcpf::text, 11, '0'), 2) AS cpf,
+              ca.carnom AS carteira,
               d.devsalatu AS saldo_devedor,
               CASE WHEN d.devvenmaisantigo >= DATE '2000-01-01'
                    THEN to_char(d.devvenmaisantigo, 'DD/MM/YYYY') END AS vencido_desde,
@@ -182,6 +198,8 @@ export async function dossieDe(
     const x = r.rows[0];
     if (!x) return null;
     return {
+      nome: x.nome ? String(x.nome) : null,
+      cpf: x.cpf ? String(x.cpf) : null,
       carteira: String(x.carteira ?? ""),
       saldoDevedor: Number(x.saldo_devedor ?? 0),
       vencidoDesde: x.vencido_desde ? String(x.vencido_desde) : null,

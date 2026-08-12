@@ -38,13 +38,26 @@ export type EstadoConversa = {
   /** CPF já recebido, esperando a data (ou o contrário). */
   cpfPendente: string | null;
   nascimentoPendente: string | null;
-  /** Já ofereceu? Muda o sentido de "aceita"/"recusa". */
-  ofertou: boolean;
+  /**
+   * O que o robô já colocou na mesa, ou `null`. Muda o sentido de
+   * "aceita"/"recusa" — e é o que a operadora precisa ler ao assumir, para não
+   * contradizer o que foi prometido.
+   */
+  oferta: OfertaFeita | null;
 };
 
 // Duas saídas, e só: falar ou chamar gente. A identificação não é uma terceira
 // porque, do ponto de vista de quem lê a conversa, ela também é uma fala — a
 // diferença é que ela carrega estado novo junto.
+export type OfertaFeita = {
+  parcelas: number;
+  valorParcela: number;
+  descontoPercentual: number;
+  valorAVista: number;
+  /** ISO — a proposta envelhece, e a operadora precisa saber de quando é. */
+  em: string;
+};
+
 export type Acao =
   | { tipo: "responder"; texto: string; estado?: Partial<EstadoConversa> }
   | { tipo: "escalar"; motivo: string; aviso?: string };
@@ -174,7 +187,7 @@ export async function decidir(
       return negociar(leitura, estado, fontes);
 
     case "aceita":
-      if (!estado.ofertou) {
+      if (!estado.oferta) {
         // "Pode ser" sem nada oferecido: concordou com o quê? Perguntar é
         // melhor que supor, e supor aqui viraria acordo que ninguém combinou.
         return { tipo: "escalar", motivo: "concordou sem proposta na mesa" };
@@ -254,7 +267,7 @@ async function negociar(
   return {
     tipo: "responder",
     texto: RESPOSTAS.oferta({ saldo, ...oferta }),
-    estado: { ofertou: true },
+    estado: { oferta: { ...oferta, em: new Date().toISOString() } },
   };
 }
 

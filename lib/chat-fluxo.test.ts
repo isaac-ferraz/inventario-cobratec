@@ -17,7 +17,7 @@ const NASC = "1985-04-12";
 const NOVO: EstadoConversa = {
   devcod: null, carcod: null, identificadaEm: null, nome: null,
   saldo: null, vencidoDesde: null,
-  cpfPendente: null, nascimentoPendente: null, ofertou: false,
+  cpfPendente: null, nascimentoPendente: null, oferta: null,
 };
 
 const IDENTIFICADA: EstadoConversa = {
@@ -147,7 +147,13 @@ describe("negociar só dentro da regra oficial", () => {
       expect(a.texto).toContain("6x");
       expect(a.texto).toContain(reais(206.67)); // 1240 / 6, arredondado p/ cima
       expect(a.texto).toContain(reais(868));    // 1240 - 30%
-      expect(a.estado?.ofertou).toBe(true);
+      // A oferta é GRAVADA, não só marcada: a operadora precisa ler o que foi
+      // prometido ao assumir, senão contradiz o robô na frente do devedor.
+      expect(a.estado?.oferta).toMatchObject({
+        parcelas: 6,
+        valorParcela: 206.67,
+        descontoPercentual: 30,
+      });
     }
   });
 
@@ -179,7 +185,17 @@ describe("negociar só dentro da regra oficial", () => {
 
   // Quem grava acordo no CRM é a operadora: o robô não escreve no Siscobra.
   it("aceite com proposta na mesa passa para gente registrar", async () => {
-    const a = await decidir(ler("aceita"), { ...IDENTIFICADA, ofertou: true }, fontes());
+    const a = await decidir(
+      ler("aceita"),
+      {
+        ...IDENTIFICADA,
+        oferta: {
+          parcelas: 6, valorParcela: 206.67, descontoPercentual: 30,
+          valorAVista: 868, em: new Date().toISOString(),
+        },
+      },
+      fontes(),
+    );
     expect(a.tipo).toBe("escalar");
     if (a.tipo === "escalar") {
       expect(a.motivo).toMatch(/aceitou/);
