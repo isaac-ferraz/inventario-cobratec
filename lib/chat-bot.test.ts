@@ -11,6 +11,7 @@ import {
   avaliarResposta,
   ehLocal,
   pensar,
+  PROMPT_SISTEMA,
 } from "@/lib/chat-bot";
 
 function resposta(texto: string, escalar = false) {
@@ -52,9 +53,39 @@ describe("o que nem chega a ser perguntado ao modelo", () => {
   it("saudação e pergunta inocente seguem para o robô", () => {
     expect(assuntoExigeGente("oi")).toBeNull();
     expect(assuntoExigeGente("bom dia, tudo bem?")).toBeNull();
-    expect(assuntoExigeGente("quem é vocês?")).toBeNull();
     expect(assuntoExigeGente("obrigado!")).toBeNull();
     expect(assuntoExigeGente("")).toBeNull();
+    // Continua com o robô: é a abertura mais comum e os dois modelos medidos
+    // respondem certo ("sou a recepcionista da Cobratec").
+    expect(assuntoExigeGente("quem fala?")).toBeNull();
+  });
+
+  // Esta linha já afirmou o contrário — "quem é vocês?" ficava com o robô. Foi
+  // a medição que virou: perguntado o que a empresa faz, o 3B respondeu
+  // "empresa de tecnologia" em 4 de 5 vezes e o 1B chegou a "um serviço de
+  // pagamento da Receita Federal". A empresa se apresentando como o que não é,
+  // para quem está sendo cobrado, é pior que a espera de uma operadora.
+  it("quem a empresa é não se responde de improviso", () => {
+    for (const fala of [
+      "quem é vocês?",
+      "quem são vocês?",
+      "quem sao vcs",
+      "o que voces fazem?",
+      "o que vocês fazem aí?",
+      "que empresa é essa?",
+      "o que é a cobratec?",
+      "qual o ramo de vocês?",
+      "do que se trata isso?",
+    ]) {
+      expect(assuntoExigeGente(fala)).toBe("pergunta sobre quem é a empresa");
+    }
+  });
+
+  // O fato entrou no prompt junto com a trava, para as frases que a regra não
+  // pega. Ele corrigiu o 3B (4/4 certas na medição) e não salvou o 1B — por
+  // isso a garantia é a regra acima, e o prompt é só o reforço.
+  it("o prompt diz o ramo da empresa", () => {
+    expect(PROMPT_SISTEMA).toMatch(/empresa de cobrança/i);
   });
 });
 

@@ -5,7 +5,9 @@ import { exigirServico } from "@/lib/autorizacao";
 import { escalarConversa, registrarEntrada } from "@/lib/chat-registro";
 import { baixarMidia } from "@/lib/chat-midia";
 import { publicar } from "@/lib/chat-eventos";
-import { assuntoExigeGente, configBot, pensar } from "@/lib/chat-bot";
+import { assuntoExigeGente, classificar, configBot } from "@/lib/chat-bot";
+import { decidir } from "@/lib/chat-fluxo";
+import { dossieDe, identificar, regraDaCarteira } from "@/lib/siscobra";
 import { enviarPeloGateway } from "@/lib/chat-envio";
 import { configWaha, diagnosticoDoEvento, mensagemDoEvento, urlDaMidia } from "@/lib/waha";
 
@@ -104,12 +106,17 @@ export async function POST(req: Request): Promise<NextResponse> {
 }
 
 /**
- * O robô lê a conversa, decide e responde — ou desiste e chama gente.
+ * O robô atende: classifica a intenção, busca o dado e responde por molde.
  *
- * Toda saída que não é "respondeu" termina em ESCALAR, nunca em silêncio: modelo
- * fora do ar, resposta fora de formato, tentativa de falar de valor e falha no
- * envio dão todas no mesmo lugar — a conversa na fila, com o motivo escrito. Um
- * devedor esperando um robô que travou é o defeito que ninguém vê acontecer.
+ * A decisão 32 mudou o que "responder" significa aqui. O modelo não escreve
+ * mais nada que o devedor leia — ele devolve um rótulo, `lib/chat-fluxo.ts`
+ * decide, e o texto sai de `lib/chat-respostas.ts` preenchido com campo do
+ * Siscobra. Por isso o robô pode conduzir vários turnos sem que o risco cresça
+ * a cada um: não há turno redigido por modelo.
+ *
+ * Toda saída que não é "respondeu" termina em ESCALAR, nunca em silêncio —
+ * modelo fora do ar, banco fora do ar, rótulo desconhecido e falha de envio dão
+ * todos no mesmo lugar: a conversa na fila, com o motivo escrito.
  */
 async function responderComRobo(
   conversaId: string,
@@ -119,15 +126,25 @@ async function responderComRobo(
   const cfg = configBot();
   if (!cfg) return;
 
-  // Antes de gastar inferência: o assunto é de gente? Dívida, pagamento,
-  // advogado e dado pessoal saem daqui direto para a fila, sem o modelo opinar.
-  // É a trava de entrada — ver `assuntoExigeGente` para o que a levou a existir.
+  // A trava de entrada continua, e agora é a primeira de três. Ela pega por
+  // palavra o que nunca deve chegar ao modelo; a segunda é o rótulo devolvido
+  // (`exigeGente`); a terceira é o fluxo não ter molde para o caso.
   const exige = assuntoExigeGente(ultimaFala);
   if (exige) {
     await escalarConversa(conversaId, exige);
     publicar({ tipo: "mensagem", conversaId });
     return;
   }
+
+  const conversa = await prisma.conversa.findUnique({
+    where: { id: conversaId },
+    select: {
+      nome: true, siscobraDevcod: true, siscobraCarcod: true,
+      identificadaEm: true, saldo: true, vencidoDesde: true,
+      cpfPendente: true, nascimentoPendente: true, ofertou: true,
+    },
+  });
+  if (!conversa) return;
 
   const historico = await prisma.conversaMensagem.findMany({
     where: { conversaId, autor: { in: ["devedor", "bot"] } },
@@ -136,32 +153,84 @@ async function responderComRobo(
     take: 20,
   });
 
-  const decisao = await pensar(cfg, historico);
+  const leitura = await classificar(cfg, historico, ultimaFala);
 
-  if (!decisao.responder) {
-    await escalarConversa(conversaId, decisao.motivo);
+  const acao = await decidir(
+    leitura,
+    {
+      devcod: conversa.siscobraDevcod,
+      carcod: conversa.siscobraCarcod,
+      identificadaEm: conversa.identificadaEm,
+      nome: conversa.nome,
+      saldo: conversa.saldo,
+      vencidoDesde: conversa.vencidoDesde,
+      cpfPendente: conversa.cpfPendente,
+      nascimentoPendente: conversa.nascimentoPendente,
+      ofertou: conversa.ofertou,
+    },
+    { identificar, regraDaCarteira },
+  );
+
+  if (acao.tipo === "escalar") {
+    // O aviso é o que mudou para melhor na experiência: antes a conversa
+    // simplesmente parava de responder e ia para a fila. Silêncio depois de uma
+    // pergunta é onde o devedor desiste — ele não sabe se foi ouvido.
+    if (acao.aviso) await falar(conversaId, telefone, acao.aviso);
+    await escalarConversa(conversaId, acao.motivo);
     publicar({ tipo: "mensagem", conversaId });
-    console.info("[chat/bot] escalou —", decisao.motivo);
+    console.info("[chat/bot] escalou —", acao.motivo);
     return;
   }
 
-  // Mesma ordem da resposta da operadora (decisão 28): entrega primeiro, grava
-  // depois. Mensagem fantasma na thread é pior que mensagem repetida — e aqui
-  // seria pior ainda, porque ninguém escreveu aquilo à mão para lembrar.
-  const entrega = await enviarPeloGateway(telefone, decisao.texto);
-  if (!entrega.ok) {
+  const entregou = await falar(conversaId, telefone, acao.texto);
+  if (!entregou) {
     await escalarConversa(conversaId, "falha ao entregar a resposta do robô");
     publicar({ tipo: "mensagem", conversaId });
     return;
   }
 
+  if (acao.estado) {
+    await prisma.conversa.update({ where: { id: conversaId }, data: acao.estado });
+    // Identificou agora: o dossiê é buscado uma vez e congelado, para a
+    // operadora ter o quadro ao assumir sem o app consultar o CRM a cada tela.
+    if (acao.estado.devcod && acao.estado.carcod) {
+      const d = await dossieDe(acao.estado.devcod, acao.estado.carcod);
+      if (d) {
+        await prisma.conversa.update({
+          where: { id: conversaId },
+          data: {
+            carteira: d.carteira,
+            dossie: JSON.stringify(d),
+            dossieEm: new Date(),
+          },
+        });
+      }
+    }
+  }
+  publicar({ tipo: "mensagem", conversaId });
+}
+
+/**
+ * Entrega e grava, nessa ordem (decisão 28).
+ *
+ * Mensagem fantasma na thread é pior que mensagem repetida — e aqui seria pior
+ * ainda, porque ninguém escreveu aquilo à mão para lembrar.
+ */
+async function falar(
+  conversaId: string,
+  telefone: string,
+  texto: string,
+): Promise<boolean> {
+  const entrega = await enviarPeloGateway(telefone, texto);
+  if (!entrega.ok) return false;
   await registrarEntrada({
     telefone,
     autor: "bot",
-    corpo: decisao.texto,
+    corpo: texto,
     waId: entrega.waId,
   });
   publicar({ tipo: "mensagem", conversaId });
+  return true;
 }
 
 async function guardarAnexo(

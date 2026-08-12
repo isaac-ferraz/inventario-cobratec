@@ -166,6 +166,22 @@ model Conversa {
   dossie   String?
   dossieEm DateTime?
 
+  // ── memória do robô entre uma mensagem e a seguinte (decisão 32) ──
+  //
+  // Sem isto o robô recomeçaria a cada fala: pediria CPF de novo depois de já
+  // ter recebido, e ofereceria o acordo outra vez para quem acabou de recusar.
+  // É o que torna a conversa uma conversa, e não um formulário reiniciado.
+  //
+  // `saldo`/`vencidoDesde` ficam CONGELADOS na identificação de propósito: a
+  // resposta que o devedor leu não pode mudar no meio da conversa porque uma
+  // baixa entrou no CRM entre duas mensagens — o que ele viu foi o que valia,
+  // e é isso que a operadora precisa enxergar ao assumir.
+  cpfPendente        String? // só dígitos, apagado assim que a identificação fecha
+  nascimentoPendente String? // AAAA-MM-DD, idem
+  saldo              Float?
+  vencidoDesde       String? // já formatado DD/MM/AAAA, como veio do Siscobra
+  ofertou            Boolean @default(false)
+
   criadoEm         DateTime  @default(now())
   ultimaMensagemEm DateTime  @default(now())
   encerradaEm      DateTime?

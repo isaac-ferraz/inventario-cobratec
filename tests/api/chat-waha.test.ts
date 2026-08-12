@@ -315,11 +315,10 @@ describe("anexo do devedor", () => {
   });
 });
 
-describe("robô local (Ollama) no modo direto", () => {
+describe("robô local no modo direto", () => {
   const OLLAMA = "http://ollama-de-teste:11434";
   // Fala INOCENTE de propósito: o `FALA` do resto do arquivo fala em dívida, e
-  // agora isso é escalado antes de o modelo abrir a boca (`assuntoExigeGente`).
-  // Para exercitar o robô é preciso um assunto que ele possa mesmo atender.
+  // isso é escalado antes de o modelo abrir a boca (`assuntoExigeGente`).
   const OLA = { ...FALA, body: "oi, tudo bem?" };
 
   beforeEach(() => {
@@ -332,18 +331,15 @@ describe("robô local (Ollama) no modo direto", () => {
     delete process.env.OLLAMA_MODELO;
   });
 
-  // Encaminha cada chamada para o destino certo: o modelo devolve o JSON, o
-  // gateway confirma o envio.
-  function simular(respostaDoModelo: unknown, gatewayOk = true) {
+  // O modelo devolve só a INTENÇÃO (decisão 32) — nunca texto para o devedor.
+  function simular(intencao: unknown, gatewayOk = true) {
     const chamadas: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const u = String(url);
       chamadas.push(u);
       if (u.startsWith(OLLAMA)) {
         return new Response(
-          JSON.stringify({
-            message: { content: JSON.stringify(respostaDoModelo) },
-          }),
+          JSON.stringify({ message: { content: JSON.stringify(intencao) } }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
@@ -354,8 +350,8 @@ describe("robô local (Ollama) no modo direto", () => {
     return chamadas;
   }
 
-  it("com robô ligado, a conversa fica COM ELE e a resposta sai", async () => {
-    const chamadas = simular({ resposta: "Olá! Como posso ajudar?", escalar: false });
+  it("com robô ligado, a conversa fica COM ELE e a saudação sai de molde", async () => {
+    const chamadas = simular({ intencao: "saudacao" });
 
     const { corpo } = await entregar(eventoDe(OLA));
     expect(corpo.situacao).toBe("bot");
@@ -367,34 +363,33 @@ describe("robô local (Ollama) no modo direto", () => {
       orderBy: { criadoEm: "asc" },
     });
     expect(falas.map((m) => m.autor)).toEqual(["devedor", "bot"]);
-    expect(falas[1].corpo).toBe("Olá! Como posso ajudar?");
+    // O texto é o molde de lib/chat-respostas.ts, não algo que o modelo escreveu.
+    expect(falas[1].corpo).toContain("Cobratec");
     expect(falas[1].waId).toBe("true_wa_bot");
   });
 
-  // A trava do domínio, agora ponta a ponta: o modelo diz que não é para
-  // escalar e inventa um valor. Nada disso pode chegar ao devedor.
-  it("valor inventado NÃO é enviado — a conversa vai para a fila", async () => {
-    const chamadas = simular({
+  // A garantia da decisão 32, no nível da rota: mesmo que o modelo devolva um
+  // valor inventado num campo qualquer, ele não tem por onde chegar ao devedor
+  // — o texto vem de molde e o campo é simplesmente ignorado.
+  it("texto do modelo NUNCA chega ao devedor", async () => {
+    simular({
+      intencao: "saudacao",
       resposta: "Seu débito é R$ 1.240,00 e consigo 50% de desconto.",
-      escalar: false,
     });
 
     await entregar(eventoDe(OLA));
 
-    expect(chamadas.some((c) => c === `${GATEWAY}/api/sendText`)).toBe(false);
-    const conversa = await prisma.conversa.findFirst();
-    expect(conversa?.situacao).toBe("fila");
-    expect(conversa?.motivoEscalonamento).toMatch(/valor/);
-    expect(await prisma.conversaMensagem.count({ where: { autor: "bot" } })).toBe(0);
+    const bot = await prisma.conversaMensagem.findFirst({ where: { autor: "bot" } });
+    expect(bot?.corpo).not.toMatch(/1\.240|desconto|50%/);
   });
 
-  it("robô que pede ajuda humana escala com o motivo dele", async () => {
-    simular({ resposta: "Vou chamar uma atendente.", escalar: true, motivo: "quer negociar" });
+  it("rótulo desconhecido vira 'outro', e 'outro' é gente", async () => {
+    simular({ intencao: "conceder_perdao_total" });
     await entregar(eventoDe(OLA));
 
     const conversa = await prisma.conversa.findFirst();
     expect(conversa?.situacao).toBe("fila");
-    expect(conversa?.motivoEscalonamento).toBe("quer negociar");
+    expect(conversa?.motivoEscalonamento).toMatch(/fora do que o robô atende/);
   });
 
   // Modelo fora do ar não pode virar devedor esquecido numa conversa muda.
@@ -408,13 +403,12 @@ describe("robô local (Ollama) no modo direto", () => {
     expect(status).toBe(200);
     const conversa = await prisma.conversa.findFirst();
     expect(conversa?.situacao).toBe("fila");
-    expect(conversa?.motivoEscalonamento).toMatch(/fora do ar/);
   });
 
   // Entrega primeiro, grava depois: se o WhatsApp recusou, a fala do robô não
   // pode aparecer na thread como se tivesse sido entregue.
   it("gateway recusando o envio não grava a fala do robô", async () => {
-    simular({ resposta: "Olá! Como posso ajudar?", escalar: false }, false);
+    simular({ intencao: "saudacao" }, false);
     await entregar(eventoDe(OLA));
 
     expect(await prisma.conversaMensagem.count({ where: { autor: "bot" } })).toBe(0);
@@ -422,9 +416,9 @@ describe("robô local (Ollama) no modo direto", () => {
     expect(conversa?.situacao).toBe("fila");
   });
 
-  // A regra mais importante da decisão 28, agora com um robô de verdade atrás.
+  // A regra mais importante da decisão 28, com um robô de verdade atrás.
   it("o robô CALA quando uma operadora já assumiu", async () => {
-    simular({ resposta: "Olá!", escalar: false });
+    simular({ intencao: "saudacao" });
     await entregar(eventoDe(OLA));
     const c = await prisma.conversa.findFirst();
     await prisma.conversa.update({
@@ -432,24 +426,20 @@ describe("robô local (Ollama) no modo direto", () => {
       data: { situacao: "humana", responsavelId: cobranca.id },
     });
 
-    const chamadas = simular({ resposta: "Oi de novo!", escalar: false });
-    await entregar(
-      eventoDe({ ...OLA, id: "false_x_2", body: "tem alguém aí?" }),
-    );
+    const chamadas = simular({ intencao: "saudacao" });
+    await entregar(eventoDe({ ...OLA, id: "false_x_2", body: "tem alguém aí?" }));
 
     expect(chamadas.some((c) => c.startsWith(`${OLLAMA}/api/chat`))).toBe(false);
     const depois = await prisma.conversa.findUnique({ where: { id: c!.id } });
     expect(depois?.situacao).toBe("humana");
   });
 
-  // A trava de entrada: assunto grave não paga inferência nem depende de o
+  // A trava de ENTRADA: assunto grave não paga inferência nem depende de o
   // modelo ter acertado hoje.
   it("assunto de dívida vai para a fila SEM consultar o modelo", async () => {
-    const chamadas = simular({ resposta: "não deveria ser usada", escalar: false });
+    const chamadas = simular({ intencao: "saudacao" });
 
-    await entregar(
-      eventoDe({ ...FALA, body: "quanto eu devo? quero negociar" }),
-    );
+    await entregar(eventoDe({ ...FALA, body: "quanto eu devo? quero negociar" }));
 
     expect(chamadas.some((c) => c.startsWith(OLLAMA))).toBe(false);
     const conversa = await prisma.conversa.findFirst();
@@ -458,7 +448,7 @@ describe("robô local (Ollama) no modo direto", () => {
   });
 
   it("quem diz que já pagou fala com gente, não com o robô", async () => {
-    const chamadas = simular({ resposta: "não deveria ser usada", escalar: false });
+    const chamadas = simular({ intencao: "saudacao" });
     await entregar(eventoDe({ ...FALA, body: "já paguei isso mês passado" }));
 
     expect(chamadas.some((c) => c.startsWith(OLLAMA))).toBe(false);
@@ -471,6 +461,7 @@ describe("robô local (Ollama) no modo direto", () => {
     expect(corpo.situacao).toBe("fila");
   });
 });
+
 
 describe("canal ao vivo", () => {
   it("mensagem nova acende a fila de quem está olhando", async () => {

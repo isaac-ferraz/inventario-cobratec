@@ -1,0 +1,262 @@
+// Leitura do Siscobra (PostgreSQL do CRM) — a única porta do inventário para lá.
+//
+// ─────────────────────── isto reverte a decisão 28 ───────────────────────
+//
+// A decisão 28 dizia, com todas as letras: "o inventário NÃO abre conexão com o
+// Siscobra". O dossiê chegava empurrado pelo n8n. Aquele desenho supunha o n8n
+// como chatbot; sem ele, a alternativa era o robô não ter dado nenhum — que é
+// exatamente o que o fez inventar (decisão 31.2). Ver ADR 32.
+//
+// A fronteira não sumiu; mudou de lugar e ficou mais estreita:
+//
+//   • SOMENTE LEITURA. Nenhum INSERT/UPDATE/DELETE existe neste arquivo, e o
+//     usuário do banco deve ter apenas GRANT SELECT. Acordo fechado continua
+//     sendo gravado pela operadora no Siscobra — o robô não escreve no CRM.
+//   • CONSULTAS FIXAS. Quatro, parametrizadas, escritas aqui. Não existe
+//     caminho por onde SQL montada com texto do devedor chegue ao banco.
+//   • NADA VAI PARA O MODELO. O que sai daqui alimenta os moldes de
+//     `chat-respostas.ts`. O modelo classifica intenção e nunca vê estes campos
+//     (decisão 32) — é o que mantém dado do devedor dentro da empresa mesmo com
+//     o modelo rodando fora dela.
+//
+// As armadilhas comentadas abaixo não são teoria: são colunas que existem, têm
+// nome convincente e estão erradas neste banco. Vieram de
+// `docs/conversas/siscobra.sql`, validado ao vivo em 21/07/2026.
+import { Pool } from "pg";
+
+let pool: Pool | null = null;
+
+export function configSiscobra(): boolean {
+  return !!(process.env.DB_HOST && process.env.DB_USER && process.env.DB_NAME);
+}
+
+function conexao(): Pool | null {
+  if (!configSiscobra()) return null;
+  if (!pool) {
+    pool = new Pool({
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT ?? 5432),
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      // Poucas conexões: o CRM é de produção e atende gente trabalhando. O
+      // chatbot é visita, não morador.
+      max: 4,
+      idleTimeoutMillis: 30_000,
+      // Consulta que demora mais que isto não serve para uma conversa de
+      // WhatsApp — melhor escalar do que segurar o devedor esperando.
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+    });
+    pool.on("error", (e) => console.error("[siscobra] pool:", e.message));
+  }
+  return pool;
+}
+
+export type Identificacao = {
+  devcod: number;
+  carcod: number;
+  carteira: string;
+  primeiroNome: string | null;
+  cpfMascarado: string;
+  saldo: number;
+  vencidoDesde: string | null;
+};
+
+export type Dossie = {
+  carteira: string;
+  saldoDevedor: number;
+  vencidoDesde: string | null;
+  contratos: number;
+  saldoContratos: number;
+  ultimoContato: string | null;
+};
+
+export type RegraCarteiraDb = {
+  maxParcelas: number | null;
+  valorMinimoParcela: number | null;
+  descontoMaximoPercentual: number | null;
+};
+
+/**
+ * Palpite por telefone: quem PODE ser este número.
+ *
+ * Serve só para a saudação ("Olá, Maria!"). **Nunca** para liberar valor — o
+ * telefone troca de dono, e tratar palpite como identificação vazaria o dado de
+ * uma pessoa para outra. Quem autoriza valor é `identificar`, com CPF e
+ * nascimento.
+ */
+export async function palpitePorTelefone(
+  telefone: string,
+): Promise<{ primeiroNome: string | null } | null> {
+  const db = conexao();
+  if (!db) return null;
+  const numero = telefone.replace(/\D/g, "").replace(/^55/, "");
+  if (numero.length < 8) return null;
+
+  try {
+    const r = await db.query<{ primeiro_nome: string | null }>(
+      `SELECT DISTINCT split_part(d.devnom, ' ', 1) AS primeiro_nome
+         FROM telefone t
+         JOIN pessoa   p ON p.pescod = t.pescod
+         JOIN devedor  d ON d.pescod = p.pescod
+        WHERE regexp_replace(t.telnum::text, '\\D', '', 'g') LIKE '%' || $1
+          AND d.devsalatu > 0
+        LIMIT 2`,
+      [numero],
+    );
+    // Dois cadastros diferentes para o mesmo telefone = não sei de quem é.
+    // Chamar a pessoa errada pelo nome é pior que não chamar por nome nenhum.
+    if (r.rowCount !== 1) return null;
+    return { primeiroNome: r.rows[0].primeiro_nome };
+  } catch (e) {
+    console.error("[siscobra] palpite:", (e as Error).message);
+    return null;
+  }
+}
+
+/**
+ * A única consulta que autoriza falar de valores: CPF **e** nascimento.
+ *
+ * Os dois juntos são anti-enumeração — com só o CPF, quem tivesse uma lista
+ * deles descobriria quem é devedor e quanto deve.
+ *
+ * Devolvendo mais de uma linha, são carteiras diferentes: o robô não escolhe
+ * uma, porque escolher errado é falar do contrato errado. Vai para gente.
+ */
+export async function identificar(
+  cpf: string,
+  nascimento: string,
+): Promise<{ achou: Identificacao[]; erro: boolean }> {
+  const db = conexao();
+  if (!db) return { achou: [], erro: true };
+
+  try {
+    const r = await db.query(
+      `SELECT d.devcod, d.carcod, ca.carnom AS carteira,
+              split_part(d.devnom, ' ', 1) AS primeiro_nome,
+              left(lpad(d.devcpf::text, 11, '0'), 3) || '.***.***-'
+                || right(lpad(d.devcpf::text, 11, '0'), 2) AS cpf_mascarado,
+              d.devsalatu AS saldo,
+              -- devvenmaisantigo é o vencimento REAL; contrato.convenmaisantigo
+              -- é sentinela '0001-01-01' e mentiria a data para o devedor.
+              CASE WHEN d.devvenmaisantigo >= DATE '2000-01-01'
+                   THEN to_char(d.devvenmaisantigo, 'DD/MM/YYYY') END AS vencido_desde
+         FROM devedor d
+         JOIN carteira ca ON ca.carcod = d.carcod
+        WHERE d.devcpf = regexp_replace($1, '\\D', '', 'g')::bigint
+          AND d.devdatnas = $2::date
+        ORDER BY d.carcod
+        LIMIT 10`,
+      [cpf, nascimento],
+    );
+
+    return {
+      erro: false,
+      achou: r.rows.map((x) => ({
+        devcod: Number(x.devcod),
+        carcod: Number(x.carcod),
+        carteira: String(x.carteira ?? ""),
+        primeiroNome: x.primeiro_nome ? String(x.primeiro_nome) : null,
+        cpfMascarado: String(x.cpf_mascarado ?? ""),
+        saldo: Number(x.saldo ?? 0),
+        vencidoDesde: x.vencido_desde ? String(x.vencido_desde) : null,
+      })),
+    };
+  } catch (e) {
+    // Log sem CPF e sem nascimento: log de servidor não é lugar de dado
+    // pessoal, e este é justamente o caminho por onde eles passam (decisão 30).
+    console.error("[siscobra] identificar:", (e as Error).message);
+    return { achou: [], erro: true };
+  }
+}
+
+/** O dossiê que a operadora vê ao lado da conversa. */
+export async function dossieDe(
+  devcod: number,
+  carcod: number,
+): Promise<Dossie | null> {
+  const db = conexao();
+  if (!db) return null;
+  try {
+    const r = await db.query(
+      `SELECT ca.carnom AS carteira,
+              d.devsalatu AS saldo_devedor,
+              CASE WHEN d.devvenmaisantigo >= DATE '2000-01-01'
+                   THEN to_char(d.devvenmaisantigo, 'DD/MM/YYYY') END AS vencido_desde,
+              -- conati = 0 é EM ABERTO (1 é quitado), e o saldo está em
+              -- convalsal: convalconatu/convalcon estão zerados neste banco e
+              -- fariam o robô dizer "você deve R$ 0,00".
+              (SELECT count(*) FROM contrato c
+                WHERE c.devcod = d.devcod AND c.conati = 0 AND c.convalsal > 0) AS contratos,
+              (SELECT coalesce(sum(c.convalsal), 0) FROM contrato c
+                WHERE c.devcod = d.devcod AND c.conati = 0 AND c.convalsal > 0) AS saldo_contratos,
+              -- Janela obrigatória: a tabela retorno tem 55M linhas.
+              (SELECT to_char(max(r2.retdatinc), 'DD/MM/YYYY') FROM retorno r2
+                WHERE r2.devcod = d.devcod
+                  AND r2.retdatinc > now() - interval '18 months') AS ultimo_contato
+         FROM devedor d
+         JOIN carteira ca ON ca.carcod = d.carcod
+        WHERE d.devcod = $1 AND d.carcod = $2`,
+      [devcod, carcod],
+    );
+    const x = r.rows[0];
+    if (!x) return null;
+    return {
+      carteira: String(x.carteira ?? ""),
+      saldoDevedor: Number(x.saldo_devedor ?? 0),
+      vencidoDesde: x.vencido_desde ? String(x.vencido_desde) : null,
+      contratos: Number(x.contratos ?? 0),
+      saldoContratos: Number(x.saldo_contratos ?? 0),
+      ultimoContato: x.ultimo_contato ? String(x.ultimo_contato) : null,
+    };
+  } catch (e) {
+    console.error("[siscobra] dossiê:", (e as Error).message);
+    return null;
+  }
+}
+
+/**
+ * A regra oficial de parcelamento da carteira — o documento que autoriza o robô
+ * a oferecer qualquer coisa.
+ *
+ * Carteira sem regra ativa devolve `null`, e aí o robô **não negocia**: escala.
+ * A maioria das carteiras não tem regra ativa; inventar condição para elas
+ * seria o pior erro possível deste sistema, porque cria obrigação para a
+ * empresa perante o devedor.
+ */
+export async function regraDaCarteira(
+  carcod: number,
+): Promise<RegraCarteiraDb | null> {
+  const db = conexao();
+  if (!db) return null;
+  try {
+    const r = await db.query(
+      `SELECT r.regacoparmaxope        AS max_parcelas,
+              min(rp.regacovalparmin)  AS valor_minimo_parcela,
+              max(rp.regacoperdesmax)  AS desconto_maximo_percentual
+         FROM acordo_regras r
+         LEFT JOIN acordo_regras_parcela rp
+                ON rp.carcod = r.carcod AND rp.regacocod = r.regacocod
+        WHERE r.carcod = $1
+          AND r.regacoati = 1
+        -- Sem filtro de vigência de propósito: regacodatini/fim são sentinela
+        -- '0001-01-01' e filtrar por elas descartaria TODAS as regras.
+        GROUP BY r.regacocod, r.regacoparmaxope
+        ORDER BY r.regacocod
+        LIMIT 1`,
+      [carcod],
+    );
+    const x = r.rows[0];
+    if (!x) return null;
+    const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    return {
+      maxParcelas: num(x.max_parcelas),
+      valorMinimoParcela: num(x.valor_minimo_parcela),
+      descontoMaximoPercentual: num(x.desconto_maximo_percentual),
+    };
+  } catch (e) {
+    console.error("[siscobra] regra:", (e as Error).message);
+    return null;
+  }
+}

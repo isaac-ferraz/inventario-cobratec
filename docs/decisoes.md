@@ -1581,3 +1581,57 @@ não triar visivelmente melhor que o 1B local, a resposta certa é ficar com o
 1B: a dependência de um túnel não se paga.
 
 Testes: 534 → **552**.
+
+### 31.2 — Quem a empresa é também não se responde de improviso
+
+**Contexto:** com o 3B rodando na GPU (31.1), a primeira medição de verdade
+pegou o robô dizendo a um interlocutor que **"a Cobratec é uma empresa de
+tecnologia"**. Não é: é empresa de cobrança. O prompt dizia que ele era "a
+recepcionista virtual da Cobratec" e nunca dizia o que a Cobratec faz — o modelo
+preencheu o vazio, como faz sempre.
+
+Duas correções candidatas, medidas nos dois modelos em vez de escolhidas por
+opinião:
+
+| | inventou | respondeu certo |
+|---|---|---|
+| 3B, prompt como estava | **4/5** | 0 |
+| 3B, com o ramo no prompt | 0/5 | 4 |
+| 1B, prompt como estava | — | 0 |
+| 1B, com o ramo no prompt | — | 2 |
+
+O fato no prompt resolve o 3B e **não resolve o 1B**, que é justamente o que
+roda na máquina do escritório. O que o 1B produziu é pior que o erro do 3B:
+
+- *"A Cobratec é um serviço de pagamento da **Receita Federal**"*
+- *"Atuamos como uma agência de assistência financeira"*
+- *"Vocês são funcionários da Cobratec"* (inverteu quem é quem)
+
+A empresa se apresentando como o que não é, para quem está sendo cobrado, não é
+constrangimento — é a mesma família do art. 42 que motivou a decisão 31. E
+alegar ligação com a Receita Federal a um devedor é pior do que qualquer número
+inventado.
+
+**Decisão: as duas.** A garantia é a regra em `assuntoExigeGente` — "o que vocês
+fazem", "que empresa é essa", "quem são vocês", "o que é a Cobratec" passam a ir
+para gente **sem consultar o modelo**. O ramo entra no prompt como reforço, para
+as frases que a regra não pega; ele custa oito tokens e comprovadamente conserta
+o modelo que consegue usá-lo.
+
+**"Quem fala?" continua com o robô.** É a abertura mais comum, e os dois modelos
+respondem certo ("sou a recepcionista da Cobratec"). Escalar isso também deixaria
+o robô sem nada que ele saiba fazer.
+
+E sobra o incômodo de sempre: o que resta ao robô é receber bem e passar
+adiante. É pouco, e é o que ele pode garantir. Um triador que acerta a saudação
+e entrega o resto vale mais que um atendente que inventa a quarta frase.
+
+**O 1B nesta máquina é marginal, e agora há número.** Na mesma rodada: 121,5s
+numa resposta (o teto do webhook é 45s), 58s numa carga fria, e a saudação
+"bom dia, tudo bem?" devolvendo literalmente **"O que dizer"** — o rótulo do
+campo JSON, que `avaliarResposta` barra e escala. O desenho segurou em todos os
+casos, mas o preço é o devedor esperando o teto estourar para então cair na
+fila. O 3B na GPU respondeu tudo entre 1s e 2s. Se o robô for para valer, o
+caminho não é afinar prompt: é uma máquina com GPU **dentro da rede**.
+
+Testes: 552 → **554**.
