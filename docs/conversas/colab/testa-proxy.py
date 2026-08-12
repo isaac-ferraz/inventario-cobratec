@@ -52,9 +52,22 @@ nb = json.load(open(NB))
 celula = "".join(nb["cells"][8]["source"])
 proxy = celula.split("# Túnel do Cloudflare")[0]
 exec(compile(proxy, "celula-do-proxy", "exec"), globals())
-time.sleep(1.5)
 
-BASE = "http://127.0.0.1:8000"
+# A célula escolhe a porta na hora e a publica em PORTA; ela também espera o
+# servidor atender antes de seguir.
+BASE = f"http://127.0.0.1:{PORTA}"
+
+# Conferir que quem responde é O NOSSO proxy, e não outro programa que por acaso
+# está na porta. Isto não é paranoia: rodando com a porta fixa em 8000, outro
+# serviço da máquina respondeu 401 a tudo e o teste "passou" nas travas de
+# recusa — provando nada, porque o proxy nem tinha subido. Teste que valida o
+# servidor errado é pior que teste nenhum.
+sonda = requests.get(f"{BASE}/api/tags", timeout=5)
+if sonda.status_code != 401 or "token inválido" not in sonda.text:
+    raise SystemExit(
+        f"quem respondeu em {BASE} não é o proxy do notebook "
+        f"(status {sonda.status_code}, corpo {sonda.text[:80]!r})"
+    )
 bom = {"Authorization": f"Bearer {TOKEN}"}
 falhas = []
 
