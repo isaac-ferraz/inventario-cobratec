@@ -150,6 +150,9 @@ export async function decidir(
     case "saudacao":
       return { tipo: "responder", texto: RESPOSTAS.saudacao(estado.nome) };
 
+    case "sobre_empresa":
+      return { tipo: "responder", texto: RESPOSTAS.sobreEmpresa() };
+
     case "despedida":
       return { tipo: "responder", texto: RESPOSTAS.despedida() };
 

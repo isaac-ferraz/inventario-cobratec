@@ -188,6 +188,26 @@ describe("negociar só dentro da regra oficial", () => {
   });
 });
 
+// O ganho que o desenho de molde trouxe de volta: perguntas que precisavam ir
+// para gente porque o modelo inventava agora são string fixa.
+describe("perguntas que voltaram a ser do robô", () => {
+  it("o que a empresa faz é respondido, e com a verdade", async () => {
+    const a = await decidir(ler("sobre_empresa"), NOVO, fontes());
+    expect(a.tipo).toBe("responder");
+    if (a.tipo === "responder") {
+      expect(a.texto).toMatch(/empresa de cobrança/i);
+      expect(a.texto).not.toMatch(/tecnologia|Receita Federal/i);
+    }
+  });
+
+  // E sem exigir identificação: dizer o que a empresa faz não é dado de
+  // ninguém, então pedir CPF antes seria hostil à toa.
+  it("não pede CPF para dizer o que a empresa é", async () => {
+    const a = await decidir(ler("sobre_empresa"), NOVO, fontes());
+    if (a.tipo === "responder") expect(a.texto).not.toMatch(/CPF/i);
+  });
+});
+
 describe("o que nunca é do robô", () => {
   for (const [intencao, esperado] of [
     ["ja_pagou", /pagou/],

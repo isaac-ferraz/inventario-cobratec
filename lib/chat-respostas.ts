@@ -116,6 +116,19 @@ export const RESPOSTAS = {
   boleto: () =>
     "Vou chamar uma atendente para gerar isso para você agora.",
 
+  /**
+   * A resposta que só existe porque o texto virou molde.
+   *
+   * Perguntado o que a Cobratec faz, o 3B respondia "empresa de tecnologia" e o
+   * 1B chegou a "um serviço de pagamento da Receita Federal" — por isso a
+   * pergunta era escalada (decisão 31.2). Aqui ela é uma string fixa, e string
+   * fixa não inventa. É o desenho da decisão 32 devolvendo ao robô algo que ele
+   * tinha perdido.
+   */
+  sobreEmpresa: () =>
+    "A Cobratec é uma empresa de cobrança. Falo com você sobre contas em " +
+    "atraso e posso ajudar a resolver isso por aqui mesmo.",
+
   // ── saída ────────────────────────────────────────────────────────────────
   despedida: () => "Obrigada pelo contato! Qualquer coisa é só chamar. 🌤️",
 

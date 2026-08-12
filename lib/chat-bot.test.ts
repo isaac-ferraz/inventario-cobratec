@@ -1,18 +1,15 @@
-// A trava entre o modelo e o devedor.
+// O que o modelo nunca chega a ver, e onde ele mora.
 //
-// Este arquivo existe porque prompt é sugestão. O robô roda sem acesso ao
-// Siscobra: qualquer valor que ele diga é invenção, e em cobrança valor
-// inventado é CDC art. 42, é contestação, é a empresa presa a uma promessa que
-// não fez. `avaliarResposta` é o que confere se o modelo obedeceu — e na dúvida
-// ela ESCALA, porque atenção de operadora é barato perto disso.
+// As travas de SAÍDA que este arquivo testava (valor inventado, telefone
+// inventado, eco do formulário) sumiram na decisão 32 junto com a função que as
+// aplicava: o modelo não escreve mais nada que o devedor leia, então não há
+// texto dele para conferir. O que restou aqui é o que continua importando —
+// a trava de ENTRADA (assunto que nem chega ao modelo) e a pergunta de onde o
+// modelo está rodando, que decide se a fala do devedor sai da empresa.
+//
+// A conversa em si é testada em `lib/chat-fluxo.test.ts`.
 import { describe, expect, it, vi } from "vitest";
-import {
-  assuntoExigeGente,
-  avaliarResposta,
-  ehLocal,
-  pensar,
-  PROMPT_SISTEMA,
-} from "@/lib/chat-bot";
+import { assuntoExigeGente, classificar, ehLocal } from "@/lib/chat-bot";
 
 function resposta(texto: string, escalar = false) {
   return JSON.stringify({ resposta: texto, escalar, motivo: "" });
@@ -60,173 +57,30 @@ describe("o que nem chega a ser perguntado ao modelo", () => {
     expect(assuntoExigeGente("quem fala?")).toBeNull();
   });
 
-  // Esta linha já afirmou o contrário — "quem é vocês?" ficava com o robô. Foi
-  // a medição que virou: perguntado o que a empresa faz, o 3B respondeu
-  // "empresa de tecnologia" em 4 de 5 vezes e o 1B chegou a "um serviço de
-  // pagamento da Receita Federal". A empresa se apresentando como o que não é,
-  // para quem está sendo cobrado, é pior que a espera de uma operadora.
-  it("quem a empresa é não se responde de improviso", () => {
+  // Esta regra já existiu, escalando, e foi REMOVIDA na decisão 32 — o
+  // caminho oposto do resto deste arquivo, e por um bom motivo. "O que vocês
+  // fazem?" era escalada porque o modelo respondia "empresa de tecnologia" (3B)
+  // e "um serviço de pagamento da Receita Federal" (1B). Com o texto virando
+  // molde, a resposta é uma string fixa: dá para atender sem risco nenhum.
+  it("quem a empresa é agora tem molde, e volta para o robô", () => {
     for (const fala of [
-      "quem é vocês?",
       "quem são vocês?",
-      "quem sao vcs",
       "o que voces fazem?",
-      "o que vocês fazem aí?",
       "que empresa é essa?",
       "o que é a cobratec?",
-      "qual o ramo de vocês?",
-      "do que se trata isso?",
     ]) {
-      expect(assuntoExigeGente(fala)).toBe("pergunta sobre quem é a empresa");
+      expect(assuntoExigeGente(fala)).toBeNull();
     }
   });
 
-  // O fato entrou no prompt junto com a trava, para as frases que a regra não
-  // pega. Ele corrigiu o 3B (4/4 certas na medição) e não salvou o 1B — por
-  // isso a garantia é a regra acima, e o prompt é só o reforço.
-  it("o prompt diz o ramo da empresa", () => {
-    expect(PROMPT_SISTEMA).toMatch(/empresa de cobrança/i);
+  // Horário e endereço continuam escalando: esses são fatos que o CÓDIGO
+  // também não tem, então não há molde honesto a escrever.
+  it("horário e endereço continuam sendo de gente", () => {
+    expect(assuntoExigeGente("vocês atendem sábado?")).toMatch(/operacional/);
+    expect(assuntoExigeGente("qual o endereço de vocês?")).toMatch(/operacional/);
   });
 });
 
-describe("o que pode chegar ao devedor", () => {
-  it("saudação sem número passa", () => {
-    const d = avaliarResposta(
-      resposta("Olá! Aqui é a Cobratec. Como posso ajudar?"),
-    );
-    expect(d).toEqual({
-      responder: true,
-      texto: "Olá! Aqui é a Cobratec. Como posso ajudar?",
-    });
-  });
-
-  it("aceita objeto já desserializado", () => {
-    const d = avaliarResposta({ resposta: "Bom dia!", escalar: false });
-    expect(d.responder).toBe(true);
-  });
-});
-
-// Medido com llama3.2:1b: modelo pequeno devolve `{"resposta": "..."}` sem os
-// outros campos com facilidade. Se ausência virasse `escalar: false`, a decisão
-// MAIS PERIGOSA (falar com o devedor) seria a que acontece quando o modelo
-// entende menos.
-describe("contrato incompleto", () => {
-  it("sem o campo escalar, escala", () => {
-    const d = avaliarResposta(JSON.stringify({ resposta: "Olá! Como vai?" }));
-    expect(d.responder).toBe(false);
-    if (!d.responder) expect(d.motivo).toMatch(/escalar/);
-  });
-
-  it("escalar com tipo errado também escala", () => {
-    expect(
-      avaliarResposta({ resposta: "Olá!", escalar: "false" }).responder,
-    ).toBe(false);
-    expect(avaliarResposta({ resposta: "Olá!", escalar: 0 }).responder).toBe(
-      false,
-    );
-  });
-});
-
-describe("a trava do valor", () => {
-  // O caso central: o modelo diz `escalar: false` e mesmo assim inventa um
-  // número no meio da frase. A conferência é sobre o TEXTO, não sobre a
-  // intenção declarada.
-  const inventadas = [
-    "Seu débito é de R$ 1.240,00.",
-    "Consigo um desconto de 40% para você.",
-    "Dá para parcelar em 6x sem juros.",
-    "O valor atualizado ficou 890,50.",
-    "Posso gerar um boleto agora mesmo.",
-    "Se preferir, mando o pix da negociação.",
-    "São 300 reais no total.",
-  ];
-
-  for (const texto of inventadas) {
-    it(`barra: "${texto}"`, () => {
-      const d = avaliarResposta(resposta(texto));
-      expect(d.responder).toBe(false);
-      if (!d.responder) expect(d.motivo).toMatch(/valor/);
-    });
-  }
-
-  // Falso positivo custa caro na direção contrária: escalar tudo faria o robô
-  // não servir para nada. Hora e data não são valores.
-  it("não confunde horário e data com dinheiro", () => {
-    expect(
-      avaliarResposta(resposta("Atendemos das 9h às 18h, de segunda a sexta.")),
-    ).toMatchObject({ responder: true });
-    expect(
-      avaliarResposta(resposta("Retornamos ainda hoje, pode deixar.")),
-    ).toMatchObject({ responder: true });
-  });
-});
-
-describe("quando o robô desiste", () => {
-  it("escalar declarado leva o motivo junto", () => {
-    const d = avaliarResposta(
-      JSON.stringify({
-        resposta: "Vou chamar uma atendente.",
-        escalar: true,
-        motivo: "quer negociar",
-      }),
-    );
-    expect(d).toEqual({ responder: false, motivo: "quer negociar" });
-  });
-
-  it("escalar sem motivo ainda escala", () => {
-    const d = avaliarResposta(JSON.stringify({ resposta: "ok", escalar: true }));
-    expect(d.responder).toBe(false);
-  });
-
-  // Modelo pequeno erra formato. Errar formato não pode virar silêncio.
-  it("resposta fora do formato escala em vez de sumir", () => {
-    expect(avaliarResposta("isto não é json").responder).toBe(false);
-    expect(avaliarResposta(null).responder).toBe(false);
-    expect(avaliarResposta(resposta("")).responder).toBe(false);
-    expect(avaliarResposta(resposta("   ")).responder).toBe(false);
-  });
-
-  // Medido: perguntado "bom dia, tudo bem?", o 1B respondeu literalmente
-  // "O que dizer" — o rótulo do campo JSON devolvido como se fosse fala.
-  it("rótulo do formulário devolvido como resposta é barrado", () => {
-    expect(avaliarResposta(resposta("O que dizer")).responder).toBe(false);
-    expect(avaliarResposta(resposta("por que escalou")).responder).toBe(false);
-    // Mas cumprimento curto de verdade passa.
-    expect(avaliarResposta(resposta("Oi!")).responder).toBe(true);
-  });
-
-  // Medido: "vou chamar meu advogado" fez o 1B responder com um telefone
-  // inventado. O robô não tem agenda nenhuma.
-  it("telefone inventado escala", () => {
-    const d = avaliarResposta(
-      resposta("Ligue para o seu advogado no 11 9817-8484."),
-    );
-    expect(d.responder).toBe(false);
-    if (!d.responder) expect(d.motivo).toMatch(/telefone/);
-  });
-
-  // Medido: o 1B prometeu atendente e marcou escalar=false. A pessoa esperaria
-  // para sempre por alguém que nunca foi chamado.
-  it("prometer atendente sem escalar é barrado", () => {
-    const d = avaliarResposta(
-      resposta("Vou chamar uma atendente para ver isso com você."),
-    );
-    expect(d.responder).toBe(false);
-    if (!d.responder) expect(d.motivo).toMatch(/prometeu atendente/);
-  });
-
-  // Quanto mais texto sem dado, mais chance de o modelo preencher o vazio.
-  it("discurso longo escala", () => {
-    const d = avaliarResposta(resposta("a".repeat(700)));
-    expect(d.responder).toBe(false);
-    if (!d.responder) expect(d.motivo).toMatch(/estendeu/);
-  });
-});
-
-// Onde o modelo mora deixou de ser detalhe de infraestrutura quando o Colab
-// entrou (decisão 31.1): fora da rede, a fala do devedor sai da empresa. Quem
-// decide o que a tela mostra é esta função, então ela precisa errar para o lado
-// seguro — na dúvida, "não é local".
 describe("dentro ou fora da rede", () => {
   const dentro = [
     "http://127.0.0.1:11434",
@@ -257,26 +111,30 @@ describe("dentro ou fora da rede", () => {
 });
 
 describe("o segredo do proxy", () => {
-  it("sem OLLAMA_TOKEN, a chamada vai sem Authorization", async () => {
-    const espiao = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ message: { content: resposta("Olá!") } })),
+  // Sem este cabeçalho o proxy do notebook (decisão 31.1) responde 401, o
+  // classificador falha e TODA conversa cai na fila. O robô não quebra — mas
+  // some, e some em silêncio se ninguém testar isto.
+  function espiar(resposta: unknown = { intencao: "saudacao" }) {
+    return vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ message: { content: JSON.stringify(resposta) } })),
     );
-    await pensar({ url: "http://127.0.0.1:11434", modelo: "m", token: null }, []);
+  }
+
+  it("sem OLLAMA_TOKEN, a chamada vai sem Authorization", async () => {
+    const espiao = espiar();
+    await classificar({ url: "http://127.0.0.1:11434", modelo: "m", token: null }, [], "oi");
 
     const enviados = espiao.mock.calls[0][1]?.headers as Record<string, string>;
     expect(enviados.authorization).toBeUndefined();
     vi.restoreAllMocks();
   });
 
-  // Sem este cabeçalho o proxy do notebook responde 401 e o robô escala —
-  // o atendimento não quebra, mas o modelo nunca é usado.
   it("com OLLAMA_TOKEN, vai como Bearer", async () => {
-    const espiao = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ message: { content: resposta("Olá!") } })),
-    );
-    await pensar(
+    const espiao = espiar();
+    await classificar(
       { url: "https://abc.trycloudflare.com", modelo: "m", token: "segredo" },
       [],
+      "oi",
     );
 
     const enviados = espiao.mock.calls[0][1]?.headers as Record<string, string>;
@@ -284,17 +142,29 @@ describe("o segredo do proxy", () => {
     vi.restoreAllMocks();
   });
 
-  // Proxy recusando o token é falha como qualquer outra: escala, não silencia.
-  it("proxy recusando o token escala em vez de silenciar", async () => {
+  // Proxy recusando o token é falha como outra qualquer: vira "outro", que é
+  // gente. Nunca uma resposta ao devedor.
+  it("proxy recusando o token classifica como 'outro'", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response('{"error":"token inválido"}', { status: 401 }),
     );
-    const d = await pensar(
+    const l = await classificar(
       { url: "https://abc.trycloudflare.com", modelo: "m", token: "errado" },
       [],
+      "oi",
     );
-    expect(d.responder).toBe(false);
-    if (!d.responder) expect(d.motivo).toMatch(/401/);
+    expect(l.intencao).toBe("outro");
+    vi.restoreAllMocks();
+  });
+
+  it("modelo fora do ar também vira 'outro'", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("conexão recusada"));
+    const l = await classificar(
+      { url: "http://127.0.0.1:11434", modelo: "m", token: null },
+      [],
+      "oi",
+    );
+    expect(l.intencao).toBe("outro");
     vi.restoreAllMocks();
   });
 });

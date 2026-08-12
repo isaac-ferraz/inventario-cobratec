@@ -220,10 +220,19 @@ curl -s -X POST http://localhost:3000/api/chat/waha/webhook \
 
 ### Passo 4 (opcional) — o robô local de triagem
 
-Sem isto, toda mensagem espera uma pessoa, inclusive "oi". Com um modelo rodando
-**na própria máquina**, o robô recebe, responde o que é inofensivo e passa para
-gente assim que o assunto encosta em dívida (decisão 31). Ele **não tem dado
-nenhum** — não negocia, não diz valor, não confirma pagamento.
+Sem isto, toda mensagem espera uma pessoa, inclusive "oi". Com um modelo ligado,
+o robô **conduz a conversa**: identifica a pessoa por CPF e nascimento, informa
+saldo e vencimento, e oferece acordo dentro da regra da carteira (decisão 32).
+
+O que ele diz não é escrito pelo modelo. O modelo devolve **um rótulo de
+intenção**; o texto sai de molde (`lib/chat-respostas.ts`) preenchido com campo
+do Siscobra. Por isso ele pode conversar sem inventar: nenhum número, nome ou
+data que o devedor lê passou pelo modelo.
+
+**Precisa de um modelo de 3B ou mais.** Medido em 12/08/2026 com 26 falas reais:
+`llama3.2:3b` classificou 26/26 sem nenhum erro perigoso; `llama3.2:1b` fez
+10/26, e o erro dele tende a `saudacao` — que é rótulo que o robô atende. A
+célula 3 do notebook do Colab roda essa medição em qualquer modelo.
 
 ```bash
 # 1. instalar e baixar o modelo (na máquina, não em container)
@@ -299,9 +308,9 @@ nada. A tela **Conexão** passa a avisar que o pareamento é assunto do n8n.
 
 | | n8n (produção) | direto (teste) |
 |---|---|---|
-| Quem responde o devedor | o robô, e escala quando precisa | o robô local **tria**, se ligado; senão, cai na fila |
-| Fala de valor e acordo | sim, com o dossiê na mão | **nunca** — barrado por código |
-| Dossiê do Siscobra | chega empurrado pelo n8n | não existe |
+| Quem responde o devedor | o robô do n8n | o robô local, se ligado; senão, cai na fila |
+| Fala de valor e acordo | sim, o modelo redige | sim, mas o texto é **molde**: o modelo só classifica |
+| Dossiê do Siscobra | chega empurrado pelo n8n | consultado pelo app, somente leitura (decisão 32) |
 | Pareamento do número | fluxo do n8n / painel do WAHA | tela **Conexão** |
 | Mídia (áudio, foto) | depende do fluxo — a rota do n8n não trata | vira mensagem com marcador e o arquivo baixa |
 | Grupo | descartado no fluxo | descartado na rota |

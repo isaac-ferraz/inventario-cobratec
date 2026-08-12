@@ -29,6 +29,7 @@ export const INTENCOES = [
   "aceita",            // "pode ser", "fechado"
   "recusa",            // "não dá", "muito caro"
   "quer_boleto",       // "manda o código", "2ª via"
+  "sobre_empresa",     // "o que vocês fazem?", "que empresa é essa?"
   "despedida",         // "obrigado", "tchau"
   "ja_pagou",          // → sempre gente
   "contesta",          // "não é minha", "não reconheço" → sempre gente
@@ -252,6 +253,7 @@ quer_negociar - quer parcelar, desconto, acordo, "como faço para pagar"
 aceita - concorda com o que foi oferecido
 recusa - não concorda, acha caro, não pode pagar
 quer_boleto - pede boleto, código de barras, pix, segunda via
+sobre_empresa - pergunta quem é a empresa ou o que ela faz
 despedida - agradece ou se despede, "obrigado", "tchau"
 ja_pagou - afirma que já pagou
 contesta - diz que a dívida não é dele, não reconhece, fala em golpe
@@ -270,6 +272,7 @@ Exemplos:
 "ja paguei isso" -> {"intencao":"ja_pagou","parcelas":null}
 "essa divida nao e minha" -> {"intencao":"contesta","parcelas":null}
 "vou chamar meu advogado" -> {"intencao":"juridico","parcelas":null}
+"o que voces fazem" -> {"intencao":"sobre_empresa","parcelas":null}
 "obrigado, tchau" -> {"intencao":"despedida","parcelas":null}
 "quanto custa uma pizza" -> {"intencao":"outro","parcelas":null}
 

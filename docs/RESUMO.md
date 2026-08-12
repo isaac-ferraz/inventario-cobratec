@@ -267,6 +267,18 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     não expõe o Ollama direto (que não tem autenticação): um proxy exige
     `OLLAMA_TOKEN` e libera só duas rotas. Testes: 534 → **552**.
 
+25. **O modelo classifica, o código responde** (decisão 32): a virada que
+    resolveu de vez a alucinação. Em vez de tentar impedir o modelo de
+    inventar — o que rendeu três rodadas de remendo —, ele deixou de escrever:
+    devolve **um rótulo** de uma lista fechada, e cada frase que o devedor lê
+    sai de **molde** preenchido com campo do Siscobra. Nenhum número, nome ou
+    data passa pelo modelo. Com isso o robô pôde **conversar mais**: identifica
+    por CPF + nascimento em dois tempos, informa saldo e vencimento, e oferece
+    acordo dentro de `acordo_regras` (calculado por código e conferido por
+    `propostaCabeNaRegra`). O Siscobra passou a ser lido pelo app, somente
+    leitura — revertendo a fronteira da decisão 28, porque sem dado ele
+    inventava. Testes: 554 → **568**.
+
 ### O que sobrou para depois
 - **Deploy**: `docs/deploy.md` está escrito (Oracle Always Free + Docker), mas o
   sistema ainda roda só em LAN — falta escolher e provisionar o host.
@@ -282,13 +294,15 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
   leitura do Siscobra e os prompts — tudo escrito em
   [`docs/conversas/`](./conversas/README.md), nada disso muda o desenho do papel
   `COBRANCA` (decisão 27) nem a fronteira da decisão 28.
-- **Medir o robô com gente de verdade**: as travas foram calibradas contra
-  `llama3.2:1b` numa máquina apertada. Vale reler os motivos de escalonamento
-  depois de uns dias no ar — se quase tudo estiver caindo na fila, o modelo é
-  pequeno demais para o pouco que sobrou para ele. A comparação 1B × 3B já está
-  pronta para rodar no notebook do Colab (decisão 31.1).
-- **Onde o modelo vai morar de verdade**: o Colab resolve o teste, não a
-  produção (sessão que cai, endereço que muda, e a fala do devedor saindo da
-  empresa). Se o 3B provar valer a pena, a decisão seguinte é uma máquina com
-  GPU dentro da rede — ou aceitar o 1B local, que já atende o pouco que sobrou
-  para o robô.
+- **Uma máquina com GPU dentro da rede.** Isto deixou de ser preferência e virou
+  requisito: o classificador precisa de 3B (o 1B faz 10/26 e erra para o lado do
+  robô), e o Colab é caminho de teste — sessão que cai, endereço que muda. Com o
+  desenho da decisão 32 o dado do devedor não vai ao modelo, então o Colab é
+  aceitável para medir; para atender de verdade, o modelo mora aqui.
+- **Ligar o Siscobra pela primeira vez**: as consultas de `lib/siscobra.ts` foram
+  escritas a partir do SQL validado em 21/07, mas **não foram rodadas contra o
+  banco**. Antes de ligar, confirme que o usuário do `.env` tem só `GRANT SELECT`
+  — de preferência um usuário criado para isto.
+- **Ver a conversa acontecer com gente real** e reler os motivos de
+  escalonamento depois de uns dias: é assim que se descobre se o robô está
+  parando cedo demais ou tarde demais.

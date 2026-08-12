@@ -1,9 +1,15 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Consultas do chatbot ao Siscobra (PostgreSQL, SOMENTE LEITURA).
 --
--- Rodam nos nós Postgres do n8n. O inventário NÃO executa nada disto: ele nunca
--- abre conexão com o Siscobra (decisão 28) — recebe o dossiê pronto pelo
--- webhook e o guarda como snapshot.
+-- Este arquivo é a REFERÊNCIA das consultas, e elas rodam em dois lugares:
+--   • `lib/siscobra.ts`, no próprio inventário (decisão 32) — é o caminho de
+--     hoje, e o que alimenta os moldes de resposta do robô;
+--   • nos nós Postgres do n8n, se um dia o fluxo dele for montado.
+--
+-- A decisão 28 dizia que o inventário NUNCA abriria conexão com o Siscobra, e a
+-- 32 reverteu isso: sem dado, o robô inventava. A fronteira ficou mais estreita
+-- em vez de sumir — somente leitura, consultas fixas, e o dado NÃO vai para o
+-- modelo (ver o cabeçalho de lib/siscobra.ts).
 --
 -- Derivadas de `siscobra_postgresql/sql/exploration/negocie_lookup_devedor.sql`,
 -- validado ao vivo em 2026-07-21. As armadilhas abaixo NÃO são teoria: são

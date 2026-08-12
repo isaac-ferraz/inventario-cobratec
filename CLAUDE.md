@@ -372,24 +372,37 @@ continua como rede de segurança (60s com o canal vivo, 15s sem ele) e a tela di
 qual dos dois está valendo. Fluxos do n8n prontos para importar em
 [`docs/conversas/n8n/`](./docs/conversas/n8n/).
 
-**Robô local de triagem (decisão 31):** o modo direto ganhou um cérebro que roda
-**na própria máquina** (Ollama), ligado só por `OLLAMA_URL` — vazio mantém tudo
-caindo na fila, o comportamento da decisão 29. Local porque conversa de devedor
-não sai da empresa; o preço é caber um modelo de 1B–3B em CPU, e é daí que vem o
-desenho. Medindo com `llama3.2:1b`, "já paguei" recebeu **"Não, ainda não"** e
-"advogado" fez o modelo **inventar um telefone** — não é falha de prompt, é o
-tamanho do modelo. Então a ordem se inverteu: **o código decide o que é
-perigoso** (`assuntoExigeGente` manda dívida, pagamento, menção jurídica, dado
-pessoal, contestação e pergunta operacional para a fila **sem** consultar o
-modelo) e o robô só atende o que sobra — saudação, "quem é você". Depois de
-pronta, a resposta ainda passa por `avaliarResposta`, que barra cheiro de valor,
-telefone, promessa de atendente sem escalar e eco do formulário; **`escalar`
-ausente escala**, porque a decisão perigosa não pode ser a que acontece quando o
-modelo entende menos. Toda saída que não é "respondeu" termina em **escalar,
-nunca em silêncio**. O robô fala **por último** (grava → fila pisca → pensa) e
-`escalarConversa` filtra por `situacao: "bot"` no `updateMany`, então ele nunca
-tira conversa de quem já assumiu. Continua **sem Siscobra**: é o degrau entre
-"ninguém responde" e o chatbot da decisão 28. Regras puras em `lib/chat-bot.ts`.
+**Robô de cobrança (decisões 31 e 32):** o modo direto tem um robô que
+**conduz a conversa** — identifica o devedor por CPF **e** nascimento, informa
+saldo e vencimento, e oferece acordo dentro da regra da carteira. Ligado só por
+`OLLAMA_URL`; vazio mantém tudo caindo na fila.
+
+O desenho é a virada da decisão 32: **o modelo classifica, o código responde.**
+Ele devolve um rótulo de uma lista fechada (`lib/chat-intencao.ts`) e nunca
+escreve o que o devedor lê — cada frase sai de molde em `lib/chat-respostas.ts`
+preenchido com campo do Siscobra. A garantia de não inventar deixou de ser
+promessa sobre comportamento e virou propriedade da estrutura: **nenhum número,
+nome ou data que chega ao devedor passou pelo modelo.** Rótulo fora da lista
+vira `outro`, e `outro` é gente.
+
+Três travas, e o caminho do erro é sempre o seguro: palavra na entrada
+(`assuntoExigeGente` — dívida, pagamento, jurídico, dado pessoal e horário/
+endereço nem chegam ao modelo), rótulo na saída (`exigeGente`), e o fluxo não
+ter molde para o caso. A conversa vive em **`lib/chat-fluxo.ts`**, puro e
+testado turno a turno sem banco, sem rede e sem modelo.
+
+**Siscobra (decisão 32):** `lib/siscobra.ts` lê o CRM — **somente leitura**,
+quatro consultas fixas e parametrizadas, usuário com `GRANT SELECT` apenas.
+Reverte a fronteira da decisão 28 (o inventário não abria conexão), porque sem
+dado o robô inventava. O dado alimenta molde, **nunca prompt** — é o que mantém
+a fala do devedor dentro da empresa mesmo com o modelo rodando fora dela. A
+oferta é calculada por `montarOferta` e conferida por `propostaCabeNaRegra`
+antes de virar texto; carteira sem regra ativa não recebe proposta nenhuma.
+
+**O classificador precisa de 3B ou mais.** Medido: `llama3.2:3b` acerta 26/26
+com zero erros perigosos, `llama3.2:1b` faz 10/26 e erra para `saudacao` — o
+rótulo que o robô atende. E o prompt tem exemplos porque foram medidos (sem
+eles, 20/26); acrescentar *explicação* em vez de exemplo piorou.
 
 **Modelo no Colab (decisão 31.1):** quando a máquina não aguenta o modelo, o
 notebook [`docs/conversas/colab/`](./docs/conversas/colab/ollama-colab.ipynb)
