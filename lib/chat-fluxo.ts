@@ -60,7 +60,20 @@ export type OfertaFeita = {
 
 export type Acao =
   | { tipo: "responder"; texto: string; estado?: Partial<EstadoConversa> }
-  | { tipo: "escalar"; motivo: string; aviso?: string };
+  /**
+   * `aviso` é OBRIGATÓRIO, e isso é a regra em forma de tipo.
+   *
+   * Ele era opcional, e quatro caminhos de escalonamento não o preenchiam — o
+   * pior deles: banco fora do ar logo depois de a pessoa mandar o CPF. Ela
+   * entregava um dado pessoal e recebia silêncio absoluto, enquanto a conversa
+   * ia para a fila sem que ela soubesse. Silêncio depois de uma pergunta é onde
+   * o devedor desiste.
+   *
+   * Exigir o campo faz o compilador cobrar: não dá para acrescentar um
+   * escalonamento mudo sem que o build reclame. `motivo` é para a operadora,
+   * `aviso` é para o devedor — os dois sempre.
+   */
+  | { tipo: "escalar"; motivo: string; aviso: string };
 
 /**
  * As consultas que o fluxo precisa. Passadas como parâmetro, e não importadas,
@@ -105,7 +118,13 @@ export async function decidir(
     if (cpf && nascimento) {
       const r = await fontes.identificar(cpf, nascimento);
       if (r.erro) {
-        return { tipo: "escalar", motivo: "o cadastro não pôde ser consultado agora" };
+        // Rede, VPN caída, CRM fora do ar. Acontece de verdade: rodando o app
+        // fora da rede do escritório, o endereço do Siscobra é inalcançável.
+        return {
+          tipo: "escalar",
+          motivo: "o cadastro não pôde ser consultado agora",
+          aviso: RESPOSTAS.sistemaIndisponivel(),
+        };
       }
       if (r.achou.length === 0) {
         return { tipo: "escalar", motivo: "cadastro não localizado com CPF e nascimento", aviso: RESPOSTAS.naoEncontrado() };
@@ -190,7 +209,11 @@ export async function decidir(
       if (!estado.oferta) {
         // "Pode ser" sem nada oferecido: concordou com o quê? Perguntar é
         // melhor que supor, e supor aqui viraria acordo que ninguém combinou.
-        return { tipo: "escalar", motivo: "concordou sem proposta na mesa" };
+        return {
+          tipo: "escalar",
+          motivo: "concordou sem proposta na mesa",
+          aviso: RESPOSTAS.confirmarComGente(),
+        };
       }
       return { tipo: "escalar", motivo: "aceitou a proposta", aviso: RESPOSTAS.aceitou() };
 
@@ -204,7 +227,11 @@ export async function decidir(
         : { tipo: "responder", texto: RESPOSTAS.pedirIdentificacao() };
 
     default:
-      return { tipo: "escalar", motivo: "assunto fora do que o robô atende" };
+      return {
+        tipo: "escalar",
+        motivo: "assunto fora do que o robô atende",
+        aviso: RESPOSTAS.naoSeiTratar(),
+      };
   }
 }
 
@@ -215,7 +242,13 @@ async function negociar(
 ): Promise<Acao> {
   const saldo = estado.saldo ?? 0;
   if (!(saldo > 0) || estado.carcod === null) {
-    return { tipo: "escalar", motivo: "sem saldo em aberto para negociar" };
+    // Sem dizer que não há saldo: o robô sabe pouco demais para afirmar isso a
+    // alguém, e "você não deve nada" é a frase mais cara que ele poderia soltar.
+    return {
+      tipo: "escalar",
+      motivo: "sem saldo em aberto para negociar",
+      aviso: RESPOSTAS.chamandoGente(),
+    };
   }
 
   const regra = await fontes.regraDaCarteira(estado.carcod);

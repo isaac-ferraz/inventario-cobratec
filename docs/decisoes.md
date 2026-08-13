@@ -1796,3 +1796,35 @@ Dívida, valor, parcelamento, desconto e CPF saíram: para todos eles existe mol
 e o molde diz a verdade.
 
 Testes: 568 → **578**, agora com o caminho inteiro coberto.
+
+### 32.2 — Escalonamento mudo não compila mais
+
+**Contexto:** rodando o app de casa, a consulta ao Siscobra falha com
+`EHOSTUNREACH` — o CRM mora num endereço de LAN. Isso é esperado. O que não era
+esperado é o que o devedor recebia: **nada**.
+
+O caminho era este: a pessoa manda CPF e data de nascimento → `identificar`
+falha → o fluxo escala com um motivo para a operadora → e o webhook só envia
+mensagem quando existe `aviso`, que ali não existia. A conversa ia para a fila
+em silêncio, logo depois de alguém entregar um dado pessoal. É o pior momento
+possível para emudecer: parece descaso, ou parece golpe.
+
+**A correção não foi preencher o campo — foi tornar o campo obrigatório.**
+`aviso` deixou de ser opcional no tipo `Acao`, e o compilador apontou os quatro
+lugares que o deixavam vazio (o meu `grep` tinha achado dois: ele olhava as
+linhas seguintes e via o aviso do bloco de baixo). Agora não dá para acrescentar
+um escalonamento mudo sem quebrar o build.
+
+`motivo` é para a operadora, `aviso` é para o devedor — os dois, sempre.
+
+Um cuidado que veio junto: o aviso **não repete o motivo**. "Carteira sem regra
+de acordo ativa" é vocabulário nosso; para quem está do outro lado é "vou chamar
+uma atendente — ela tem as condições certas para o seu caso". E onde o robô não
+tem saldo para negociar, ele não diz que não há dívida: "você não deve nada" é a
+frase mais cara que ele poderia soltar. Há teste cobrindo os dois lados.
+
+**Nota operacional:** o app precisa enxergar a LAN do escritório para o robô
+identificar alguém. Fora dela, ele ainda cumprimenta e diz o que a empresa faz —
+some o que depende de dado, com aviso ao devedor e motivo na fila.
+
+Testes: 578 → **585**.

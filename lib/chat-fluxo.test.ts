@@ -6,7 +6,7 @@
 //   3. o robô conversa mais, mas para onde tem de parar;
 //   4. banco fora do ar vira gente, nunca silêncio nem palpite.
 import { describe, expect, it } from "vitest";
-import { decidir, type EstadoConversa, type Fontes } from "@/lib/chat-fluxo";
+import { decidir, type Acao, type EstadoConversa, type Fontes } from "@/lib/chat-fluxo";
 import { lerSaidaDoModelo, cpfValido, normalizarNascimento, extrairDados } from "@/lib/chat-intencao";
 import { montarOferta, reais } from "@/lib/chat-respostas";
 import type { Identificacao } from "@/lib/siscobra";
@@ -222,6 +222,40 @@ describe("perguntas que voltaram a ser do robô", () => {
     const a = await decidir(ler("sobre_empresa"), NOVO, fontes());
     if (a.tipo === "responder") expect(a.texto).not.toMatch(/CPF/i);
   });
+});
+
+// A regra que virou tipo: escalonamento mudo não compila mais. Este teste é a
+// prova de que ela vale em EXECUÇÃO também — o tipo garante que o campo existe,
+// não que ele tenha conteúdo.
+describe("ninguém é deixado falando sozinho", () => {
+  const cenarios: Array<[string, () => Promise<Acao>]> = [
+    ["banco fora do ar", () =>
+      decidir(ler("identificar", `${CPF} 12/04/1985`), NOVO,
+        fontes({ identificar: async () => ({ achou: [], erro: true }) }))],
+    ["cadastro não encontrado", () =>
+      decidir(ler("identificar", `${CPF} 12/04/1985`), NOVO,
+        fontes({ identificar: async () => ({ achou: [], erro: false }) }))],
+    ["carteira sem regra", () =>
+      decidir(ler("quer_negociar"), IDENTIFICADA,
+        fontes({ regraDaCarteira: async () => null }))],
+    ["aceitou sem proposta", () => decidir(ler("aceita"), IDENTIFICADA, fontes())],
+    ["pediu boleto", () => decidir(ler("quer_boleto"), IDENTIFICADA, fontes())],
+    ["assunto que ele não trata", () => decidir(ler("outro"), IDENTIFICADA, fontes())],
+    ["contestação", () => decidir(ler("contesta"), IDENTIFICADA, fontes())],
+  ];
+
+  for (const [nome, executar] of cenarios) {
+    it(`${nome}: o devedor recebe uma resposta antes de virar fila`, async () => {
+      const a = await executar();
+      expect(a.tipo).toBe("escalar");
+      if (a.tipo === "escalar") {
+        expect(a.aviso.trim().length).toBeGreaterThan(10);
+        // E o aviso não pode vazar o motivo interno: "sem saldo em aberto" e
+        // "carteira sem regra de acordo" são vocabulário nosso, não dela.
+        expect(a.aviso).not.toMatch(/carteira|saldo em aberto|regra de acordo/i);
+      }
+    });
+  }
 });
 
 describe("o que nunca é do robô", () => {

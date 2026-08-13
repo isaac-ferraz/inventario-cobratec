@@ -133,6 +133,28 @@ export const RESPOSTAS = {
   despedida: () => "Obrigada pelo contato! Qualquer coisa é só chamar. 🌤️",
 
   /**
+   * Consulta ao Siscobra falhou — rede, banco fora do ar, VPN caída.
+   *
+   * Este é o pior momento possível para o robô emudecer: a pessoa acabou de
+   * mandar CPF e data de nascimento, e receber nada em troca parece descaso ou
+   * golpe. Diz que o problema é nosso, não dela, e que alguém vai assumir.
+   */
+  sistemaIndisponivel: () =>
+    "Estou com uma dificuldade para consultar seu cadastro agora. Já vou " +
+    "chamar uma atendente para continuar com você — seus dados estão seguros.",
+
+  /** "Pode ser" sem nada na mesa: concordou com o quê? */
+  confirmarComGente: () =>
+    "Perfeito. Vou chamar uma atendente para acertar os detalhes com você.",
+
+  /**
+   * O que o robô não sabe tratar. Genérico de propósito: qualquer tentativa de
+   * ser específico aqui viraria chute sobre o que a pessoa quis dizer.
+   */
+  naoSeiTratar: () =>
+    "Entendi. Vou chamar uma atendente para te ajudar com isso.",
+
+  /**
    * O aviso de que uma pessoa vai entrar. Existe porque silêncio depois de
    * "vou chamar alguém" é onde o devedor desiste — ele não sabe se foi ouvido.
    */

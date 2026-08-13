@@ -229,6 +229,18 @@ intenção**; o texto sai de molde (`lib/chat-respostas.ts`) preenchido com camp
 do Siscobra. Por isso ele pode conversar sem inventar: nenhum número, nome ou
 data que o devedor lê passou pelo modelo.
 
+**E precisa estar na rede do escritório.** O Siscobra fica em `192.168.0.253`,
+um endereço de LAN: rodando o app de fora (casa, sem VPN) a consulta falha com
+`EHOSTUNREACH` em ~3s e **toda conversa que dependa de dado vai para a fila**,
+com o devedor recebendo "estou com uma dificuldade para consultar seu cadastro".
+O robô continua atendendo saudação e "o que vocês fazem" — o que não funciona é
+identificar, informar saldo e negociar. Para conferir de onde você está:
+
+```bash
+docker exec inventario-cobratec node -e "require('pg')" && \
+docker exec inventario-cobratec sh -c 'nc -z -w3 $DB_HOST $DB_PORT && echo alcança || echo NAO alcança'
+```
+
 **Precisa de um modelo de 3B ou mais.** Medido em 12/08/2026 com 26 falas reais:
 `llama3.2:3b` classificou 26/26 sem nenhum erro perigoso; `llama3.2:1b` fez
 10/26, e o erro dele tende a `saudacao` — que é rótulo que o robô atende. A
