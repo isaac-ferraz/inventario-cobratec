@@ -30,6 +30,33 @@ export function papelDe(valor: string | null | undefined): Papel {
     : "OPERADOR";
 }
 
+/**
+ * Onde cada papel começa depois de entrar — e para onde é devolvido quando bate
+ * numa porta que não é dele.
+ *
+ * Mora aqui, ao lado de `papelDe`, pelo mesmo motivo que ela: **já existiam duas
+ * cópias desta regra e elas divergiam.** O middleware sabia que COBRANCA vai
+ * para `/chat`; a tela de login tinha um `papel === "ADMIN" ? "/" : "/chamados"`
+ * particular, que jogava a operadora de cobrança no helpdesk — a única tela do
+ * inventário que ela alcança, e a que não tem nada a ver com o trabalho dela.
+ * O sintoma era "o chat não aparece para o usuário de cobrança".
+ *
+ * De quebra, as duas discordavam sobre o ADMIN: o login mandava para `/`, o
+ * middleware para `/chamados`.
+ */
+export function telaInicial(papel: Papel): string {
+  switch (papel) {
+    case "ADMIN":
+    // Supervisor começa no dashboard, já recortado pelas salas dele.
+    case "SUPERVISOR":
+      return "/";
+    case "COBRANCA":
+      return "/chat";
+    default:
+      return "/chamados";
+  }
+}
+
 export const ROTULO_PAPEL: Record<Papel, string> = {
   ADMIN: "Administrador",
   SUPERVISOR: "Supervisor de sala",

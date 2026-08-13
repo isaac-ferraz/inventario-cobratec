@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { COOKIE_SESSAO, lerSessao } from "@/lib/sessao";
+import { papelDe, telaInicial } from "@/lib/supervisao";
 
 // Portão de rota. Roda no runtime EDGE (sem Prisma), então valida a sessão
 // apenas por criptografia — a checagem de "usuário ainda ativo / papel atual"
@@ -98,13 +99,6 @@ function podeNavegar(papel: string, pathname: string): boolean {
   if (papel === "SUPERVISOR") return casa(PERMITIDO_SUPERVISOR, pathname);
   if (papel === "COBRANCA") return casa(PERMITIDO_COBRANCA, pathname);
   return casa(PERMITIDO_OPERADOR, pathname);
-}
-
-/** Para onde mandar quem bateu numa porta que não é dele. */
-function telaInicial(papel: string): string {
-  if (papel === "SUPERVISOR") return "/";
-  if (papel === "COBRANCA") return "/chat";
-  return "/chamados";
 }
 
 export async function middleware(req: NextRequest) {

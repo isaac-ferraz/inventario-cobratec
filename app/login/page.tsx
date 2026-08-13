@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, LogIn } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { apiSend, mensagem } from "@/lib/fetcher";
+import { papelDe, telaInicial } from "@/lib/supervisao";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,13 +32,15 @@ function Formulario() {
       if (r.usuario?.senhaProvisoria) {
         router.replace("/trocar-senha?inicial=1");
       } else {
+        // Para onde ir sai de `telaInicial` (lib/supervisao.ts), a MESMA função
+        // que o middleware usa. Aqui já houve uma cópia particular que só
+        // conhecia ADMIN, e ela mandava a operadora de cobrança para o
+        // helpdesk em vez das conversas.
         const de = params.get("de");
         const destino =
           de && de.startsWith("/") && !de.startsWith("//")
             ? de
-            : r.usuario?.papel === "ADMIN"
-              ? "/"
-              : "/chamados";
+            : telaInicial(papelDe(r.usuario?.papel));
         router.replace(destino);
       }
       router.refresh();

@@ -9,6 +9,7 @@ import {
   filtroComputador,
   filtroSala,
   papelDe,
+  telaInicial,
   podeMover,
   temEscopo,
   PAPEIS,
@@ -231,5 +232,29 @@ describe("filtros do Prisma", () => {
 
   it("supervisor sem sala ainda vê os chamados que abriu", () => {
     expect(filtroChamado(supSemSala)).toEqual({ solicitanteId: "u-novo" });
+  });
+});
+
+// Onde cada papel começa. Testado porque esta regra JÁ existiu em duas cópias
+// que discordavam: o middleware mandava a cobrança para /chat e a tela de login
+// mandava para /chamados, então o usuário de cobrança entrava e não achava as
+// conversas — o sintoma foi relatado como "o chat não aparece para ele".
+describe("tela inicial de cada papel", () => {
+  it("cobrança começa nas conversas, que é o ofício dela", () => {
+    expect(telaInicial("COBRANCA")).toBe("/chat");
+  });
+
+  it("admin e supervisor começam no dashboard", () => {
+    expect(telaInicial("ADMIN")).toBe("/");
+    expect(telaInicial("SUPERVISOR")).toBe("/");
+  });
+
+  it("operador começa nos chamados, a única tela dele", () => {
+    expect(telaInicial("OPERADOR")).toBe("/chamados");
+  });
+
+  // Papel estranho no banco não vira acesso privilegiado nem tela em branco.
+  it("papel desconhecido cai no menos privilegiado", () => {
+    expect(telaInicial(papelDe("QUALQUER_COISA"))).toBe("/chamados");
   });
 });
