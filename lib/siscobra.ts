@@ -106,6 +106,37 @@ export type RegraCarteiraDb = {
 // nascimento conferidos, quando já se sabe com quem se está falando.
 
 /**
+ * O primeiro nome do devedor, sem o código de cadastro que vem grudado nele.
+ *
+ * O `devnom` do Siscobra às vezes traz um código antes do nome — ora separado
+ * por espaço ("40067713 ANA CLAUDIA DE ARRUDA MELO"), ora **colado**
+ * ("735705Violene Badio"). Aqui havia um `split_part(devnom, ' ', 1)`, que dá
+ * conta da primeira forma e não da segunda: com ela, o robô cumprimentava
+ * "Olá, 735705Violene!" na cara do devedor.
+ *
+ * **Duas ou mais casas, e não uma.** O corte é aí por causa do que o banco tem:
+ * um único dígito inicial é razão social de verdade — "7M INSTALACOES LTDA",
+ * "3F SERVICOS INDUSTRIAIS", "3C SERVICES", "2RA CORRETORA", "3G MEDIC". Cortar
+ * um só transformaria "7M" em "M". Já as corridas de 2+ dígitos, no que se
+ * amostrou, são sempre código de cadastro (6 a 8 casas).
+ *
+ * **Dígito no MEIO da palavra fica.** "SANT0S", "C0RREIAS" e "RODRIG8UES" são
+ * erro de digitação (zero no lugar do O), não código: limpar ali produziria
+ * "SANTS". Estragar o nome é pior que entregá-lo como está.
+ *
+ * Sobrando nada, devolve `null` — e a saudação cai no "Olá!" sem nome, que já é
+ * o comportamento de quem não tem nome no cadastro.
+ */
+export function primeiroNomeDe(devnom: string | null | undefined): string | null {
+  if (!devnom) return null;
+  const semCodigo = devnom.replace(/^\d{2,}\s*/, "").trim();
+  const primeiro = semCodigo.split(/\s+/)[0] ?? "";
+  // O código também aparece grudado no FIM ("Felipe Da Silva Malta633370").
+  // Quando o cadastro tem uma palavra só, esse fim é o próprio primeiro nome.
+  return primeiro.replace(/\d{2,}$/, "").trim() || null;
+}
+
+/**
  * A única consulta que autoriza falar de valores: CPF **e** nascimento.
  *
  * Os dois juntos são anti-enumeração — com só o CPF, quem tivesse uma lista
@@ -123,8 +154,11 @@ export async function identificar(
 
   try {
     const r = await db.query(
+      // O nome vem inteiro e é limpo no TypeScript, por `primeiroNomeDe`: a
+      // regra tem exceção (razão social que começa com dígito) e regra com
+      // exceção precisa de teste — coisa que SQL embutida em string não tem.
       `SELECT d.devcod, d.carcod, ca.carnom AS carteira,
-              split_part(d.devnom, ' ', 1) AS primeiro_nome,
+              d.devnom AS nome_cadastro,
               left(lpad(d.devcpf::text, 11, '0'), 3) || '.***.***-'
                 || right(lpad(d.devcpf::text, 11, '0'), 2) AS cpf_mascarado,
               d.devsalatu AS saldo,
@@ -147,7 +181,11 @@ export async function identificar(
         devcod: Number(x.devcod),
         carcod: Number(x.carcod),
         carteira: String(x.carteira ?? ""),
-        primeiroNome: x.primeiro_nome ? String(x.primeiro_nome) : null,
+        // O nome completo NÃO entra no objeto: o robô só precisa do primeiro,
+        // e o que não sai daqui não vaza adiante por descuido.
+        primeiroNome: primeiroNomeDe(
+          x.nome_cadastro ? String(x.nome_cadastro) : null,
+        ),
         cpfMascarado: String(x.cpf_mascarado ?? ""),
         saldo: Number(x.saldo ?? 0),
         vencidoDesde: x.vencido_desde ? String(x.vencido_desde) : null,

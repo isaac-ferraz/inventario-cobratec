@@ -1582,6 +1582,54 @@ não triar visivelmente melhor que o 1B local, a resposta certa é ficar com o
 
 Testes: 534 → **552**.
 
+**Emenda (13/08/2026) — o endereço parou de mudar.** O atrito real deste caminho
+não era a GPU nem o túnel: era o `.env`. Cada sessão do Colab sorteava endereço
+novo (`trycloudflare` é o modo *sem conta*, e sorteia justamente por isso) e
+token novo (`secrets.token_urlsafe`, na própria célula) — três linhas trocadas no
+`.env` e um `docker compose up -d`, toda vez.
+
+**O sentido se inverteu: o notebook parou de inventar o par e passou a recebê-lo.**
+`OLLAMA_TOKEN`, `NGROK_TOKEN` e `NGROK_URL` saem do cofre de Secrets do Colab, e
+o túnel virou ngrok com um domínio reservado da conta (o plano grátis dá um). O
+`.env` é escrito uma vez.
+
+As duas pontas mudam **juntas**, e essa é a parte que importa: endereço fixo com
+token sorteado dá 401 no inventário sem nada aparentemente errado à vista. Por
+isso o "FIXO" que a célula imprime exige que **as duas** tenham vindo do cofre —
+não basta o endereço bater.
+
+Faltando qualquer Secret, a célula **avisa e cai** no túnel sorteado do
+Cloudflare: o comportamento antigo vira rede de segurança, em vez de o notebook
+parar de funcionar por falta de cadastro.
+
+Nada disso mexe na fronteira. O modelo continua fora da rede, `ehLocal()`
+continua respondendo "fora" para o domínio do ngrok e a tela continua vermelha.
+Endereço fixo torna o caminho de teste **cômodo**, não o promove a produção.
+
+**O que quebrou junto, e é a lição:** `testa-proxy.py` cortava a célula no
+comentário `# Túnel do Cloudflare` para executar só o proxy. Com o ngrok, esse
+comentário passou a morar dentro de um `if` — cortar ali produz um `if` sem
+corpo, e o teste morreria de `SyntaxError` em vez de testar coisa alguma. O corte
+agora é uma marca combinada e explícita dentro da célula, e o script **recusa
+rodar** se ela não estiver lá exatamente uma vez. Marca de corte implícita é
+acoplamento que ninguém enxerga até quebrar.
+
+**E a medição estava medindo diferente da produção.** A célula 3 comparava o
+rótulo do modelo com o esperado de forma exata, sem `lower()`; o inventário faz
+`.trim().toLowerCase()` antes de comparar (`lerSaidaDoModelo`). Parece rigor a
+mais — e seria, se caísse em qualquer outro lugar. Cai no contador de **erro
+perigoso**, que só dispara com `veio in DO_ROBO`, e `DO_ROBO` é minúsculo: um
+`"Saudacao"` com maiúscula, respondido a uma fala que deveria ir para gente,
+contava como erro comum aqui enquanto lá o `toLowerCase()` o transforma em
+`saudacao` e o robô atende. O único contador que existe para pegar essa falha
+podia deixá-la passar. Não é hipótese: o modelo foi visto escrevendo com
+maiúscula. A célula agora normaliza igual, e guarda o rótulo cru para o relatório
+— saber que o modelo escreveu diferente é justamente o que se perde ao
+normalizar cedo demais. **Medição de segurança que não normaliza como a produção
+não está medindo a produção.**
+
+Testes: as 9 travas de `testa-proxy.py` seguem passando contra a célula nova.
+
 ### 31.2 — Quem a empresa é também não se responde de improviso
 
 **Contexto:** com o 3B rodando na GPU (31.1), a primeira medição de verdade
@@ -1828,3 +1876,84 @@ identificar alguém. Fora dela, ele ainda cumprimenta e diz o que a empresa faz 
 some o que depende de dado, com aviso ao devedor e motivo na fila.
 
 Testes: 578 → **585**.
+
+### 32.3 — O código de cadastro grudado no nome do devedor
+
+**O sintoma:** o robô cumprimentava "Olá, 760361Gabrieli!". O `devnom` do
+Siscobra às vezes traz o código de cadastro antes do nome, e a consulta tirava o
+primeiro nome com `split_part(devnom, ' ', 1)` — que resolve a forma separada
+por espaço ("40067713 ANA CLAUDIA") e não a forma **colada** ("735705Violene
+Badio"), onde o código e o nome são a mesma palavra.
+
+**A regra saiu de uma medição, não de um palpite.** Consultando o banco de
+produção, o `devnom` tem três formas com dígito, e só uma é código:
+
+| forma | exemplos | o que é |
+|---|---|---|
+| 2+ dígitos no início | `40067713 ANA CLAUDIA`, `735705Violene Badio` | código de cadastro (6 a 8 casas) |
+| 1 dígito no início | `7M INSTALACOES`, `3F SERVICOS`, `3C SERVICES`, `3 B S COMERCIO` | **razão social de verdade** |
+| dígito no meio da palavra | `SANT0S`, `C0RREIAS`, `RODRIG8UES` | erro de digitação (zero no lugar do O) |
+
+Daí o corte ser em **2 ou mais**, colado ou não: cortar todo dígito inicial
+transformaria "7M INSTALACOES" em "M INSTALACOES", e limpar o meio da palavra
+produziria "SANTS". O caso `3 B S COMERCIO` devolve `"3"` de propósito, e tem
+teste dizendo isso — é o freio para quem vier "consertar" depois.
+
+**A regra desceu do SQL para o TypeScript** (`primeiroNomeDe`, em
+`lib/siscobra.ts`). Uma regra com exceção precisa de teste, e SQL embutida em
+string não tem nenhum: era exatamente por não ter que a forma colada passou
+despercebida até chegar na cara de um devedor. O nome completo é lido pela
+consulta mas **não entra** no objeto devolvido — o robô precisa só do primeiro,
+e o que não sai daqui não vaza adiante por descuido.
+
+Conferido contra produção antes de fechar: de 14 nomes reais que começam com
+dígito, 13 passaram a sair certos e o 14º é o `3 B S`, que já estava certo.
+
+Testes: 594 → **602**.
+
+
+## 33. Apagar a conversa (e por que não a mensagem)
+
+**Contexto:** teste com um número só, usado muitas vezes. A cada rodada o robô
+já sabia o CPF da rodada anterior e pulava a identificação — o teste seguinte
+nunca começava do começo. O pedido veio como "apagar as mensagens do chatbot".
+
+**A observação que muda o desenho:** a memória do robô não está nas mensagens.
+Está na `Conversa` — `siscobraDevcod`, `identificadaEm`, `cpfPendente`,
+`nascimentoPendente`, `saldo`, `vencidoDesde`, `oferta` e `dossie`, os campos
+que a decisão 32 criou justamente para a conversa não recomeçar a cada fala.
+Apagar as mensagens deixaria a **tela limpa e o robô sabendo de tudo**: o pior
+dos dois mundos, porque some a evidência e fica o efeito. Quem pede para apagar
+mensagem quer que o robô **esqueça**, e esquecer é outra tabela.
+
+Então a operação é apagar a conversa inteira, e a UI diz isso na confirmação —
+lista o que some (CPF, nascimento, saldo, proposta), porque a intuição erra aqui
+e a pessoa apagaria esperando um efeito e teria outro.
+
+**E é isso que resolve a tensão com o append-only.** `ConversaMensagem` declara
+no próprio schema que mensagem enviada ao devedor não se edita nem se apaga — é
+registro de cobrança. A regra continua de pé: o que some não é uma fala escolhida
+a dedo, é o registro inteiro. Apagar mensagem avulsa deixaria um histórico
+**adulterado**, que é pior que histórico nenhum, porque parece íntegro. Uma
+cobrança ou existe como prova inteira, ou não existe.
+
+Três consequências, cada uma com um dono claro:
+
+- **Só ADMIN** — `exigirAdmin`, e não o `exigirChat` das rotas vizinhas. Quem
+  atende não apaga o registro do que disse ao devedor.
+- **Os anexos saem junto.** O arquivo mora fora do banco (decisão 30); sem a
+  linha que aponta para ele, um áudio de devedor ficaria parado no disco sem
+  nada que levasse até lá — ninguém acharia para apagar depois. Banco primeiro,
+  disco depois: enquanto a linha existe o anexo continua sendo servido, então
+  derrubar a linha é o que de fato o tira do alcance. Arquivo já ausente conta
+  como sucesso, não como falha.
+- **A trilha é o que torna aceitável poder apagar:** some a conversa, fica quem
+  mandou sumir. Telefone entra (mesma escolha do PATCH vizinho); CPF, saldo e
+  corpo de mensagem, nunca — auditoria não é lugar de dado de devedor.
+
+O teste que importa não conta linhas apagadas: ele identifica a conversa, apaga,
+entrega **a mesma mensagem do mesmo telefone** e confere que a conversa nova
+nasce sem `siscobraDevcod`, sem `cpfPendente`, sem `saldo` e sem `oferta`. É a
+prova do pedido de verdade, que estava atrás da palavra "mensagens".
+
+Testes: 589 → **594**.

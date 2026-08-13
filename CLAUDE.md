@@ -391,6 +391,15 @@ endereço nem chegam ao modelo), rótulo na saída (`exigeGente`), e o fluxo nã
 ter molde para o caso. A conversa vive em **`lib/chat-fluxo.ts`**, puro e
 testado turno a turno sem banco, sem rede e sem modelo.
 
+**Apagar conversa (decisão 33):** `DELETE /api/chat/conversas/[id]` — **só
+admin** — apaga a conversa inteira: mensagens (cascata), anexos no disco e a
+**memória do robô** (`siscobraDevcod`, `cpfPendente`, `saldo`, `oferta`,
+`dossie`). É conversa e não mensagem de propósito: a memória não está na thread,
+então apagar mensagem deixaria a tela limpa e o robô sabendo de tudo — e
+mensagem avulsa apagada deixaria histórico adulterado, pior que histórico
+nenhum. O append-only de `ConversaMensagem` continua valendo. Fica na auditoria
+quem apagou (telefone sim, CPF nunca).
+
 **Siscobra (decisão 32):** `lib/siscobra.ts` lê o CRM — **somente leitura**,
 quatro consultas fixas e parametrizadas, usuário com `GRANT SELECT` apenas.
 Reverte a fronteira da decisão 28 (o inventário não abria conexão), porque sem
@@ -398,6 +407,13 @@ dado o robô inventava. O dado alimenta molde, **nunca prompt** — é o que man
 a fala do devedor dentro da empresa mesmo com o modelo rodando fora dela. A
 oferta é calculada por `montarOferta` e conferida por `propostaCabeNaRegra`
 antes de virar texto; carteira sem regra ativa não recebe proposta nenhuma.
+O primeiro nome passa por **`primeiroNomeDe`** (decisão 32.3): o `devnom` traz o
+código de cadastro antes do nome, ora separado ("40067713 ANA"), ora **colado**
+("735705Violene") — e o robô cumprimentava "Olá, 760361Gabrieli!". Corta corrida
+de **2+ dígitos**, colada ou não; **1 dígito fica**, porque é razão social
+("7M INSTALACOES", "3C SERVICES", "3 B S COMERCIO"), e dígito no meio da palavra
+também fica, porque é erro de digitação ("SANT0S"). A regra desceu do SQL para o
+TypeScript para poder ter teste.
 
 **O classificador precisa de 3B ou mais.** Medido: `llama3.2:3b` acerta 26/26
 com zero erros perigosos, `llama3.2:1b` faz 10/26 e erra para `saudacao` — o
@@ -413,6 +429,12 @@ recusou. O desenho não impede, mas não deixa invisível — `ehLocal()` decide
 endereço é alcançável da internet (na dúvida responde "fora") e a tela
 `/chat → Conexão` avisa em vermelho. O túnel não expõe o Ollama direto, que não
 tem autenticação nenhuma: um proxy exige `OLLAMA_TOKEN` e libera só duas rotas.
+O **endereço é fixo** desde a emenda de 13/08/2026: o notebook parou de sortear
+o par endereço+token e passou a **lê-lo** do cofre de Secrets do Colab
+(`OLLAMA_TOKEN`, `NGROK_TOKEN`, `NGROK_URL`), com um domínio reservado do ngrok
+no lugar do `trycloudflare`. O `.env` é escrito uma vez; faltando Secret, a
+célula avisa e cai no túnel sorteado de antes. As duas pontas vêm juntas de
+propósito — endereço fixo com token sorteado é 401 sem sintoma.
 
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o

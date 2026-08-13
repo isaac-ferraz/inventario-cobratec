@@ -47,10 +47,20 @@ threading.Thread(target=falso.serve_forever, daemon=True).start()
 # A célula 4 do notebook define OLLAMA; aqui apontamos para o dublê.
 OLLAMA = f"http://127.0.0.1:{PORTA}"
 
-# ── extrai do notebook só o pedaço do proxy (até o download do cloudflared) ───
+# ── extrai do notebook só o pedaço do proxy (o que vem antes do túnel) ────────
+# O corte é uma marca combinada dentro da própria célula, e não um comentário
+# qualquer que por acaso está no meio: o marcador antigo ("# Túnel do
+# Cloudflare") foi parar dentro de um `if` quando o ngrok entrou, e cortar ali
+# passou a produzir um `if` sem corpo — SyntaxError no lugar de teste.
+CORTE = "testa-proxy.py corta a célula NESTA linha"
 nb = json.load(open(NB))
 celula = "".join(nb["cells"][8]["source"])
-proxy = celula.split("# Túnel do Cloudflare")[0]
+if celula.count(CORTE) != 1:
+    raise SystemExit(
+        f"a marca de corte não está exatamente uma vez na célula 4 "
+        f"(achei {celula.count(CORTE)}) — o notebook mudou, ajuste este script"
+    )
+proxy = celula.split(CORTE)[0]
 exec(compile(proxy, "celula-do-proxy", "exec"), globals())
 
 # A célula escolhe a porta na hora e a publica em PORTA; ela também espera o
@@ -98,7 +108,7 @@ confere("nada barrado chegou ao Ollama", vazou, [])
 print("\nchegou ao Ollama:", chamadas)
 
 # ── o leitor de URL do túnel: desiste em vez de pendurar? ─────────────────────
-leitor = celula.split("# Túnel do Cloudflare")[1]
+leitor = celula.split(CORTE)[1]
 tem_prazo = "prazo" in leitor and "queue.Empty" in leitor
 confere("leitor do túnel tem prazo e trata fila vazia", tem_prazo, True)
 padrao = re.search(r'r"(https://[^"]+trycloudflare[^"]+)"', leitor).group(1)

@@ -1,9 +1,11 @@
+import { unlink } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { erro, tratarErroPrisma, validarCorpo } from "@/lib/api";
-import { exigirChat } from "@/lib/autorizacao";
+import { exigirAdmin, exigirChat } from "@/lib/autorizacao";
 import { conversaSituacaoSchema } from "@/lib/validations";
 import { podeMudarSituacao } from "@/lib/conversas";
+import { caminhoDoArquivo } from "@/lib/chat-midia";
 import { registrarAuditoria } from "@/lib/auditoria";
 
 type Params = { params: { id: string } };
@@ -155,4 +157,87 @@ export async function PATCH(req: Request, { params }: Params) {
   } catch (e) {
     return tratarErroPrisma(e);
   }
+}
+
+// DELETE /api/chat/conversas/[id] — apaga a conversa inteira.
+//
+// **Por que a conversa e não a mensagem.** `ConversaMensagem` é append-only por
+// decisão ("mensagem enviada ao devedor não se edita nem se apaga — é registro
+// de cobrança"), e nada aqui afrouxa isso: o que some não é uma fala escolhida a
+// dedo, é o registro inteiro. Apagar mensagem avulsa deixaria um histórico
+// adulterado, que é pior que histórico nenhum — parece íntegro. Uma cobrança ou
+// existe como prova inteira, ou não existe.
+//
+// **E é o que resolve o problema que a pediu.** Ela nasceu do teste: um número
+// só, usado muitas vezes, e o robô lembrando o CPF da rodada anterior. Essa
+// lembrança NÃO está nas mensagens — mora em `siscobraDevcod`, `identificadaEm`,
+// `cpfPendente`, `nascimentoPendente`, `saldo`, `oferta` e `dossie`, todos
+// campos da própria `Conversa` (decisão 32, a memória entre um turno e o
+// seguinte). Apagar só as mensagens deixaria a tela limpa e o robô sabendo de
+// tudo — o pior dos dois mundos. Some a linha, some a memória.
+//
+// **Só ADMIN**, e não `exigirChat` como as rotas vizinhas: quem atende não apaga
+// o registro do que disse ao devedor. Poder apagar é decisão do TI.
+export async function DELETE(req: Request, { params }: Params) {
+  const auth = await exigirAdmin(req);
+  if ("resposta" in auth) return auth.resposta;
+
+  const conversa = await prisma.conversa.findUnique({
+    where: { id: params.id },
+    select: {
+      id: true,
+      telefone: true,
+      mensagens: { select: { midiaArquivo: true } },
+    },
+  });
+  if (!conversa) return erro("Conversa não encontrada.", 404);
+
+  // Os nomes dos anexos são lidos ANTES do delete. Depois da cascata não sobra
+  // linha apontando para o arquivo, e anexo órfão é áudio ou foto de devedor
+  // parado no disco (decisão 30: o arquivo mora fora do banco) sem nada que
+  // leve até ele — ninguém acharia para apagar depois.
+  const arquivos = conversa.mensagens
+    .map((m) => m.midiaArquivo)
+    .filter((a): a is string => Boolean(a));
+
+  try {
+    // Cascata leva as mensagens junto (onDelete: Cascade no schema).
+    await prisma.conversa.delete({ where: { id: conversa.id } });
+  } catch (e) {
+    return tratarErroPrisma(e);
+  }
+
+  // Banco primeiro, disco depois: enquanto a linha existe o anexo continua
+  // sendo servido pela rota de mídia, então derrubar a linha é o que de fato
+  // tira o arquivo do alcance. Falhar aqui não desfaz o apagamento — vira ruído
+  // no log, que é o pior caso aceitável.
+  let sobraram = 0;
+  for (const arquivo of arquivos) {
+    const caminho = caminhoDoArquivo(arquivo);
+    if (!caminho) continue;
+    try {
+      await unlink(caminho);
+    } catch (e) {
+      // Arquivo que já não existe é sucesso, não falha: o download pode ter
+      // fracassado lá atrás sem derrubar a fala (decisão 30).
+      if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        sobraram++;
+        console.warn(`[chat] anexo não apagado: ${arquivo}`);
+      }
+    }
+  }
+
+  // A trilha é o que torna aceitável poder apagar: some a conversa, fica quem
+  // mandou sumir. Telefone entra (mesma escolha do PATCH acima); CPF, saldo e
+  // corpo de mensagem, nunca — a auditoria não é lugar de dado de devedor.
+  await registrarAuditoria(req, {
+    acao: "remover",
+    entidade: "Conversa",
+    entidadeId: conversa.id,
+    descricao:
+      `Conversa com ${conversa.telefone} apagada` +
+      (arquivos.length ? ` (${arquivos.length} anexo(s))` : ""),
+  });
+
+  return NextResponse.json({ ok: true, anexosRemovidos: arquivos.length - sobraram });
 }

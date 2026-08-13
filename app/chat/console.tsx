@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Smartphone,
+  Trash2,
   User,
   UserCheck,
 } from "lucide-react";
@@ -203,6 +204,37 @@ export function ConsoleConversas({
     try {
       await apiSend(`/api/chat/conversas/${id}`, "PATCH", { situacao });
       await Promise.all([carregar(), carregarConversa(id)]);
+    } catch (e) {
+      toastErro(mensagem(e));
+    }
+  }
+
+  // Apagar a conversa inteira — some a thread, os anexos e a memória do robô.
+  //
+  // A descrição da confirmação diz o que some porque a intuição erra aqui: quem
+  // pede "apagar as mensagens" quer, na verdade, que o robô ESQUEÇA — e o que
+  // ele sabe (CPF, saldo, proposta) não está na thread, está na conversa. Sem
+  // dizer isso, a pessoa apagaria esperando um efeito e teria outro.
+  async function apagarConversa(id: string, rotulo: string) {
+    const ok = await confirmar({
+      titulo: `Apagar a conversa com ${rotulo}?`,
+      descricao:
+        "Somem as mensagens, os anexos e a memória do robô — CPF, data de " +
+        "nascimento, saldo e a proposta que ele fez. O número volta a ser " +
+        "tratado como quem nunca escreveu. Não dá para desfazer.",
+      confirmar: "Apagar",
+      destrutivo: true,
+    });
+    if (!ok) return;
+    try {
+      await apiSend(`/api/chat/conversas/${id}`, "DELETE");
+      setAbertaId(null);
+      await carregar();
+      toast({
+        titulo: "Conversa apagada",
+        descricao: "O número volta a ser tratado como quem nunca escreveu.",
+        variante: "sucesso",
+      });
     } catch (e) {
       toastErro(mensagem(e));
     }
@@ -421,6 +453,25 @@ export function ConsoleConversas({
                   papel={papel}
                   onMudar={(s) => void mudarSituacao(aberta.id, s)}
                 />
+                {/* Fora de `AcoesDaConversa` de propósito: aquele bloco some
+                    quando a conversa encerra, e encerrada é justamente quando
+                    mais se quer apagar. Só admin — a API recusa o resto. */}
+                {papel === "ADMIN" && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    title="Apagar a conversa e a memória do robô"
+                    onClick={() =>
+                      void apagarConversa(
+                        aberta.id,
+                        aberta.nome || formatarTelefone(aberta.telefone),
+                      )
+                    }
+                  >
+                    <Trash2 className="h-4 w-4" /> Apagar
+                  </Button>
+                )}
               </div>
             </div>
 

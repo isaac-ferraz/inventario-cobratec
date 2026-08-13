@@ -305,10 +305,16 @@ python3 docs/conversas/colab/testa-proxy.py
 
 Ele extrai a célula do proxy do **próprio** notebook e a exercita contra um
 Ollama de mentira (sem token, token errado, rota fora da lista), conferindo que
-o que foi barrado não chegou do outro lado. Mexeu na célula, rode isto. Some com a sessão do Colab: o endereço
-**muda a cada execução**, a sessão cai depois de ~90 min ociosa e tem teto de
-~12h. Quando cair, ou você atualiza as três variáveis, ou apaga `OLLAMA_URL` e o
-atendimento volta inteiro para a fila da operadora — sem quebrar nada.
+o que foi barrado não chegou do outro lado. Mexeu na célula, rode isto — o corte
+é uma marca explícita dentro dela, e o script recusa rodar sem a marca.
+
+Some com a sessão do Colab: ela cai depois de ~90 min ociosa e tem teto de ~12h.
+O **endereço**, esse, não muda mais: os três Secrets do Colab (`OLLAMA_TOKEN`,
+`NGROK_TOKEN`, `NGROK_URL`) mantêm o mesmo domínio reservado do ngrok em toda
+sessão, e o `.env` é escrito uma vez. Sem os Secrets cadastrados, a célula avisa
+e volta ao túnel sorteado do Cloudflare, que muda a cada execução. Quando a
+sessão cair, é só rodar as células de novo — ou apagar `OLLAMA_URL`, e o
+atendimento volta inteiro para a fila da operadora, sem quebrar nada.
 
 ### Quando o chatbot entrar
 

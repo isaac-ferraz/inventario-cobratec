@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { POST as webhook } from "@/app/api/chat/webhook/route";
 import { GET as listar } from "@/app/api/chat/conversas/route";
 import {
+  DELETE as apagarConversa,
   GET as detalhar,
   PATCH as mudarSituacao,
 } from "@/app/api/chat/conversas/[id]/route";
@@ -470,5 +471,96 @@ describe("detalhe da conversa", () => {
     );
     expect(status).toBe(200);
     expect(corpo.dossie).toBeNull();
+  });
+});
+
+// Apagar a conversa (o "recomeço" que o teste com um número só exige).
+//
+// O que se protege aqui é a diferença que motivou a rota: apagar NÃO é limpar a
+// tela, é fazer o robô esquecer. A memória dele mora na `Conversa`, não nas
+// mensagens — então o teste que importa é o de baixo, o que prova que o número
+// volta a ser tratado como quem nunca escreveu.
+describe("apagar a conversa", () => {
+  let id: string;
+
+  beforeEach(async () => {
+    await entregar({ ...MSG, escalar: true });
+    id = (await prisma.conversa.findFirst())!.id;
+  });
+
+  const apagar = async (usuario: UsuarioTeste, alvo = id) =>
+    ler(
+      await apagarConversa(
+        await requisicao("DELETE", `/api/chat/conversas/${alvo}`, { usuario }),
+        { params: { id: alvo } },
+      ),
+    );
+
+  it("cobrança não apaga o registro do que disse ao devedor", async () => {
+    const { status } = await apagar(cobranca);
+    expect(status).toBe(403);
+    expect(await prisma.conversa.count()).toBe(1);
+  });
+
+  it("o admin apaga, e as mensagens vão junto pela cascata", async () => {
+    expect(await prisma.conversaMensagem.count()).toBeGreaterThan(0);
+    const { status } = await apagar(admin);
+    expect(status).toBe(200);
+    expect(await prisma.conversa.count()).toBe(0);
+    expect(await prisma.conversaMensagem.count()).toBe(0);
+  });
+
+  it("o robô esquece: o mesmo telefone volta sem identificação nem oferta", async () => {
+    // O estado que atrapalha o teste com número único não está na thread —
+    // está aqui, em campos da conversa (decisão 32).
+    await prisma.conversa.update({
+      where: { id },
+      data: {
+        siscobraDevcod: 4242,
+        identificadaEm: new Date(),
+        cpfPendente: "12345678909",
+        nascimentoPendente: "1980-05-04",
+        saldo: 1500.5,
+        oferta: JSON.stringify({ parcelas: 3 }),
+        dossie: JSON.stringify({ nome: "Fulano" }),
+      },
+    });
+
+    expect((await apagar(admin)).status).toBe(200);
+
+    // Mesma pessoa escrevendo de novo: nasce uma conversa limpa.
+    await entregar(MSG);
+    const nova = await prisma.conversa.findUnique({
+      where: { telefone: "5512997654321" },
+    });
+    expect(nova).not.toBeNull();
+    expect(nova!.id).not.toBe(id);
+    expect(nova!.siscobraDevcod).toBeNull();
+    expect(nova!.identificadaEm).toBeNull();
+    expect(nova!.cpfPendente).toBeNull();
+    expect(nova!.saldo).toBeNull();
+    expect(nova!.oferta).toBeNull();
+    expect(nova!.dossie).toBeNull();
+  });
+
+  it("fica na auditoria quem mandou sumir — e sem dado do devedor", async () => {
+    await prisma.conversa.update({
+      where: { id },
+      data: { cpfPendente: "12345678909" },
+    });
+    await apagar(admin);
+
+    const log = await prisma.logAuditoria.findFirst({
+      where: { entidade: "Conversa", acao: "remover" },
+    });
+    expect(log).not.toBeNull();
+    expect(log!.descricao).toMatch(/apagada/);
+    // Telefone pode (a rota vizinha já registra); CPF, nunca.
+    expect(log!.descricao).not.toMatch(/12345678909/);
+  });
+
+  it("id inexistente responde 404", async () => {
+    const { status } = await apagar(admin, "nao-existe");
+    expect(status).toBe(404);
   });
 });
