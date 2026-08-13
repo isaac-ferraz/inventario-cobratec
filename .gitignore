@@ -3,6 +3,11 @@ node_modules
 out
 *.log
 .env
+# Qualquer variação (.env.bak, .env.producao, .env.anterior-...) — um backup do
+# .env foi commitado por descuido e levou junto senha do Siscobra, AUTH_SECRET e
+# a chave do gateway. Um padrão só evita repetir.
+.env.*
+!.env.example
 prisma/dev.db
 prisma/dev.db-journal
 prisma/dev.db-wal

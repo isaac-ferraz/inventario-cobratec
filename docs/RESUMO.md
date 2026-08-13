@@ -280,6 +280,15 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     inventava. Testes: 554 → **568**.
 
 ### O que sobrou para depois
+
+> Fora do chatbot, o que segura o projeto hoje não é código — é **onde ele
+> mora**. Os três primeiros itens são o mesmo problema visto de ângulos
+> diferentes: o sistema roda num notebook que vai para casa.
+
+- **Enviar o que existe para o GitHub.** São 17 commits que só existem nesta
+  máquina, e `origin/main` está em `86a2792` — antes até dos "commits atrasados".
+  Perder o disco é perder tudo, e a CI nunca rodou porque nunca houve push.
+  **Antes de empurrar**, resolver o item do histórico abaixo.
 - **Deploy**: `docs/deploy.md` está escrito (Oracle Always Free + Docker), mas o
   sistema ainda roda só em LAN — falta escolher e provisionar o host.
 - **Agendar o backup de verdade**: o mecanismo e o passo a passo estão prontos
@@ -288,21 +297,11 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
   impedimento (layout empilha em `md:`, tabelas rolam no próprio container), mas
   falta olhar numa tela de celular de verdade — fonte, diálogos e alvo de toque
   (13 dos 39 alvos ficam abaixo de 36px). Ver o fim da decisão 25.
-- **O chatbot que negocia**: o número conecta, a conversa acontece e o robô
-  local já **tria** (decisão 31) — mas quem fala de dívida é gente, porque ele
-  não tem dado nenhum. Falta montar os dois fluxos do n8n, a credencial de
-  leitura do Siscobra e os prompts — tudo escrito em
-  [`docs/conversas/`](./conversas/README.md), nada disso muda o desenho do papel
-  `COBRANCA` (decisão 27) nem a fronteira da decisão 28.
 - **Uma máquina com GPU dentro da rede.** Isto deixou de ser preferência e virou
   requisito: o classificador precisa de 3B (o 1B faz 10/26 e erra para o lado do
   robô), e o Colab é caminho de teste — sessão que cai, endereço que muda. Com o
   desenho da decisão 32 o dado do devedor não vai ao modelo, então o Colab é
   aceitável para medir; para atender de verdade, o modelo mora aqui.
-- **Ligar o Siscobra pela primeira vez**: as consultas de `lib/siscobra.ts` foram
-  escritas a partir do SQL validado em 21/07, mas **não foram rodadas contra o
-  banco**. Antes de ligar, confirme que o usuário do `.env` tem só `GRANT SELECT`
-  — de preferência um usuário criado para isto.
 - **Ver a conversa acontecer com gente real** e reler os motivos de
   escalonamento depois de uns dias: é assim que se descobre se o robô está
   parando cedo demais ou tarde demais.
