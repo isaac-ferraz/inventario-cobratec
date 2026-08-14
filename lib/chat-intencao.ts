@@ -21,9 +21,15 @@
 // O ganho de conversa vem de graça: como cada resposta é um molde, o robô pode
 // sustentar muitos turnos sem que o risco cresça a cada um.
 
+import {
+  extrairDocumento,
+  extrairNome,
+  normalizarDocumento,
+} from "@/lib/identificacao";
+
 export const INTENCOES = [
   "saudacao",          // "oi", "bom dia"
-  "identificar",       // mandou CPF e/ou nascimento
+  "identificar",       // mandou documento e/ou nome do titular
   "consultar_saldo",   // "quanto eu devo?", "qual meu débito?"
   "quer_negociar",     // "dá pra parcelar?", "tem desconto?"
   "aceita",            // "pode ser", "fechado"
@@ -63,7 +69,7 @@ export function exigeGente(i: Intencao): boolean {
  * O que o modelo devolve. Note o que NÃO tem aqui: nenhum campo de texto livre
  * que chegue ao devedor.
  *
- * `cpf` e `nascimento` são a única coisa que o modelo extrai, e são dados que a
+ * `documento` e `nome` são a única coisa que o modelo extrai, e são dados que a
  * PRÓPRIA pessoa acabou de digitar — o modelo não os inventa, só os recorta da
  * mensagem. Ainda assim eles passam por validação de formato aqui e por
  * conferência no banco depois: se o modelo recortar errado, a consulta não acha
@@ -71,107 +77,46 @@ export function exigeGente(i: Intencao): boolean {
  */
 export type Leitura = {
   intencao: Intencao;
-  cpf: string | null;
-  nascimento: string | null; // AAAA-MM-DD
+  /** Só dígitos: 11 (CPF) ou 14 (CNPJ). */
+  documento: string | null;
+  /** Nome do titular como a pessoa digitou; quem confere é `nomeConfere`. */
+  nome: string | null;
   /** Quantas parcelas a pessoa pediu, quando disse um número. */
   parcelas: number | null;
+  /**
+   * O modelo respondeu?
+   *
+   * `false` quando ele está fora do ar, estourou o tempo ou devolveu formato
+   * quebrado. A conversa vai para gente nos dois casos — o que muda é o MOTIVO
+   * que a operadora lê na fila. Sem isto, robô caído aparecia como "assunto fora
+   * do que o robô atende", e a fila enchia de um diagnóstico errado enquanto
+   * ninguém percebia que o modelo tinha morrido.
+   *
+   * Obrigatório, e não opcional, pelo mesmo motivo de `aviso` em `Acao`: o
+   * compilador cobra de quem construir uma `Leitura` nova.
+   */
+  respondeu: boolean;
 };
 
-const SO_DIGITOS = /\D/g;
+// `cpfValido`, `normalizarNascimento` e o recorte de CPF saíram daqui na decisão
+// 34: a identificação deixou de ser CPF + nascimento e virou documento + nome,
+// e as duas regras novas (CPF **ou** CNPJ, e a conferência do nome) moram em
+// `lib/identificacao.ts`. Manter cópias aqui era o convite para elas divergirem
+// — foi assim que a lista de papéis divergiu uma vez (decisão 25.1).
 
 /**
- * CPF válido pelos dígitos verificadores.
- *
- * Conferir o dígito antes de consultar o banco não é preciosismo: sem isso,
- * cada digitação errada vira uma consulta e um "não encontrei", e a conversa
- * morre num vaivém que parece desconfiança da empresa. Com a conferência, o
- * robô sabe distinguir "digitou errado" de "não é cliente" — e são respostas
- * diferentes.
- */
-export function cpfValido(bruto: string): boolean {
-  const d = bruto.replace(SO_DIGITOS, "");
-  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
-
-  for (const [ate, pos] of [
-    [9, 10],
-    [10, 11],
-  ] as const) {
-    let soma = 0;
-    for (let i = 0; i < ate; i++) soma += Number(d[i]) * (pos - i);
-    const resto = (soma * 10) % 11 % 10;
-    if (resto !== Number(d[ate])) return false;
-  }
-  return true;
-}
-
-/**
- * Data de nascimento em vários formatos brasileiros → `AAAA-MM-DD`.
- *
- * Devolve `null` para data que o calendário não tem (31/02) em vez de deixar o
- * `Date` rolar para 03/03 — o mesmo defeito corrigido na decisão 25, e aqui
- * seria pior: uma data rolada consultaria o banco por outra pessoa.
- */
-export function normalizarNascimento(bruto: string): string | null {
-  const t = (bruto ?? "").trim();
-  const br = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/.exec(t);
-  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
-  const seco = /^(\d{2})(\d{2})(\d{4})$/.exec(t);
-
-  let ano: number, mes: number, dia: number;
-  if (br) [dia, mes, ano] = [+br[1], +br[2], +br[3]];
-  else if (seco) [dia, mes, ano] = [+seco[1], +seco[2], +seco[3]];
-  else if (iso) [ano, mes, dia] = [+iso[1], +iso[2], +iso[3]];
-  else return null;
-
-  if (mes < 1 || mes > 12 || dia < 1) return null;
-  const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
-  if (dia > ultimo) return null;
-  // Gente viva: nascimento fora desta janela é digitação errada, não pessoa.
-  const agora = new Date().getUTCFullYear();
-  if (ano < 1900 || ano > agora - 15) return null;
-
-  return `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
-}
-
-/**
- * Acha CPF e nascimento na mensagem sem depender do modelo.
+ * Acha documento e nome na mensagem sem depender do modelo.
  *
  * Roda ANTES da classificação, e o que ela achar tem precedência sobre o que o
  * modelo disser: uma expressão regular não confunde 11 dígitos, e um modelo de
  * 1B confunde. O modelo só ajuda quando a pessoa escreve por extenso.
  */
 export function extrairDados(texto: string): {
-  cpf: string | null;
-  nascimento: string | null;
+  documento: string | null;
+  nome: string | null;
 } {
-  const t = texto ?? "";
-
-  // O padrão é a FORMA do CPF (3-3-3-2, separador opcional), com fronteira de
-  // dígito dos dois lados. Um `\d[\d.\s-]{9,17}\d` guloso parece equivalente e
-  // não é: em "52998224725 12/04/1985" ele atravessa o espaço, junta o começo
-  // da data e devolve 13 dígitos — que não são CPF nenhum, e a pessoa fica
-  // ouvindo "me manda seu CPF" depois de já ter mandado.
-  let cpf: string | null = null;
-  for (const m of t.matchAll(
-    /(?<!\d)\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[.\s-]?\d{2}(?!\d)/g,
-  )) {
-    const d = m[0].replace(SO_DIGITOS, "");
-    if (d.length === 11 && cpfValido(d)) {
-      cpf = d;
-      break;
-    }
-  }
-
-  let nascimento: string | null = null;
-  for (const m of t.matchAll(/\b\d{1,2}[/\-.]\d{1,2}[/\-.]\d{4}\b/g)) {
-    const n = normalizarNascimento(m[0]);
-    if (n) {
-      nascimento = n;
-      break;
-    }
-  }
-
-  return { cpf, nascimento };
+  const doc = extrairDocumento(texto ?? "");
+  return { documento: doc?.digitos ?? null, nome: extrairNome(texto ?? "") };
 }
 
 /**
@@ -201,14 +146,12 @@ export function lerSaidaDoModelo(bruta: unknown, mensagem: string): Leitura {
 
   // O que a regex achou vence o que o modelo disse.
   const achado = extrairDados(mensagem);
-  const cpfModelo =
-    typeof dados.cpf === "string" && cpfValido(dados.cpf)
-      ? dados.cpf.replace(SO_DIGITOS, "")
+  const docModelo =
+    typeof dados.documento === "string"
+      ? (normalizarDocumento(dados.documento)?.digitos ?? null)
       : null;
-  const nascModelo =
-    typeof dados.nascimento === "string"
-      ? normalizarNascimento(dados.nascimento)
-      : null;
+  const nomeModelo =
+    typeof dados.nome === "string" ? extrairNome(dados.nome) : null;
 
   const parcelas =
     typeof dados.parcelas === "number" &&
@@ -220,8 +163,11 @@ export function lerSaidaDoModelo(bruta: unknown, mensagem: string): Leitura {
 
   return {
     intencao,
-    cpf: achado.cpf ?? cpfModelo,
-    nascimento: achado.nascimento ?? nascModelo,
+    documento: achado.documento ?? docModelo,
+    nome: achado.nome ?? nomeModelo,
+    // Chegou até aqui: o modelo respondeu, mesmo que com rótulo desconhecido —
+    // que vira `outro` acima, e `outro` é gente por decisão, não por falha.
+    respondeu: true,
     parcelas,
   };
 }
@@ -247,7 +193,7 @@ Responda SÓ com JSON: {"intencao":"<rótulo>","parcelas":<número ou null>}
 
 Use EXATAMENTE um destes rótulos:
 saudacao - cumprimento, "oi", "bom dia"
-identificar - mandou CPF, data de nascimento ou nome para se identificar
+identificar - mandou CPF, CNPJ ou nome para se identificar
 consultar_saldo - quer saber quanto deve, qual o valor, qual a dívida
 quer_negociar - quer parcelar, desconto, acordo, "como faço para pagar"
 aceita - concorda com o que foi oferecido

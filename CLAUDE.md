@@ -319,6 +319,18 @@ caminhos de escrita (POST, PATCH e importação) — sair de `COBRANCA` zera. A 
 `/chat` está em **fase 0**: portão e lugar prontos, serviço de WhatsApp e dossiê
 do Siscobra ainda por ligar.
 
+**Identificação: documento + nome (decisão 34).** A dupla verificação deixou de
+ser CPF + nascimento: as **2.532 empresas** do Siscobra têm
+`devdatnas = 0001-01-01` (sentinela), então nenhuma conseguia se identificar.
+Agora é **CPF + nome do titular** ou **CNPJ + razão social**, com a conferência
+em `lib/identificacao.ts` (`nomeConfere`): **dois pedaços quaisquer**, ignorando
+acento, caixa, partícula, letra solta e sufixo de razão social. O preço está
+dito: razão social é pública, então para PJ o segundo fator é mais fraco. A
+recusa **não diz** qual metade falhou. E o nome só é lido como nome **quando o
+robô espera um** (documento pendente, documento na mesma mensagem, ou intenção
+`identificar`) — sem isso "bom dia, tudo bem" virava identificação, porque data
+tem forma e nome não tem.
+
 **Chatbot de cobrança (decisão 28):** o `/chat` da decisão 27 ganhou serviço.
 Modelos `Conversa` (telefone como identidade, `situacao` bot|fila|humana|
 encerrada, `siscobraDevcod`/`identificadaEm`, `dossie` JSON em texto) e
@@ -435,6 +447,36 @@ o par endereço+token e passou a **lê-lo** do cofre de Secrets do Colab
 no lugar do `trycloudflare`. O `.env` é escrito uma vez; faltando Secret, a
 célula avisa e cai no túnel sorteado de antes. As duas pontas vêm juntas de
 propósito — endereço fixo com token sorteado é 401 sem sintoma.
+
+**Relatórios: o dashboard virou dois (decisão 35).** "Dashboard" deixou de ser
+uma tela e virou uma **chave de duas posições** no cabeçalho: **Informática** (o
+painel de sempre, em `/`) e **Cobrança** (`/relatorios/cobranca`), que lê o
+**Siscobra** e responde a pergunta que a operação faz o dia inteiro — quantos
+acordos fecharam hoje, por equipe, por carteira, **hora a hora**, em visão
+resumida ou detalhada. Todo filtro vive na URL, então o recorte é um link.
+
+As regras de KPI **não foram inventadas aqui**: vieram do projeto irmão
+`siscobra_postgresql`, conferidas contra os PDFs que o próprio Siscobra imprime
+(acordos 104/104, acionamentos 100%). O que se aproveitou é justamente o que
+ninguém adivinha, porque **a coluna de nome óbvio é a errada**: valor é
+`acovalatu` (com juros/multa) e não `acoval`; a data é `acodatinc` (gravação
+real) e não `acodatcad`; o acordo é creditado a `retusucod` da última ação manual
+(quem trabalhou o caso) e não a `acousuinc` (quem digitou); acionamento é
+`rettip = 0` (o `7` é o discador, ~95% de 55M linhas), pelo `usucod`. Acordo e
+acionamento usam as colunas de usuário **trocadas entre si** — de propósito.
+Tudo em `lib/relatorios-cobranca.ts`, uma varredura por consulta
+(`GROUPING SETS` devolve operadora + carteira + hora + total de uma vez).
+
+O portão é **`exigirRelatorio`** (admin **e supervisor**), e ele não reabre a
+porta que a decisão 27 fechou: o relatório agrega **produção de funcionário**,
+sem nome, CPF ou dívida de devedor. A operadora de `COBRANCA` fica de fora — o
+relatório é um ranking nominal das colegas. O supervisor vê o painel **inteiro**,
+sem recorte de sala: `Sala` é do inventário, `grupo` é do Siscobra, e os dois
+nunca foram ligados — o recorte é o filtro de equipe. Período em
+`lib/relatorios.ts`, puro e testado: "hoje" calculado no **fuso do Brasil** (o
+container sobe em UTC e o painel zeraria às 21h) e teto de **92 dias**, porque o
+CRM é produção. Fora de propósito: recuperação (a fonte ainda é disputada — D-003
+vs D-009 no projeto irmão), percentuais de conversão (D-005) e exportação Excel.
 
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o

@@ -1957,3 +1957,294 @@ nasce sem `siscobraDevcod`, sem `cpfPendente`, sem `saldo` e sem `oferta`. É a
 prova do pedido de verdade, que estava atrás da palavra "mensagens".
 
 Testes: 589 → **594**.
+
+## 34. A dupla verificação virou documento + nome do titular
+
+**O que motivou:** olhando o Siscobra para outro conserto (32.3), apareceu que as
+**2.532 empresas** do cadastro têm `devdatnas = 0001-01-01` — a sentinela de "não
+tem data", a mesma armadilha já documentada em `convenmaisantigo`. Empresa não
+nasce. Com nascimento como segundo fator, **nenhuma delas conseguia se
+identificar**: o robô pedia um dado que não existe e a conversa ia para a fila,
+sempre. Não era um caso de borda; era um sexto do cadastro fora do robô.
+
+A trava continua sendo dupla — mudou o segundo fator. CPF + nome do titular,
+CNPJ + razão social: pessoa física e jurídica passam pela mesma porta.
+
+**A regra de conferência: dois pedaços quaisquer** (`nomeConfere`, em
+`lib/identificacao.ts`). Ordem trocada passa, nome do meio omitido passa,
+"Gabrieli" sozinho não passa. Foi escolha entre uma conferência exata — que
+recusaria quem digita "Gabrieli Sousa" em vez do nome inteiro — e esta, que troca
+rigor por identificação que acontece. Dois e não um porque "SILVA" bate com
+dezenas de milhares de cadastros, e o primeiro nome é o que qualquer parente
+sabe. Não contam como pedaço: partícula (DE, DA, DOS), letra solta, corrida de
+dígitos e sufixo de razão social — LTDA + ME bateria em qualquer empresa do
+banco. Cadastro de uma palavra só ("735705Violene") exige aquele único pedaço,
+porque exigir dois seria exigir o impossível.
+
+**O preço, dito em voz alta:** razão social é informação **pública** (consulta na
+Receita). Para empresa, o segundo fator é mais fraco do que era. A escolha foi
+feita sabendo disso, porque empresa travada é empresa que não negocia. Se um dia
+doer, o conserto é um terceiro dado não público (valor da última fatura), e não
+voltar ao nascimento — que empresa nenhuma tem.
+
+**O defeito que o segundo fator novo trouxe, e que o teste pegou.** Data se
+reconhece sozinha: "12/04/1985" só pode ser uma data. **Nome não tem forma
+nenhuma** — qualquer frase com duas palavras parece um. Na primeira versão,
+"bom dia, tudo bem?" era lido como identificação e o robô respondia "recebi o
+nome, agora me envie seu CPF" a quem só tinha cumprimentado. Quem quebrou foi o
+teste do modo direto, que exige a saudação sair de molde.
+
+O conserto não foi apertar a detecção — foi trocar quem decide. **O nome só conta
+quando o robô está esperando um**: há documento pendente, o documento veio na
+mesma mensagem, ou o classificador disse "identificar". Quem qualifica aquilo
+como nome é o **contexto**, não o formato. Tem teste de regressão nos dois
+sentidos: frase comum não vira nome, e com documento pendente a frase seguinte
+vira.
+
+**Onde a conferência mora.** No TypeScript, não no SQL. A consulta traz os
+candidatos pelo documento e `nomeConfere` decide quem passa — nada é revelado
+antes disso. É a mesma lição da 32.3: regra com exceção precisa de teste, e
+`LIKE` dentro de string não tem nenhum.
+
+**Recusa não diz qual metade falhou.** "Documento não existe" e "nome não
+confere" respondem a mesma coisa. Distinguir entregaria, a quem só tem uma lista
+de CPFs, a informação de que aquele CPF é de devedor nosso — que é exatamente o
+que a dupla verificação existe para impedir.
+
+Saíram junto `cpfValido` e `normalizarNascimento` de `chat-intencao.ts`: viraram
+código morto, e as regras novas moram em `lib/identificacao.ts`. Manter cópias
+seria o convite para divergirem, como a lista de papéis divergiu uma vez (25.1).
+
+O prompt do classificador mudou uma linha ("CPF, data de nascimento ou nome" →
+"CPF, CNPJ ou nome") e **foi medido de novo**, contra o modelo de verdade, como o
+próprio arquivo manda: **26/26 certos, 0 erros perigosos, média 1,1s**.
+
+Migration: `documentoPendente` e `nomePendente` no lugar de `cpfPendente` e
+`nascimentoPendente`.
+
+Testes: 602 → **624**.
+
+### 34.1 — O robô parou de gritar com o devedor
+
+O primeiro atendimento de verdade devolveu **"Olá, PEDRO!"**. O Siscobra guarda o
+nome em caixa alta, o molde emendava direto, e caixa alta em mensagem é grito —
+na conversa de alguém que está sendo cobrado, isso tem custo.
+
+A abertura virou **"Pedro, aqui é a Cobratec…"**: chama pela pessoa, sem o "Olá,
+NOME!". Sem nome no cadastro, continua "Olá! Aqui é…".
+
+Três detalhes que a mudança trouxe, e cada um tem teste:
+
+- **A maiúscula depois da vírgula.** Emendar "Pedro, " num texto que começava em
+  maiúscula produzia "Pedro, Localizei…". Por isso `abrir()` recebe a frase em
+  minúscula e decide a caixa — sem nome, ela vira o começo da mensagem.
+- **`nomeProprio` capitaliza só letra.** Um `toLowerCase` seco transformaria a
+  razão social "7M" em "7m" (as que começam com dígito existem — decisão 32.3).
+- **Só a primeira palavra.** Depois de identificado o nome já vem assim, mas
+  ANTES o que existe é o `pushName` do WhatsApp, texto livre escrito pela pessoa
+  no próprio aparelho: "Isaac Ferraz - Cobratec" é um real, visto em teste, e
+  emendá-lo daria "Isaac Ferraz - Cobratec, aqui é a Cobratec…".
+
+Fica anotado o que **não** mudou, porque foi levantado e não decidido: antes da
+identificação, quem nomeia é o pushName — e o robô chama a pessoa pelo nome logo
+antes de dizer "preciso ter certeza de que é você mesmo". Não vaza nada nosso (o
+nome é o que a própria pessoa pôs no aparelho), mas soa contraditório, e no teste
+os dois nem batiam: saudou "Isaac" e o cadastro era "Pedro".
+
+Testes: 624 → **631**.
+
+### 34.2 — O robô virou eco no primeiro teste com gente
+
+A conversa real:
+
+```
+[devedor]  olá
+[robô]     Isaac, aqui é a Cobratec. Posso ajudar com sua negociação por aqui mesmo.
+[devedor]  boa tarde
+[robô]     Isaac, aqui é a Cobratec. Posso ajudar com sua negociação por aqui mesmo.
+```
+
+**A mesma frase, palavra por palavra.** Eco é a forma mais rápida de alguém
+perceber que fala com máquina e desistir — e em cobrança, desistir é o resultado
+que custa. O robô não tinha como evitar: nada na `Conversa` registrava que ele já
+havia cumprimentado, então cada saudação era a primeira.
+
+Entrou `saudacoes` (contador, não booleano) e o ramo passou a ter três estados:
+
+1. **primeira** — a saudação de boas-vindas;
+2. **segunda** — outra frase, mais curta, apontando o que dá para pedir;
+3. **terceira** — **escala**. Inventar uma terceira frase seria o mesmo defeito
+   com outra roupa; quem cumprimenta três vezes sem dizer o que quer está
+   esperando uma pessoa.
+
+**E a frase de abertura mudou de natureza.** Ela era um aviso — dizia o que a
+empresa faz e deixava a pessoa sem nada para responder. Agora **termina em
+pergunta**: "Posso verificar se há algo em aberto no seu nome e resolver com você
+por aqui mesmo, sem precisar de ligação. Quer que eu dê uma olhada?". Silêncio
+depois da primeira mensagem é a conversa morrendo, e pergunta é o que a mantém.
+
+O que ela continua **não** dizendo: que existe dívida. Antes de conferir
+documento e nome não se sabe com quem se fala, e afirmar pendência a quem herdou
+a linha conta a um estranho que o antigo dono devia — o mesmo vazamento que
+manteve a consulta por telefone fora de `lib/siscobra.ts`. Tem teste para isso,
+porque é o tipo de frase que alguém "melhora" sem perceber o que quebra.
+
+Testes: 631 → **639**.
+
+### 34.3 — Robô caído não pode parecer devedor estranho
+
+Segundo teste com gente: "olá" recebeu **"Só um momento que uma atendente entra
+aqui na conversa."** Escalar estava certo — a sessão do Colab tinha caído e o
+túnel respondia 530, então o modelo não respondeu e o caminho do erro é o
+caminho seguro, como projetado.
+
+**Errado estava o motivo.** Qualquer falha do modelo virava `outro`, e `outro`
+tem motivo "assunto fora do que o robô atende". Ou seja: com o robô morto, a
+fila enchia dizendo que o **devedor** falou algo fora do escopo. A operadora
+procuraria o problema na fala da pessoa, e o TI não veria pela fila que o modelo
+tinha caído — o diagnóstico apontava para o lugar errado.
+
+`Leitura` ganhou `respondeu: boolean`, **obrigatório** (mesma razão do `aviso` em
+`Acao`: o compilador cobra de quem construir uma `Leitura` nova). O fluxo
+verifica antes de tudo e escala com "o robô está fora do ar (o modelo não
+respondeu)".
+
+**Para o devedor não muda nada** — ele lê o mesmo aviso de sempre, e a
+infraestrutura da empresa não é problema dele. Tem teste provando que o `aviso` é
+idêntico ao do escalonamento comum e que só o `motivo` difere.
+
+Testes: 639 → **642**.
+
+---
+
+## 35. Relatórios: o dashboard virou dois, e o segundo lê o CRM
+
+**O que motivou:** o painel da casa respondia a uma pergunta só — a do TI
+("quantas máquinas, quais pendências"). A pergunta que a operação faz o dia
+inteiro ("quantos acordos já fecharam hoje?") vivia em outro lugar: no projeto
+irmão `siscobra_postgresql`, como SQL validada e um painel Streamlit que roda na
+máquina de quem sabe rodar. Regra certa, alcance nenhum.
+
+"Dashboard" deixou de ser uma tela e virou uma **chave de duas posições**:
+**Informática** (o painel de sempre, em `/`) e **Cobrança** (`/relatorios/cobranca`).
+O alternador aparece no cabeçalho das duas.
+
+### O que veio pronto — e o que teria dado errado sem ele
+
+As regras não foram inventadas aqui. Vieram do `siscobra_postgresql`, onde cada
+uma foi conferida contra o PDF que o próprio Siscobra imprime. O que se aproveitou
+foi justamente a parte que ninguém adivinha, porque **as colunas de nome óbvio
+são as erradas**:
+
+| Pergunta | O que parece | O que é |
+|---|---|---|
+| Quanto foi o acordo? | `acoval` (só o principal) | **`acovalatu`** — total com juros/multa |
+| Quando ele aconteceu? | `acodatcad` | **`acodatinc`** — em carteira recorrente, `acodatcad` é a data da PARCELA e some do dia |
+| De quem é o acordo? | `acousuinc` (quem gravou) | **`retusucod`** da última ação manual — quem trabalhou o caso, não quem digitou |
+| Quantas ações a operadora fez? | todas de `retorno` | **`rettip = 0`** — o `7` é o discador automático, ~95% de 55M linhas |
+| Quem fez a ação? | `retusucod` | **`usucod`** — trocar os dois derruba a conferência de 100% para ~97% |
+
+Repare que acordo e acionamento usam colunas de usuário **trocadas entre si**.
+Parece engano e não é: no acordo se quer o *responsável* pelo devedor; no
+acionamento, o *autor* da ação. Está comentado em `lib/relatorios-cobranca.ts`
+porque é exatamente o tipo de coisa que alguém "corrige" de boa-fé.
+
+### O que se decidiu aqui
+
+**Uma varredura, quatro recortes.** A tela mostra o mesmo conjunto por operadora,
+por carteira, por hora e no total. São `GROUPING SETS`, não quatro consultas: no
+acordo, cada varredura extra repetiria o `LATERAL` de atribuição, que é a parte
+cara. Medido no banco de produção: 130 ms para o dia, 340 ms para 44 dias.
+
+**A hora vazia fica no gráfico.** Hora sem acordo não volta do banco, e omiti-la
+cola as barras das 11h e das 13h — o gráfico contaria que o time trabalhou sem
+parar no horário em que ninguém atendeu. O silêncio das 12h é informação.
+
+**Teto de 92 dias.** `retorno` tem 55M linhas e o CRM é o banco onde a operação
+está trabalhando agora. O trimestre foi medido em menos de um segundo; o ano
+abriria a porta para um painel esquecido aberto segurando conexão de quem atende.
+
+**Cache só nos seletores, nunca nos números.** A lista de carteiras custa 2,6s e
+muda quando alguém cadastra uma carteira: fica uma hora em memória. Os números
+não entram — a primeira pergunta da tela é "quantos até agora?", e responder com
+o número de um minuto atrás no momento em que a operadora fecha o acordo é pior
+do que responder devagar. Quem protege o CRM é o teto, não o cache.
+
+**"Hoje" é calculado no fuso do Brasil.** O container sobe em UTC; às 21h de São
+Paulo já é o dia seguinte lá. Sem `hojeNoBrasil()`, o painel zeraria no fim do
+expediente — que é justamente quando se olha. O Siscobra grava
+`timestamp without time zone` com hora de parede do Brasil, então a data precisa
+ser calculada no mesmo fuso em que foi gravada.
+
+**Prazo próprio para a consulta.** O `statement_timeout` de 8s do pool foi
+escolhido para a conversa de WhatsApp (decisão 32) — quem espera resposta no
+celular não aguenta mais. Relatório é o oposto: `consultaRelatorio` roda em
+`BEGIN READ ONLY` com `SET LOCAL statement_timeout`, que vale só dentro da
+transação. O `READ ONLY` diz ao banco o que o arquivo já dizia ao leitor: aqui
+não se escreve.
+
+### Quem enxerga — e por que não é a mesma lista do `/chat`
+
+**Admin e supervisor.** A decisão 27 fechou a cobrança para o supervisor de sala,
+e isto não a reabre: o que ela protege é **dado pessoal de devedor** — nome, CPF,
+dívida, conversa. O relatório não tem nada disso. Ele agrega **produção de
+funcionário**: contagem, valor, hora, situação. O alcance sobre dado de terceiro
+se decide pelo ofício; o alcance sobre a produção da casa, não.
+
+**A operadora de cobrança fica de fora**, e é deliberado: o relatório é um
+ranking nominal das colegas dela. Quem atende devedor não precisa dele para
+atender.
+
+**O portão é `exigirRelatorio`** (`lib/autorizacao.ts`), ao lado de `exigirEscopo`
+e `exigirChat`, espelhado em `PERMITIDO_SUPERVISOR` (middleware) e no item de nav.
+Três cópias da mesma regra — a decisão 25.1 já mostrou o que acontece quando uma
+delas diverge, por isso as três estão citadas uma na outra.
+
+**E o supervisor vê o relatório INTEIRO, sem recorte de sala.** Isto é uma
+exceção ao princípio da decisão 24 e merece estar escrita: `Sala` é divisão
+física do inventário, `grupo` é a equipe no Siscobra, e **os dois nunca foram
+ligados**. Inventar o vínculo agora produziria um número que ninguém sabe
+explicar. O recorte que o gestor quer é o que ele escolhe no filtro de equipe —
+que é, aliás, a função pedida. O caminho para recortar de verdade existe e está
+anotado: `Usuario.siscobraUsucod` × `grupo.usugrusupcod` (o supervisor da equipe
+no próprio CRM). Não foi feito porque `siscobraUsucod` hoje anda colado ao papel
+`COBRANCA` (decisão 27) e desamarrá-lo é outro trabalho.
+
+### A cor foi medida, não escolhida
+
+Acordo é teal, acionamento é violeta, em todo gráfico e com qualquer filtro — a
+cor segue a **entidade**, nunca o ranking; se seguisse a posição, filtrar uma
+equipe repintaria as barras e quem aprendeu "teal = acordo" leria errado no
+segundo olhar. Os quatro hexes (dois por tema) passaram no validador de paleta:
+separação ΔE **18,9** sob deuteranopia (o piso é 8) e 27,0 na visão normal,
+dentro da faixa de luminosidade e acima do piso de croma nos dois temas. Ficam em
+`--serie-acordo` / `--serie-acionamento` no `globals.css`, junto dos outros pares
+claro/escuro, porque trocar um hex no olho quebra isso em silêncio: quem enxerga
+cor não nota, quem não enxerga perde o gráfico.
+
+**Nunca dois eixos no mesmo plano.** 97 acordos e 3.000 acionamentos alinhados no
+mesmo topo sugerem empate. São dois gráficos, cada um com a sua escala.
+
+**O valor nunca mora só no hover.** Toda barra é alcançável pelo teclado, e a
+visão **"detalhado"** — que o usuário pediu como "algo resumido ou não" — é
+também o gêmeo em tabela de cada gráfico: quem usa leitor de tela, quem imprime e
+quem não distingue as duas cores leem os mesmos números.
+
+### O que ficou de fora, de propósito
+
+**Recuperação (dinheiro que entrou).** A fonte ainda é disputada no projeto irmão
+(D-003 vs D-009): `deposito_registro` tem ~R$ 27M quase todos de um mês,
+`operacao` tem ~R$ 112M com datas de 2019 até hoje, e nenhuma das duas foi
+conferida contra relatório oficial de recuperação. Publicar um número de dinheiro
+sem saber qual é o certo é pior que não publicar nenhum.
+
+**Taxas e percentuais de conversão.** Acordado e recuperado vêm de fontes
+independentes com datas próprias; em janela curta a razão passa de 100% (D-005).
+A tela mostra absolutos.
+
+**Exportação para Excel.** Cabe, e não foi feita agora: a planilha de hoje é a do
+inventário, e misturar as duas é outro trabalho.
+
+Testes: 642 → **685** (`lib/relatorios.test.ts`, 21 casos de período e fuso;
+`tests/api/relatorios.test.ts`, 17 de portão, validação e falha do CRM; mais 5 no
+`middleware.test.ts`).

@@ -24,6 +24,7 @@ const TOKEN = "token-de-servico-para-testes";
 const GATEWAY = "http://gateway-de-teste:3001";
 const OLLAMA = "http://ollama-de-teste:11434";
 const CPF = "52998224725";
+const NOME = "Maria Aparecida Souza";
 
 const PESSOA = {
   devcod: 88123, carcod: 7, carteira: "Banco X", primeiroNome: "Maria",
@@ -103,7 +104,7 @@ async function devedorDiz(texto: string) {
 describe("o que a operadora recebe ao assumir", () => {
   it("identificação grava o quadro inteiro do devedor", async () => {
     const enviadas = simular("identificar");
-    await devedorDiz(`meu cpf é ${CPF} e nasci em 12/04/1985`);
+    await devedorDiz(`meu cpf é ${CPF}, sou ${NOME}`);
 
     const c = await prisma.conversa.findFirst();
     // O vínculo com o CRM, que é como a operadora abre o cadastro completo.
@@ -130,7 +131,7 @@ describe("o que a operadora recebe ao assumir", () => {
   // lado, e o devcod resolve o resto.
   it("o CPF completo NÃO é gravado em lugar nenhum", async () => {
     simular("identificar");
-    await devedorDiz(`cpf ${CPF}, nascimento 12/04/1985`);
+    await devedorDiz(`cpf ${CPF}, titular ${NOME}`);
 
     const c = await prisma.conversa.findFirst();
     const tudo = JSON.stringify(c);
@@ -138,15 +139,15 @@ describe("o que a operadora recebe ao assumir", () => {
     expect(tudo).toContain("529.***.***-25");
   });
 
-  it("o CPF pendente é apagado quando a identificação fecha", async () => {
+  it("o documento pendente é apagado quando a identificação fecha", async () => {
     simular("identificar");
     await devedorDiz(`meu cpf é ${CPF}`);
-    expect((await prisma.conversa.findFirst())?.cpfPendente).toBe(CPF);
+    expect((await prisma.conversa.findFirst())?.documentoPendente).toBe(CPF);
 
     simular("identificar");
-    await devedorDiz("12/04/1985");
+    await devedorDiz(NOME);
     const c = await prisma.conversa.findFirst();
-    expect(c?.cpfPendente).toBeNull();
+    expect(c?.documentoPendente).toBeNull();
     expect(c?.identificadaEm).toBeInstanceOf(Date);
   });
 
@@ -154,7 +155,7 @@ describe("o que a operadora recebe ao assumir", () => {
   // contradiz a proposta na frente do devedor.
   it("a oferta feita fica gravada com valor, prazo e hora", async () => {
     simular("identificar");
-    await devedorDiz(`${CPF} 12/04/1985`);
+    await devedorDiz(`${CPF} ${NOME}`);
 
     const enviadas = simular("quer_negociar");
     await devedorDiz("da pra parcelar");
@@ -175,7 +176,7 @@ describe("o que a operadora recebe ao assumir", () => {
 
   it("carteira sem regra não grava oferta nenhuma", async () => {
     simular("identificar");
-    await devedorDiz(`${CPF} 12/04/1985`);
+    await devedorDiz(`${CPF} ${NOME}`);
     vi.mocked(regraDaCarteira).mockResolvedValue(null);
 
     simular("quer_negociar");
@@ -192,7 +193,7 @@ describe("o que a operadora recebe ao assumir", () => {
   it("Siscobra fora do ar não deixa identificação pela metade", async () => {
     vi.mocked(identificar).mockResolvedValue({ achou: [], erro: true });
     simular("identificar");
-    await devedorDiz(`${CPF} 12/04/1985`);
+    await devedorDiz(`${CPF} ${NOME}`);
 
     const c = await prisma.conversa.findFirst();
     expect(c?.identificadaEm).toBeNull();

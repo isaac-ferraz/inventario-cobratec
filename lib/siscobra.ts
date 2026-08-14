@@ -28,6 +28,7 @@
 // consulta de telefone daquele arquivo nunca havia sido executada (ver abaixo).
 // SQL que ninguém rodou é SQL que não funciona.
 import { Pool } from "pg";
+import { nomeConfere } from "@/lib/identificacao";
 
 let pool: Pool | null = null;
 
@@ -56,6 +57,49 @@ function conexao(): Pool | null {
     pool.on("error", (e) => console.error("[siscobra] pool:", e.message));
   }
   return pool;
+}
+
+/**
+ * Consulta de RELATÓRIO — o mesmo banco, o mesmo pool, outro relógio.
+ *
+ * O `statement_timeout` de 8s do pool foi escolhido para a conversa de
+ * WhatsApp: consulta que demora mais que isso não serve para quem está
+ * esperando resposta no celular. Relatório é o oposto — quem clicou "últimos
+ * 30 dias" aceita esperar, e a consulta de acionamentos varre `retorno` (55M
+ * linhas). Com 8s ela morreria justamente na janela mais útil.
+ *
+ * Três defesas, e nenhuma delas é confiança:
+ *   • `BEGIN READ ONLY` — o Postgres recusa escrita nesta transação, mesmo que
+ *     um dia alguém cole um UPDATE aqui por engano. É a fronteira da decisão 32
+ *     dita ao banco, e não só ao leitor do arquivo.
+ *   • `SET LOCAL statement_timeout` — vale só dentro da transação e volta ao
+ *     valor do pool ao terminar; o chatbot continua com os 8s dele.
+ *   • `finally { release() }` — conexão presa é pior que consulta lenta: o pool
+ *     tem 4, e o CRM atende gente trabalhando.
+ */
+export async function consultaRelatorio<T>(
+  sql: string,
+  params: unknown[],
+  timeoutMs = 30_000,
+): Promise<T[]> {
+  const db = conexao();
+  if (!db) throw new Error("Siscobra não configurado (DB_HOST/DB_USER/DB_NAME).");
+  const cliente = await db.connect();
+  try {
+    await cliente.query("BEGIN READ ONLY");
+    // Número interpolado, não parâmetro: SET não aceita placeholder. O valor
+    // nunca vem do usuário — é argumento de função, e o Number() abaixo mata
+    // qualquer chance de o texto virar SQL.
+    await cliente.query(`SET LOCAL statement_timeout = ${Number(timeoutMs)}`);
+    const r = await cliente.query(sql, params);
+    await cliente.query("COMMIT");
+    return r.rows as T[];
+  } catch (e) {
+    await cliente.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    cliente.release();
+  }
 }
 
 export type Identificacao = {
@@ -103,7 +147,7 @@ export type RegraCarteiraDb = {
 // É vazamento pelo caminho mais banal possível — o da simpatia.
 //
 // O nome continua sendo usado, no lugar em que ele é seguro: depois de CPF e
-// nascimento conferidos, quando já se sabe com quem se está falando.
+// nome do titular conferidos, quando já se sabe com quem se está falando.
 
 /**
  * O primeiro nome do devedor, sem o código de cadastro que vem grudado nele.
@@ -137,17 +181,24 @@ export function primeiroNomeDe(devnom: string | null | undefined): string | null
 }
 
 /**
- * A única consulta que autoriza falar de valores: CPF **e** nascimento.
+ * A única consulta que autoriza falar de valores: documento **e** nome.
  *
- * Os dois juntos são anti-enumeração — com só o CPF, quem tivesse uma lista
- * deles descobriria quem é devedor e quanto deve.
+ * Os dois juntos são anti-enumeração — com só o documento, quem tivesse uma
+ * lista deles descobriria quem é devedor e quanto deve.
+ *
+ * **A conferência do nome é feita aqui no TypeScript, não no SQL** (decisão 34).
+ * Não é preferência de estilo: a regra é "dois pedaços quaisquer, sem acento,
+ * sem partícula, sem sufixo de razão social e sem o código de cadastro grudado"
+ * — regra com quatro exceções, que precisa de teste. `nomeConfere` tem; um
+ * `LIKE` dentro de string não teria. A consulta traz os candidatos pelo
+ * documento e o código decide quem passa; nada é revelado antes disso.
  *
  * Devolvendo mais de uma linha, são carteiras diferentes: o robô não escolhe
  * uma, porque escolher errado é falar do contrato errado. Vai para gente.
  */
 export async function identificar(
-  cpf: string,
-  nascimento: string,
+  documento: string,
+  nome: string,
 ): Promise<{ achou: Identificacao[]; erro: boolean }> {
   const db = conexao();
   if (!db) return { achou: [], erro: true };
@@ -169,30 +220,34 @@ export async function identificar(
          FROM devedor d
          JOIN carteira ca ON ca.carcod = d.carcod
         WHERE d.devcpf = regexp_replace($1, '\\D', '', 'g')::bigint
-          AND d.devdatnas = $2::date
         ORDER BY d.carcod
-        LIMIT 10`,
-      [cpf, nascimento],
+        LIMIT 25`,
+      [documento],
     );
 
     return {
       erro: false,
-      achou: r.rows.map((x) => ({
-        devcod: Number(x.devcod),
-        carcod: Number(x.carcod),
-        carteira: String(x.carteira ?? ""),
-        // O nome completo NÃO entra no objeto: o robô só precisa do primeiro,
-        // e o que não sai daqui não vaza adiante por descuido.
-        primeiroNome: primeiroNomeDe(
-          x.nome_cadastro ? String(x.nome_cadastro) : null,
-        ),
-        cpfMascarado: String(x.cpf_mascarado ?? ""),
-        saldo: Number(x.saldo ?? 0),
-        vencidoDesde: x.vencido_desde ? String(x.vencido_desde) : null,
-      })),
+      achou: r.rows
+        // O segundo fator. Sem ele, esta função responderia saldo a quem só
+        // tem uma lista de CPFs — que é exatamente o ataque que a dupla
+        // verificação existe para impedir.
+        .filter((x) => nomeConfere(nome, x.nome_cadastro ? String(x.nome_cadastro) : null))
+        .map((x) => ({
+          devcod: Number(x.devcod),
+          carcod: Number(x.carcod),
+          carteira: String(x.carteira ?? ""),
+          // O nome completo NÃO entra no objeto: o robô só precisa do primeiro,
+          // e o que não sai daqui não vaza adiante por descuido.
+          primeiroNome: primeiroNomeDe(
+            x.nome_cadastro ? String(x.nome_cadastro) : null,
+          ),
+          cpfMascarado: String(x.cpf_mascarado ?? ""),
+          saldo: Number(x.saldo ?? 0),
+          vencidoDesde: x.vencido_desde ? String(x.vencido_desde) : null,
+        })),
     };
   } catch (e) {
-    // Log sem CPF e sem nascimento: log de servidor não é lugar de dado
+    // Log sem documento e sem nome: log de servidor não é lugar de dado
     // pessoal, e este é justamente o caminho por onde eles passam (decisão 30).
     console.error("[siscobra] identificar:", (e as Error).message);
     return { achou: [], erro: true };

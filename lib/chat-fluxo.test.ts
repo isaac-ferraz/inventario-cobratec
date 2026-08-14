@@ -1,23 +1,23 @@
 // A conversa do robô, turno a turno.
 //
 // O que se protege aqui, em ordem de gravidade:
-//   1. valor não sai antes de CPF **e** nascimento conferidos;
+//   1. valor não sai antes de documento **e** nome do titular conferidos;
 //   2. nenhuma condição fora da regra oficial da carteira chega ao devedor;
 //   3. o robô conversa mais, mas para onde tem de parar;
 //   4. banco fora do ar vira gente, nunca silêncio nem palpite.
 import { describe, expect, it } from "vitest";
 import { decidir, type Acao, type EstadoConversa, type Fontes } from "@/lib/chat-fluxo";
-import { lerSaidaDoModelo, cpfValido, normalizarNascimento, extrairDados } from "@/lib/chat-intencao";
+import { lerSaidaDoModelo, extrairDados } from "@/lib/chat-intencao";
 import { montarOferta, reais } from "@/lib/chat-respostas";
 import type { Identificacao } from "@/lib/siscobra";
 
 const CPF = "52998224725"; // válido nos dígitos verificadores
-const NASC = "1985-04-12";
+const NOME = "Maria Aparecida Souza";
 
 const NOVO: EstadoConversa = {
   devcod: null, carcod: null, identificadaEm: null, nome: null,
   saldo: null, vencidoDesde: null,
-  cpfPendente: null, nascimentoPendente: null, oferta: null,
+  saudacoes: 0, documentoPendente: null, nomePendente: null, oferta: null,
 };
 
 const IDENTIFICADA: EstadoConversa = {
@@ -46,13 +46,83 @@ const ler = (intencao: string, msg = "", extra: object = {}) =>
 
 // ─────────────────────── a trava que sustenta tudo ───────────────────────
 
+// Robô caído não pode ser confundido com devedor falando coisa estranha.
+// Aconteceu de verdade: a sessão do Colab caiu, "olá" foi para a fila, e o
+// motivo dizia "assunto fora do que o robô atende" — a operadora procuraria o
+// problema na fala do devedor enquanto o modelo estava morto.
+describe("modelo fora do ar", () => {
+  it("escala com o motivo certo, e não com o genérico", async () => {
+    const semResposta = { ...ler("outro", "olá"), respondeu: false };
+    const a = await decidir(semResposta, NOVO, fontes());
+    expect(a.tipo).toBe("escalar");
+    if (a.tipo === "escalar") {
+      expect(a.motivo).toMatch(/fora do ar/);
+      expect(a.motivo).not.toMatch(/assunto fora do que o robô atende/);
+    }
+  });
+
+  // Para o devedor não muda nada: a infraestrutura da empresa não é problema dele.
+  it("o devedor lê o mesmo aviso de sempre", async () => {
+    const caido = await decidir({ ...ler("outro", "olá"), respondeu: false }, NOVO, fontes());
+    const normal = await decidir(ler("outro", "quanto custa uma pizza"), NOVO, fontes());
+    if (caido.tipo === "escalar" && normal.tipo === "escalar") {
+      expect(caido.aviso).toBe(normal.aviso);
+      expect(caido.motivo).not.toBe(normal.motivo);
+    }
+  });
+
+  // Uma saudação que o modelo classificou é conversa normal, não falha.
+  it("modelo que respondeu segue o fluxo", async () => {
+    const a = await decidir(ler("saudacao", "olá"), NOVO, fontes());
+    expect(a.tipo).toBe("responder");
+  });
+});
+
+// O eco: "olá" e "boa tarde" seguidos devolviam a MESMA frase, palavra por
+// palavra. Foi o que o primeiro atendimento de verdade mostrou.
+describe("cumprimento repetido não vira eco", () => {
+  it("a primeira saudação responde e ANOTA que já cumprimentou", async () => {
+    const a = await decidir(ler("saudacao", "olá"), NOVO, fontes());
+    expect(a.tipo).toBe("responder");
+    if (a.tipo === "responder") {
+      expect(a.texto).toMatch(/tudo bem\?/i);
+      expect(a.estado?.saudacoes).toBe(1);
+    }
+  });
+
+  it("a segunda saudação responde DIFERENTE", async () => {
+    const primeira = await decidir(ler("saudacao", "olá"), NOVO, fontes());
+    const segunda = await decidir(
+      ler("saudacao", "boa tarde"),
+      { ...NOVO, saudacoes: 1 },
+      fontes(),
+    );
+    expect(segunda.tipo).toBe("responder");
+    if (primeira.tipo === "responder" && segunda.tipo === "responder") {
+      expect(segunda.texto).not.toBe(primeira.texto);
+      expect(segunda.estado?.saudacoes).toBe(2);
+    }
+  });
+
+  // Uma terceira frase inventada seria o mesmo defeito com outra roupa.
+  it("o terceiro cumprimento sem pedido chama gente", async () => {
+    const a = await decidir(
+      ler("saudacao", "oi?"),
+      { ...NOVO, saudacoes: 2 },
+      fontes(),
+    );
+    expect(a.tipo).toBe("escalar");
+    if (a.tipo === "escalar") expect(a.motivo).toMatch(/cumprimento/i);
+  });
+});
+
 describe("valor não sai sem identificação", () => {
   for (const intencao of ["consultar_saldo", "quer_negociar", "quer_boleto"]) {
-    it(`"${intencao}" sem identificação pede CPF, não revela nada`, async () => {
+    it(`"${intencao}" sem identificação pede o documento, não revela nada`, async () => {
       const a = await decidir(ler(intencao), NOVO, fontes());
       expect(a.tipo).toBe("responder");
       if (a.tipo === "responder") {
-        expect(a.texto).toMatch(/CPF/i);
+        expect(a.texto).toMatch(/CPF|CNPJ/i);
         expect(a.texto).not.toMatch(/R\$/); // nenhum valor no texto
       }
     });
@@ -65,19 +135,46 @@ describe("valor não sai sem identificação", () => {
     expect(a.tipo).not.toBe("escalar");
   });
 
-  it("CPF sozinho não identifica — pede a data e guarda o que veio", async () => {
+  it("documento sozinho não identifica — pede o nome e guarda o que veio", async () => {
     const a = await decidir(ler("identificar", `meu cpf é ${CPF}`), NOVO, fontes());
     expect(a.tipo).toBe("responder");
     if (a.tipo === "responder") {
-      expect(a.texto).toMatch(/nascimento/i);
-      expect(a.estado?.cpfPendente).toBe(CPF);
+      expect(a.texto).toMatch(/nome completo/i);
+      expect(a.estado?.documentoPendente).toBe(CPF);
     }
   });
 
-  it("a data chegando depois, junta com o CPF guardado e identifica", async () => {
+  // O defeito que o segundo fator novo trouxe, e que a data não tinha:
+  // "12/04/1985" só pode ser uma data; "bom dia, tudo bem" parece um nome. Sem a
+  // trava de contexto, quem cumprimentava ouvia "recebi o nome, agora o CPF".
+  it("frase comum NÃO é lida como nome — só conta quando o robô espera um", async () => {
+    const a = await decidir(ler("saudacao", "bom dia, tudo bem"), NOVO, fontes());
+    expect(a.tipo).toBe("responder");
+    if (a.tipo === "responder") {
+      expect(a.texto).toMatch(/Cobratec/);
+      expect(a.texto).not.toMatch(/CPF|CNPJ/i);
+      expect(a.estado?.nomePendente).toBeUndefined();
+    }
+  });
+
+  it("com documento pendente, a frase seguinte VALE como nome", async () => {
     const a = await decidir(
-      ler("identificar", "12/04/1985"),
-      { ...NOVO, cpfPendente: CPF },
+      // Intenção de saudação de propósito: quem responde o nome pedido raramente
+      // é classificado como "identificar". Quem autoriza aqui é o documento
+      // pendente, não o rótulo do modelo.
+      ler("saudacao", NOME),
+      { ...NOVO, documentoPendente: CPF },
+      fontes(),
+    );
+    // Identificou: o contexto (documento pendente) autorizou ler aquilo como nome.
+    expect(a.tipo).toBe("responder");
+    if (a.tipo === "responder") expect(a.estado?.identificadaEm).toBeInstanceOf(Date);
+  });
+
+  it("o nome chegando depois, junta com o documento guardado e identifica", async () => {
+    const a = await decidir(
+      ler("identificar", NOME),
+      { ...NOVO, documentoPendente: CPF },
       fontes(),
     );
     expect(a.tipo).toBe("responder");
@@ -92,7 +189,7 @@ describe("valor não sai sem identificação", () => {
 describe("quando a identificação não fecha", () => {
   it("cadastro não encontrado vai para gente, sem insistir", async () => {
     const a = await decidir(
-      ler("identificar", `${CPF} 12/04/1985`),
+      ler("identificar", `${CPF} ${NOME}`),
       NOVO,
       fontes({ identificar: async () => ({ achou: [], erro: false }) }),
     );
@@ -103,7 +200,7 @@ describe("quando a identificação não fecha", () => {
   // Escolher uma carteira seria falar do contrato errado.
   it("mais de uma carteira não é escolhida pelo robô", async () => {
     const a = await decidir(
-      ler("identificar", `${CPF} 12/04/1985`),
+      ler("identificar", `${CPF} ${NOME}`),
       NOVO,
       fontes({
         identificar: async () => ({ achou: [PESSOA, { ...PESSOA, carcod: 8 }], erro: false }),
@@ -115,7 +212,7 @@ describe("quando a identificação não fecha", () => {
 
   it("banco fora do ar escala em vez de adivinhar", async () => {
     const a = await decidir(
-      ler("identificar", `${CPF} 12/04/1985`),
+      ler("identificar", `${CPF} ${NOME}`),
       NOVO,
       fontes({ identificar: async () => ({ achou: [], erro: true }) }),
     );
@@ -218,9 +315,9 @@ describe("perguntas que voltaram a ser do robô", () => {
 
   // E sem exigir identificação: dizer o que a empresa faz não é dado de
   // ninguém, então pedir CPF antes seria hostil à toa.
-  it("não pede CPF para dizer o que a empresa é", async () => {
+  it("não pede documento para dizer o que a empresa é", async () => {
     const a = await decidir(ler("sobre_empresa"), NOVO, fontes());
-    if (a.tipo === "responder") expect(a.texto).not.toMatch(/CPF/i);
+    if (a.tipo === "responder") expect(a.texto).not.toMatch(/CPF|CNPJ/i);
   });
 });
 
@@ -230,10 +327,10 @@ describe("perguntas que voltaram a ser do robô", () => {
 describe("ninguém é deixado falando sozinho", () => {
   const cenarios: Array<[string, () => Promise<Acao>]> = [
     ["banco fora do ar", () =>
-      decidir(ler("identificar", `${CPF} 12/04/1985`), NOVO,
+      decidir(ler("identificar", `${CPF} ${NOME}`), NOVO,
         fontes({ identificar: async () => ({ achou: [], erro: true }) }))],
     ["cadastro não encontrado", () =>
-      decidir(ler("identificar", `${CPF} 12/04/1985`), NOVO,
+      decidir(ler("identificar", `${CPF} ${NOME}`), NOVO,
         fontes({ identificar: async () => ({ achou: [], erro: false }) }))],
     ["carteira sem regra", () =>
       decidir(ler("quer_negociar"), IDENTIFICADA,
@@ -297,31 +394,30 @@ describe("a saída do modelo é uma palavra de uma lista", () => {
 
   it("o que a regex acha vence o que o modelo diz", () => {
     const l = lerSaidaDoModelo(
-      `{"intencao":"identificar","cpf":"00000000000"}`,
+      `{"intencao":"identificar","documento":"00000000000"}`,
       `anota aí ${CPF}`,
     );
-    expect(l.cpf).toBe(CPF);
+    expect(l.documento).toBe(CPF);
   });
 });
 
-describe("CPF e data, conferidos antes de consultar o banco", () => {
-  it("dígito verificador errado não é CPF", () => {
-    expect(cpfValido(CPF)).toBe(true);
-    expect(cpfValido("52998224724")).toBe(false);
-    expect(cpfValido("11111111111")).toBe(false);
+// A validação de documento e a conferência do nome moram em
+// `lib/identificacao.ts` e são testadas lá, uma a uma. O que interessa aqui é
+// só a ponte: `extrairDados` entrega ao fluxo o que a pessoa escreveu.
+describe("o que o fluxo recorta da mensagem", () => {
+  it("acha documento e nome no meio da frase", () => {
+    const d = extrairDados(`oi, sou Maria Aparecida Souza, cpf ${CPF}`);
+    expect(d.documento).toBe(CPF);
+    expect(d.nome).toBe("MARIA APARECIDA SOUZA");
   });
 
-  it("data que o calendário não tem é recusada, não rolada", () => {
-    expect(normalizarNascimento("12/04/1985")).toBe("1985-04-12");
-    expect(normalizarNascimento("31/02/1985")).toBeNull();
-    expect(normalizarNascimento("12/13/1985")).toBeNull();
-    expect(normalizarNascimento("12/04/2030")).toBeNull();
+  it("CNPJ também é documento", () => {
+    const d = extrairDados("cnpj 11.222.333/0001-81, Droga Sim Comercial");
+    expect(d.documento).toBe("11222333000181");
   });
 
-  it("acha CPF e data no meio da frase", () => {
-    const d = extrairDados(`oi, sou a maria, cpf ${CPF}, nasci em 12/04/1985`);
-    expect(d.cpf).toBe(CPF);
-    expect(d.nascimento).toBe("1985-04-12");
+  it("primeiro nome sozinho não vira nome — o robô vai pedir o completo", () => {
+    expect(extrairDados(`${CPF} Maria`).nome).toBeNull();
   });
 });
 

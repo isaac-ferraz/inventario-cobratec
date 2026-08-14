@@ -518,8 +518,8 @@ describe("apagar a conversa", () => {
       data: {
         siscobraDevcod: 4242,
         identificadaEm: new Date(),
-        cpfPendente: "12345678909",
-        nascimentoPendente: "1980-05-04",
+        documentoPendente: "12345678909",
+        nomePendente: "Fulano De Tal",
         saldo: 1500.5,
         oferta: JSON.stringify({ parcelas: 3 }),
         dossie: JSON.stringify({ nome: "Fulano" }),
@@ -537,7 +537,8 @@ describe("apagar a conversa", () => {
     expect(nova!.id).not.toBe(id);
     expect(nova!.siscobraDevcod).toBeNull();
     expect(nova!.identificadaEm).toBeNull();
-    expect(nova!.cpfPendente).toBeNull();
+    expect(nova!.documentoPendente).toBeNull();
+    expect(nova!.nomePendente).toBeNull();
     expect(nova!.saldo).toBeNull();
     expect(nova!.oferta).toBeNull();
     expect(nova!.dossie).toBeNull();
@@ -546,7 +547,7 @@ describe("apagar a conversa", () => {
   it("fica na auditoria quem mandou sumir — e sem dado do devedor", async () => {
     await prisma.conversa.update({
       where: { id },
-      data: { cpfPendente: "12345678909" },
+      data: { documentoPendente: "12345678909" },
     });
     await apagar(admin);
 

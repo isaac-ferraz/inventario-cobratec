@@ -27,7 +27,7 @@ import type { Identificacao, RegraCarteiraDb } from "@/lib/siscobra";
 
 /** O que o fluxo sabe da conversa antes de decidir. */
 export type EstadoConversa = {
-  /** Identificado = CPF + nascimento conferidos no Siscobra. */
+  /** Identificado = documento + nome do titular conferidos no Siscobra. */
   devcod: number | null;
   carcod: number | null;
   identificadaEm: Date | null;
@@ -35,9 +35,11 @@ export type EstadoConversa = {
   /** Saldo congelado na identificação — não se reconsulta a cada fala. */
   saldo: number | null;
   vencidoDesde: string | null;
-  /** CPF já recebido, esperando a data (ou o contrário). */
-  cpfPendente: string | null;
-  nascimentoPendente: string | null;
+  /** Quantas saudações o robô já respondeu nesta conversa. */
+  saudacoes: number;
+  /** Documento já recebido, esperando o nome (ou o contrário). */
+  documentoPendente: string | null;
+  nomePendente: string | null;
   /**
    * O que o robô já colocou na mesa, ou `null`. Muda o sentido de
    * "aceita"/"recusa" — e é o que a operadora precisa ler ao assumir, para não
@@ -82,8 +84,8 @@ export type Acao =
  */
 export type Fontes = {
   identificar: (
-    cpf: string,
-    nascimento: string,
+    documento: string,
+    nome: string,
   ) => Promise<{ achou: Identificacao[]; erro: boolean }>;
   regraDaCarteira: (carcod: number) => Promise<RegraCarteiraDb | null>;
 };
@@ -105,18 +107,53 @@ export async function decidir(
 ): Promise<Acao> {
   const { intencao } = leitura;
 
+  // 0. O modelo não respondeu — fora do ar, tempo estourado, formato quebrado.
+  //
+  // Vai para gente igual, mas com o motivo CERTO. Antes caía no `outro` genérico
+  // e a fila dizia "assunto fora do que o robô atende": diagnóstico errado, e
+  // errado do jeito pior — a operadora procura o problema na fala do devedor
+  // enquanto o modelo está morto e ninguém percebe. Aconteceu de verdade, com a
+  // sessão do Colab caindo no meio do dia.
+  //
+  // O devedor lê a mesma coisa de sempre: para ele não muda nada, e não é da
+  // conta dele que a nossa infraestrutura caiu.
+  if (!leitura.respondeu) {
+    return {
+      tipo: "escalar",
+      motivo: "o robô está fora do ar (o modelo não respondeu)",
+      aviso: RESPOSTAS.chamandoGente(),
+    };
+  }
+
   // 1. O que nunca é do robô, independentemente de estado.
   if (exigeGente(intencao)) {
     return { tipo: "escalar", motivo: motivoDe(intencao), aviso: RESPOSTAS.chamandoGente() };
   }
 
   // 2. Identificação: junta o que veio agora com o que já estava pendente.
-  const cpf = leitura.cpf ?? estado.cpfPendente;
-  const nascimento = leitura.nascimento ?? estado.nascimentoPendente;
+  const documento = leitura.documento ?? estado.documentoPendente;
 
-  if (!ESTA_IDENTIFICADA(estado) && (cpf || nascimento)) {
-    if (cpf && nascimento) {
-      const r = await fontes.identificar(cpf, nascimento);
+  // O nome só conta quando o robô ESTÁ ESPERANDO um — e isto é a diferença mais
+  // importante entre o segundo fator de antes e o de agora.
+  //
+  // Data de nascimento se reconhece sozinha: "12/04/1985" só pode ser uma data.
+  // Nome não tem forma nenhuma. Qualquer frase com duas palavras parece nome, e
+  // sem esta trava "bom dia, tudo bem?" era lido como identificação — o robô
+  // respondia "recebi o nome, agora me envie seu CPF" a quem só cumprimentou.
+  // (Foi assim que o teste do modo direto pegou: a saudação parou de sair.)
+  //
+  // Quem decide que aquilo é um nome passa a ser o CONTEXTO: ou o robô acabou de
+  // pedir (há documento pendente), ou o documento veio na mesma mensagem, ou o
+  // classificador disse que a pessoa está se identificando.
+  const esperandoNome =
+    estado.documentoPendente !== null ||
+    leitura.documento !== null ||
+    intencao === "identificar";
+  const nome = (esperandoNome ? leitura.nome : null) ?? estado.nomePendente;
+
+  if (!ESTA_IDENTIFICADA(estado) && (documento || nome)) {
+    if (documento && nome) {
+      const r = await fontes.identificar(documento, nome);
       if (r.erro) {
         // Rede, VPN caída, CRM fora do ar. Acontece de verdade: rodando o app
         // fora da rede do escritório, o endereço do Siscobra é inalcançável.
@@ -127,7 +164,10 @@ export async function decidir(
         };
       }
       if (r.achou.length === 0) {
-        return { tipo: "escalar", motivo: "cadastro não localizado com CPF e nascimento", aviso: RESPOSTAS.naoEncontrado() };
+        // Não distingue "documento não existe" de "nome não confere", e é de
+        // propósito: dizer qual dos dois falhou entregaria, a quem só tem uma
+        // lista de CPFs, a informação de que aquele CPF é de devedor nosso.
+        return { tipo: "escalar", motivo: "cadastro não localizado com documento e nome", aviso: RESPOSTAS.naoEncontrado() };
       }
       if (r.achou.length > 1) {
         // Carteiras diferentes: escolher uma seria falar do contrato errado.
@@ -148,8 +188,8 @@ export async function decidir(
           nome: d.primeiroNome,
           saldo: d.saldo,
           vencidoDesde: d.vencidoDesde,
-          cpfPendente: null,
-          nascimentoPendente: null,
+          documentoPendente: null,
+          nomePendente: null,
         },
       };
     }
@@ -159,8 +199,8 @@ export async function decidir(
     // formulário.
     return {
       tipo: "responder",
-      texto: cpf ? RESPOSTAS.faltaNascimento() : RESPOSTAS.faltaCpf(),
-      estado: { cpfPendente: cpf, nascimentoPendente: nascimento },
+      texto: documento ? RESPOSTAS.faltaNome() : RESPOSTAS.faltaDocumento(),
+      estado: { documentoPendente: documento, nomePendente: nome },
     };
   }
 
@@ -179,8 +219,35 @@ export async function decidir(
 
   // 4. Identificado: informar e negociar.
   switch (intencao) {
-    case "saudacao":
-      return { tipo: "responder", texto: RESPOSTAS.saudacao(estado.nome) };
+    case "saudacao": {
+      // Cumprimento repetido NÃO pode devolver a mesma frase. Foi o defeito que
+      // o primeiro atendimento de verdade mostrou: "olá" e "boa tarde" seguidos
+      // receberam resposta idêntica, palavra por palavra, e a conversa virou
+      // eco — que é a forma mais rápida de alguém perceber que fala com um robô
+      // e desistir.
+      if (estado.saudacoes === 0) {
+        return {
+          tipo: "responder",
+          texto: RESPOSTAS.saudacao(estado.nome),
+          estado: { saudacoes: 1 },
+        };
+      }
+      if (estado.saudacoes === 1) {
+        return {
+          tipo: "responder",
+          texto: RESPOSTAS.saudacaoDeNovo(estado.nome),
+          estado: { saudacoes: 2 },
+        };
+      }
+      // Terceiro cumprimento sem dizer o que quer: inventar uma terceira frase
+      // seria o mesmo defeito com outra roupa. Quem só cumprimenta três vezes
+      // está esperando uma pessoa.
+      return {
+        tipo: "escalar",
+        motivo: "só cumprimentos, sem pedido",
+        aviso: RESPOSTAS.chamandoGente(),
+      };
+    }
 
     case "sobre_empresa":
       return { tipo: "responder", texto: RESPOSTAS.sobreEmpresa() };

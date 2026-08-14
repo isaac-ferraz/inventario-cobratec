@@ -11,6 +11,8 @@
 //   exigirEscopo  — admin OU supervisor; devolve o escopo de salas, e a rota
 //                   filtra por ele. É o portão do inventário.
 //   exigirChat    — admin OU cobrança. É o portão das conversas com devedor.
+//   exigirRelatorio — admin OU supervisor. É o portão dos relatórios de
+//                   cobrança (produção agregada, sem dado de devedor).
 //   exigirAdmin   — só administrador: telas globais (usuários, tipos, catálogo,
 //                   auditoria, depósito, exportação).
 //
@@ -92,6 +94,38 @@ export async function exigirChat(req: Request): Promise<Autorizado | Negado> {
   if (papel !== "ADMIN" && papel !== "COBRANCA") {
     return {
       resposta: erro("Acesso restrito à equipe de cobrança.", 403),
+    };
+  }
+  return r;
+}
+
+/**
+ * Admin ou supervisor — o portão dos RELATÓRIOS de cobrança (produção da
+ * operação lida do Siscobra).
+ *
+ * Parece o `exigirEscopo`, e é outra coisa: ali o supervisor recebe um escopo
+ * de SALAS que a rota precisa aplicar; aqui não existe recorte a aplicar, e
+ * dizer que existe seria pior que não ter nenhum. Sala é divisão física do
+ * inventário; equipe é `grupo` do Siscobra — os dois nunca foram ligados, e
+ * inventar o vínculo agora produziria um número que ninguém sabe explicar.
+ * O recorte que o gestor quer é o que ele escolhe no filtro de equipe.
+ *
+ * O que autoriza abrir isto ao supervisor, depois de a decisão 27 ter fechado
+ * a cobrança para ele: **aqui não há devedor**. O relatório agrega produção de
+ * funcionário (contagem, valor, hora, situação); não tem nome, CPF, telefone
+ * nem contrato de terceiro. A porta que continua fechada é a das conversas
+ * (`exigirChat`), onde o dado pessoal realmente está.
+ *
+ * A operadora de COBRANCA fica de fora: ela atende devedor, não avalia equipe
+ * — e o relatório é um ranking nominal de colegas.
+ */
+export async function exigirRelatorio(req: Request): Promise<Autorizado | Negado> {
+  const r = await exigirSessao(req);
+  if ("resposta" in r) return r;
+  const { papel } = r.usuario;
+  if (papel !== "ADMIN" && papel !== "SUPERVISOR") {
+    return {
+      resposta: erro("Acesso restrito ao TI e aos supervisores.", 403),
     };
   }
   return r;

@@ -164,10 +164,14 @@ export async function classificar(
   historico: FalaDaThread[],
   ultimaFala: string,
 ): Promise<Leitura> {
+  // `respondeu: false` é o que distingue "o modelo disse que não sabe" de "o
+  // modelo não disse nada". Os dois vão para gente; só um deles é problema de
+  // infraestrutura, e a operadora precisa saber qual.
   const paraGente: Leitura = {
     intencao: "outro",
     ...extrairDados(ultimaFala),
     parcelas: null,
+    respondeu: false,
   };
 
   const mensagens = [

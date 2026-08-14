@@ -145,7 +145,7 @@ export function podeMudarSituacao(atual: string, nova: string): ResultadoAcao {
  * Os dois juntos, e não só o código, porque `siscobraDevcod` pode ter sido
  * preenchido por um palpite do n8n (telefone que casa com um cadastro), e
  * palpite não é identificação. `identificadaEm` só é gravado depois da dupla
- * verificação CPF + data de nascimento.
+ * verificação documento + nome do titular.
  */
 export function estaIdentificada(conversa: {
   siscobraDevcod: number | null;

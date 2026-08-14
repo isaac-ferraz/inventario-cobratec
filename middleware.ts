@@ -48,6 +48,16 @@ const PERMITIDO_COBRANCA = [
 const PERMITIDO_SUPERVISOR = [
   ...PERMITIDO_OPERADOR,
   "/", // dashboard, recortado pelas salas dele
+  // Relatórios de cobrança (decisão 35). Entram para o supervisor porque aqui
+  // não há devedor: o que se lê é produção agregada da operação — contagem,
+  // valor, hora, situação —, nunca nome, CPF ou dívida de terceiro. A porta que
+  // continua fechada para ele é a das conversas (/chat).
+  //
+  // E NÃO são recortados por sala: sala é divisão do inventário, equipe é
+  // `grupo` do Siscobra, e os dois nunca foram ligados. O recorte que existe é
+  // o filtro de equipe, escolhido na tela.
+  "/relatorios",
+  "/api/relatorios",
   "/computadores",
   "/celulares",
   "/funcionarios",

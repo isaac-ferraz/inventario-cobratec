@@ -219,8 +219,8 @@ export function ConsoleConversas({
     const ok = await confirmar({
       titulo: `Apagar a conversa com ${rotulo}?`,
       descricao:
-        "Somem as mensagens, os anexos e a memória do robô — CPF, data de " +
-        "nascimento, saldo e a proposta que ele fez. O número volta a ser " +
+        "Somem as mensagens, os anexos e a memória do robô — documento, nome " +
+        "do titular, saldo e a proposta que ele fez. O número volta a ser " +
         "tratado como quem nunca escreveu. Não dá para desfazer.",
       confirmar: "Apagar",
       destrutivo: true,
@@ -788,8 +788,8 @@ function Dossie({ conversa }: { conversa: ConversaDetalhe | null }) {
         <div className="eyebrow">dossiê</div>
 
         {/* O aviso mais importante da tela: enquanto não houver conferência de
-            CPF e nascimento, nenhum valor pode ser dito ao interlocutor — ele
-            pode não ser o devedor. */}
+            documento e nome do titular, nenhum valor pode ser dito ao
+            interlocutor — ele pode não ser o devedor. */}
         <div
           className={cn(
             "flex items-start gap-2 rounded-lg border p-2.5 text-xs",
@@ -803,8 +803,8 @@ function Dossie({ conversa }: { conversa: ConversaDetalhe | null }) {
           )}
           <span>
             {identificado
-              ? "Identidade confirmada (CPF e nascimento). Pode tratar de valores."
-              : "Ainda NÃO identificado. Não informe saldo, desconto nem proposta antes de confirmar CPF e data de nascimento."}
+              ? "Identidade confirmada (documento e nome do titular). Pode tratar de valores."
+              : "Ainda NÃO identificado. Não informe saldo, desconto nem proposta antes de confirmar o CPF/CNPJ e o nome completo do titular."}
           </span>
         </div>
 

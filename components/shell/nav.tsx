@@ -14,6 +14,7 @@ import {
   Monitor,
   ShieldCheck,
   Smartphone,
+  TrendingUp,
   Wrench,
   Users,
   Tags,
@@ -36,6 +37,11 @@ import type { Papel } from "@/lib/supervisao";
 // (catálogo global), Usuários e Auditoria.
 const NAV = [
   { href: "/", label: "Dashboard", icon: Gauge, supervisor: true },
+  // O relatório de cobrança é a outra metade do "Dashboard": as duas telas
+  // trocam entre si pelo alternador no cabeçalho. Fica no menu também porque
+  // quem entra querendo o número do dia não deveria ter que passar pelo painel
+  // de informática para chegar nele.
+  { href: "/relatorios/cobranca", label: "Relatórios", icon: TrendingUp, supervisor: true },
   { href: "/chamados", label: "Chamados", icon: LifeBuoy, operador: true, supervisor: true },
   { href: "/computadores", label: "Computadores", icon: Monitor, supervisor: true },
   { href: "/celulares", label: "Celulares", icon: Smartphone, supervisor: true },

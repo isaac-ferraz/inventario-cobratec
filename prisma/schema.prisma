@@ -184,8 +184,19 @@ model Conversa {
   // resposta que o devedor leu não pode mudar no meio da conversa porque uma
   // baixa entrou no CRM entre duas mensagens — o que ele viu foi o que valia,
   // e é isso que a operadora precisa enxergar ao assumir.
-  cpfPendente        String? // só dígitos, apagado assim que a identificação fecha
-  nascimentoPendente String? // AAAA-MM-DD, idem
+  // A dupla verificação é documento + nome do titular (decisão 34). Era CPF +
+  // nascimento, e nascimento excluía as empresas: no Siscobra elas têm
+  // `devdatnas = 0001-01-01`, a sentinela de "não tem data" — nenhuma
+  // conseguia se identificar. CPF+nome e CNPJ+razão social passam pela mesma
+  // porta.
+  // Quantas vezes o robô já cumprimentou. Existe porque o primeiro atendimento
+  // real recebeu "olá" e "boa tarde" seguidos e devolveu a MESMA frase, palavra
+  // por palavra — conversa virou eco. Contador e não booleano: no terceiro
+  // cumprimento sem pedido, a pessoa está esperando gente (decisão 34.2).
+  saudacoes Int @default(0)
+
+  documentoPendente String? // só dígitos: 11 (CPF) ou 14 (CNPJ)
+  nomePendente      String? // como o devedor digitou; a conferência é em código
   saldo              Float?
   vencidoDesde       String? // já formatado DD/MM/AAAA, como veio do Siscobra
   // A oferta que o robô colocou na mesa, como JSON (parcelas, valor, desconto).

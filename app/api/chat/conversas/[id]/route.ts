@@ -171,7 +171,7 @@ export async function PATCH(req: Request, { params }: Params) {
 // **E é o que resolve o problema que a pediu.** Ela nasceu do teste: um número
 // só, usado muitas vezes, e o robô lembrando o CPF da rodada anterior. Essa
 // lembrança NÃO está nas mensagens — mora em `siscobraDevcod`, `identificadaEm`,
-// `cpfPendente`, `nascimentoPendente`, `saldo`, `oferta` e `dossie`, todos
+// `documentoPendente`, `nomePendente`, `saldo`, `oferta` e `dossie`, todos
 // campos da própria `Conversa` (decisão 32, a memória entre um turno e o
 // seguinte). Apagar só as mensagens deixaria a tela limpa e o robô sabendo de
 // tudo — o pior dos dois mundos. Some a linha, some a memória.

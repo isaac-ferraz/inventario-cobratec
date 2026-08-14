@@ -174,6 +174,45 @@ describe("operadora de cobrança", () => {
   });
 });
 
+describe("relatórios de cobrança (decisão 35)", () => {
+  // A tela mostra produção AGREGADA da operação — acordo, acionamento, hora,
+  // situação. Nenhum devedor. É por isso que ela abre para o supervisor sem
+  // reabrir a porta que a decisão 27 fechou: a das conversas.
+  const ROTAS = [
+    "/relatorios/cobranca",
+    "/api/relatorios/cobranca",
+    "/api/relatorios/cobranca/filtros",
+  ];
+
+  it("admin e supervisor entram", async () => {
+    for (const quem of [ADMIN, SUP]) {
+      for (const rota of ROTAS) {
+        expect((await ir(rota, quem)).status, `${quem.papel} ${rota}`).toBe(200);
+      }
+    }
+  });
+
+  it("o supervisor entra no relatório e continua fora das conversas", async () => {
+    expect((await ir("/relatorios/cobranca", SUP)).status).toBe(200);
+    expect((await ir("/chat", SUP)).destino).toBe("/");
+  });
+
+  it("a operadora de cobrança NÃO entra — o relatório é um ranking das colegas", async () => {
+    expect((await ir("/relatorios/cobranca", COB)).destino).toBe("/chat");
+    expect((await ir("/api/relatorios/cobranca", COB)).status).toBe(403);
+  });
+
+  it("operador é barrado", async () => {
+    expect((await ir("/relatorios/cobranca", OPE)).destino).toBe("/chamados");
+    expect((await ir("/api/relatorios/cobranca", OPE)).status).toBe(403);
+  });
+
+  it("sem sessão vai para o login", async () => {
+    expect((await ir("/relatorios/cobranca")).destino).toBe("/login");
+    expect((await ir("/api/relatorios/cobranca")).status).toBe(401);
+  });
+});
+
 describe("quem NÃO é da cobrança não alcança as conversas", () => {
   // O /chat carrega dado pessoal de devedor (CPF, dívida) sob LGPD. Que ele
   // esteja fechado para supervisor e operador é regra, não detalhe: o alcance

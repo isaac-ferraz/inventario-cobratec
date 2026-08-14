@@ -30,12 +30,79 @@ export function dataBr(v: string | Date | null | undefined): string | null {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : null;
 }
 
-const ola = (nome: string | null) => (nome ? `Olá, ${nome}! ` : "Olá! ");
+/**
+ * "PEDRO" → "Pedro". O Siscobra guarda o nome em caixa alta, e o robô saía
+ * gritando com o devedor: "Olá, PEDRO!".
+ *
+ * Capitaliza só o que é letra, e por isso "7M" continua "7M" — razão social que
+ * começa com dígito existe no cadastro (decisão 32.3), e um `toLowerCase` seco a
+ * transformaria em "7m". Nome já bem escrito ("Gabrieli") passa igual.
+ */
+export function nomeProprio(nome: string): string {
+  return nome
+    .toLocaleLowerCase("pt-BR")
+    .replace(/(^|[^\p{L}])(\p{L})/gu, (_, antes, letra) => antes + letra.toLocaleUpperCase("pt-BR"));
+}
+
+/**
+ * A abertura da mensagem.
+ *
+ * Com nome, chama pela pessoa: "Pedro, localizei seu cadastro." Sem nome, abre
+ * com "Olá!". O `frase` chega em MINÚSCULA e a maiúscula é decidida aqui — foi o
+ * detalhe que quase passou: emendar "Pedro, " num texto que começava em
+ * maiúscula produzia "Pedro, Localizei…", que é erro de português na cara do
+ * devedor.
+ */
+function abrir(nome: string | null, frase: string): string {
+  // Só a primeira palavra. Depois da identificação o nome já vem assim (é o
+  // `primeiroNome` do Siscobra), mas ANTES dela quem manda é o pushName do
+  // WhatsApp — texto livre que a pessoa escreve no próprio aparelho, e que
+  // aparece como "Isaac Ferraz - Cobratec". Emendar isso numa frase daria
+  // "Isaac Ferraz - Cobratec, aqui é a Cobratec…".
+  const primeiro = (nome ?? "").trim().split(/\s+/)[0] ?? "";
+  if (primeiro) return `${nomeProprio(primeiro)}, ${frase}`;
+  return `Olá! ${frase.charAt(0).toLocaleUpperCase("pt-BR")}${frase.slice(1)}`;
+}
 
 export const RESPOSTAS = {
   // ── entrada ──────────────────────────────────────────────────────────────
+  /**
+   * A primeira fala. Ela **termina em pergunta** de propósito.
+   *
+   * A versão anterior — "aqui é a Cobratec. Posso ajudar com sua negociação por
+   * aqui mesmo." — era um aviso, não um convite: dizia o que a empresa faz e
+   * deixava a pessoa sem nada para responder. Numa conversa de cobrança, silêncio
+   * depois da primeira mensagem é a conversa morrendo.
+   *
+   * O que ela NÃO diz: que existe dívida. Antes de conferir documento e nome não
+   * se sabe com quem se fala, e afirmar pendência a quem herdou a linha é contar
+   * a um estranho que o antigo dono devia — o mesmo vazamento que fez a consulta
+   * por telefone ficar de fora (lib/siscobra.ts).
+   */
   saudacao: (nome: string | null) =>
-    `${ola(nome)}Aqui é a Cobratec. Posso ajudar com sua negociação por aqui mesmo.`,
+    abrir(
+      nome,
+      "tudo bem? Aqui é a Cobratec. Posso verificar se há algo em aberto no seu " +
+        "nome e resolver com você por aqui mesmo, sem precisar de ligação. " +
+        "Quer que eu dê uma olhada?",
+    ),
+
+  /**
+   * O segundo cumprimento seguido.
+   *
+   * Existe porque no primeiro atendimento real a pessoa disse "olá" e depois
+   * "boa tarde", e recebeu a MESMA frase duas vezes, palavra por palavra. Eco é
+   * o jeito mais rápido de alguém perceber que fala com máquina e desistir.
+   *
+   * Mais curta que a primeira, e ainda apontando o caminho: quem cumprimenta de
+   * novo geralmente não sabe o que pode pedir.
+   */
+  saudacaoDeNovo: (nome: string | null) =>
+    abrir(
+      nome,
+      "estou por aqui. É só me dizer o que você precisa — posso consultar o que " +
+        "está em aberto ou falar sobre um acordo.",
+    ),
 
   /**
    * O pedido de identificação diz POR QUE pede.
@@ -46,14 +113,18 @@ export const RESPOSTAS = {
    */
   pedirIdentificacao: () =>
     "Para eu falar de valores preciso ter certeza de que é você mesmo — é a " +
-    "regra que protege seus dados. Pode me enviar seu CPF e sua data de " +
-    "nascimento?",
+    "regra que protege seus dados. Pode me enviar seu CPF ou CNPJ e o nome " +
+    "completo do titular?",
 
-  faltaNascimento: () => "Recebi o CPF. Agora me diga sua data de nascimento, por favor.",
-  faltaCpf: () => "Recebi a data de nascimento. Agora me envie seu CPF, por favor.",
+  // "Nome completo" está escrito porque a conferência precisa de dois pedaços:
+  // quem responde só o primeiro nome seria recusado sem entender por quê.
+  faltaNome: () =>
+    "Recebi o documento. Agora me diga o nome completo do titular, por favor.",
+  faltaDocumento: () => "Recebi o nome. Agora me envie seu CPF ou CNPJ, por favor.",
 
-  cpfInvalido: () =>
-    "Esse CPF não parece completo. Pode conferir e mandar os 11 números?",
+  documentoInvalido: () =>
+    "Esse documento não parece completo. Pode conferir e mandar os 11 números " +
+    "do CPF, ou os 14 do CNPJ?",
 
   naoEncontrado: () =>
     "Não localizei um cadastro com esses dados. Vou chamar uma atendente para " +
@@ -61,7 +132,10 @@ export const RESPOSTAS = {
 
   // ── valores (só depois de identificado) ───────────────────────────────────
   saldo: (d: { nome: string | null; saldo: number; vencidoDesde: string | null }) => {
-    const base = `${ola(d.nome)}Localizei seu cadastro. O valor em aberto é ${reais(d.saldo)}`;
+    const base = abrir(
+      d.nome,
+      `localizei seu cadastro. O valor em aberto é ${reais(d.saldo)}`,
+    );
     return d.vencidoDesde
       ? `${base}, com vencimento desde ${d.vencidoDesde}.`
       : `${base}.`;
@@ -136,7 +210,7 @@ export const RESPOSTAS = {
    * Consulta ao Siscobra falhou — rede, banco fora do ar, VPN caída.
    *
    * Este é o pior momento possível para o robô emudecer: a pessoa acabou de
-   * mandar CPF e data de nascimento, e receber nada em troca parece descaso ou
+   * mandar documento e nome do titular, e receber nada em troca parece descaso ou
    * golpe. Diz que o problema é nosso, não dela, e que alguém vai assumir.
    */
   sistemaIndisponivel: () =>

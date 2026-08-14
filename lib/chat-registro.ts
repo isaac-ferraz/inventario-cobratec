@@ -20,7 +20,7 @@ export type EntradaConversa = {
   waId?: string | null;
 
   // Identificação: só vale COMPLETA (código do devedor + a marca de que houve
-  // conferência de CPF e nascimento). Meia identificação destravaria valor sem
+  // conferência de documento e nome). Meia identificação destravaria valor sem
   // prova — ver `podeRevelarValores` em lib/conversas.ts.
   siscobraDevcod?: number | null;
   siscobraCarcod?: number | null;

@@ -100,8 +100,12 @@ export const trocaSenhaSchema = z.object({
  * "2026-02-31" ROLA para 03/03, gravando silenciosamente uma data que ninguém
  * digitou. Reconstruímos a data em UTC e conferimos se os três componentes
  * sobreviveram: se o dia mudou, ele não existia.
+ *
+ * Exportada porque o período dos relatórios (`lib/relatorios.ts`) precisa da
+ * MESMA regra: uma segunda cópia dela é uma segunda chance de divergir, e este
+ * projeto já teve duas listas de papéis que divergiram (decisão 25.1).
  */
-function dataDoCalendario(iso: string): Date | null {
+export function dataDoCalendario(iso: string): Date | null {
   const [ano, mes, dia] = iso.split("-").map(Number);
   const d = new Date(Date.UTC(ano, mes - 1, dia, 12, 0, 0, 0));
   const sobreviveu =
@@ -418,7 +422,7 @@ export const conversaWebhookSchema = z.object({
   // duplicar a fala do devedor — a trava real é o UNIQUE no banco.
   waId: z.string().trim().max(200).nullable().optional(),
 
-  // ── identificação (só quando o devedor confirmou CPF **e** nascimento) ──
+  // ── identificação (só quando o devedor confirmou documento **e** nome) ──
   // O n8n manda os três juntos ou nenhum: meia identificação destravaria valor
   // sem prova, que é exatamente o que `podeRevelarValores` impede.
   siscobraDevcod: z.coerce.number().int().positive().nullable().optional(),

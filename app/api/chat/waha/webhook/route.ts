@@ -141,7 +141,7 @@ async function responderComRobo(
     select: {
       nome: true, siscobraDevcod: true, siscobraCarcod: true,
       identificadaEm: true, saldo: true, vencidoDesde: true,
-      cpfPendente: true, nascimentoPendente: true, oferta: true,
+      documentoPendente: true, nomePendente: true, saudacoes: true, oferta: true,
     },
   });
   if (!conversa) return;
@@ -162,10 +162,11 @@ async function responderComRobo(
       carcod: conversa.siscobraCarcod,
       identificadaEm: conversa.identificadaEm,
       nome: conversa.nome,
+      saudacoes: conversa.saudacoes,
       saldo: conversa.saldo,
       vencidoDesde: conversa.vencidoDesde,
-      cpfPendente: conversa.cpfPendente,
-      nascimentoPendente: conversa.nascimentoPendente,
+      documentoPendente: conversa.documentoPendente,
+      nomePendente: conversa.nomePendente,
       oferta: conversa.oferta ? (JSON.parse(conversa.oferta) as OfertaFeita) : null,
     },
     { identificar, regraDaCarteira },
@@ -231,10 +232,11 @@ function paraOBanco(e: Partial<EstadoConversa>) {
   if ("carcod" in e) dados.siscobraCarcod = e.carcod;
   if ("identificadaEm" in e) dados.identificadaEm = e.identificadaEm;
   if ("nome" in e) dados.nome = e.nome;
+  if ("saudacoes" in e) dados.saudacoes = e.saudacoes;
   if ("saldo" in e) dados.saldo = e.saldo;
   if ("vencidoDesde" in e) dados.vencidoDesde = e.vencidoDesde;
-  if ("cpfPendente" in e) dados.cpfPendente = e.cpfPendente;
-  if ("nascimentoPendente" in e) dados.nascimentoPendente = e.nascimentoPendente;
+  if ("documentoPendente" in e) dados.documentoPendente = e.documentoPendente;
+  if ("nomePendente" in e) dados.nomePendente = e.nomePendente;
   // JSON em texto: o SQLite não tem coluna de objeto, mesmo padrão de `dossie`.
   if ("oferta" in e) dados.oferta = e.oferta ? JSON.stringify(e.oferta) : null;
   return dados;
