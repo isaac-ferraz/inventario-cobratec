@@ -2,36 +2,55 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Gauge, TrendingUp } from "lucide-react";
+import { CalendarClock, Gauge, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Papel } from "@/lib/supervisao";
 
-// A chave entre os dois relatórios da casa.
+// A chave entre os relatórios da casa.
 //
-// São dois ofícios olhando números diferentes: o TI pergunta "quantas máquinas,
-// quais pendências"; a operação pergunta "quantos acordos hoje". Um seletor no
-// mesmo lugar das duas telas deixa a troca ser um gesto, e não uma caçada pelo
-// menu lateral.
+// São ofícios olhando números diferentes: o TI pergunta "quantas máquinas,
+// quais pendências"; o gestor da operação pergunta "quantos acordos hoje"; e
+// quem cobra pergunta "o que vence amanhã". Um seletor no mesmo lugar das três
+// telas deixa a troca ser um gesto, e não uma caçada pelo menu lateral.
 //
-// Não recebe `papel`: quem enxerga o dashboard de informática (`/`) é
-// exatamente quem enxerga o relatório de cobrança — admin e supervisor, a mesma
-// dupla em `PERMITIDO_SUPERVISOR` (middleware) e em `exigirRelatorio`
-// (lib/autorizacao.ts). Operador e cobrança não chegam a nenhuma das duas telas
-// e portanto nunca veem este componente.
+// Passou a receber `papel` quando a carteira entrou. Antes não precisava: quem
+// via o dashboard de informática era exatamente quem via o relatório de
+// cobrança. A carteira quebrou essa coincidência — a operadora de COBRANCA
+// alcança ela e mais nenhuma das outras duas, e uma aba que leva a um redirect
+// é pior que aba nenhuma.
 
 const RELATORIOS = [
-  { href: "/", rotulo: "Informática", icone: Gauge },
-  { href: "/relatorios/cobranca", rotulo: "Cobrança", icone: TrendingUp },
-];
+  { href: "/", rotulo: "Informática", icone: Gauge, papeis: ["ADMIN", "SUPERVISOR"] },
+  {
+    href: "/relatorios/cobranca",
+    rotulo: "Cobrança",
+    icone: TrendingUp,
+    papeis: ["ADMIN", "SUPERVISOR"],
+  },
+  {
+    href: "/relatorios/carteira",
+    rotulo: "Carteira",
+    icone: CalendarClock,
+    papeis: ["ADMIN", "SUPERVISOR", "COBRANCA"],
+  },
+] as const;
 
-export function AlternadorRelatorio() {
+export function AlternadorRelatorio({ papel }: { papel: Papel }) {
   const pathname = usePathname();
+  const visiveis = RELATORIOS.filter((r) =>
+    (r.papeis as readonly string[]).includes(papel),
+  );
+  // Uma aba sozinha não é uma escolha — é um rótulo redundante ao lado do
+  // título que já está na tela.
+  if (visiveis.length < 2) return null;
+
   return (
     <div
       role="tablist"
       aria-label="Escolher relatório"
       className="inline-flex shrink-0 gap-0.5 rounded-lg border bg-muted/50 p-0.5"
     >
-      {RELATORIOS.map((r) => {
+      {visiveis.map((r) => {
         const on = r.href === "/" ? pathname === "/" : pathname.startsWith(r.href);
         return (
           <Link

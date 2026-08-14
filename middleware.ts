@@ -43,6 +43,16 @@ const PERMITIDO_COBRANCA = [
   ...PERMITIDO_OPERADOR,
   "/chat",
   "/api/chat",
+  // A carteira de acordos: o que vence e o que atrasou. Entra para a cobrança
+  // porque é a agenda de trabalho DELA — quem liga para o devedor amanhã é
+  // quem precisa saber que o boleto vence amanhã.
+  //
+  // O caminho é o da carteira e não `/relatorios` inteiro: o painel de produção
+  // (acordos e acionamentos por operadora) continua fora, pela mesma razão da
+  // decisão 35 — é um ranking nominal de colegas. E mesmo dentro da carteira, o
+  // recorte por operadora é apagado no servidor para ela (`podeVerOperadoras`).
+  "/relatorios/carteira",
+  "/api/relatorios/carteira",
 ];
 
 const PERMITIDO_SUPERVISOR = [
@@ -58,6 +68,11 @@ const PERMITIDO_SUPERVISOR = [
   // o filtro de equipe, escolhido na tela.
   "/relatorios",
   "/api/relatorios",
+  // Os avisos que o relógio produziu (lib/agendador.ts). Mesmo par de papéis
+  // dos relatórios, e pela mesma razão: o que o aviso carrega são números
+  // agregados da operação, nunca devedor.
+  "/avisos",
+  "/api/avisos",
   "/computadores",
   "/celulares",
   "/funcionarios",

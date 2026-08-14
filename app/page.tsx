@@ -376,7 +376,7 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <AlternadorRelatorio />
+          <AlternadorRelatorio papel={usuario.papel} />
           {/* A planilha sai com o parque inteiro; recortá-la é outro trabalho.
               Até lá, o botão é só do TI — coerente com /api/export. */}
           {!soDaSala && <ExportButton />}

@@ -2248,3 +2248,253 @@ inventário, e misturar as duas é outro trabalho.
 Testes: 642 → **685** (`lib/relatorios.test.ts`, 21 casos de período e fuso;
 `tests/api/relatorios.test.ts`, 17 de portão, validação e falha do CRM; mais 5 no
 `middleware.test.ts`).
+
+## 36. A carteira de acordos: o que vem, e o que "em atraso" pode dizer
+
+A decisão 35 respondeu **o que fechou**. Faltava a pergunta seguinte, que é a
+que sustenta a carteira depois da assinatura: **o que vence nos próximos dias e
+o que venceu sem entrar**. Ela não existia em lugar nenhum — nem aqui, nem no
+projeto irmão, cujo `CLAUDE.md` lista "valor total em aberto e aging (faixas de
+atraso)" como KPI desejado e nunca implementado.
+
+Tela nova em **`/relatorios/carteira`**, ao lado de `/relatorios/cobranca` no
+alternador. Separadas e não abas do mesmo painel porque os filtros são de
+naturezas opostas: lá o período olha para trás, aqui a janela olha para frente,
+e um seletor só serviria mal aos dois. As consultas vivem em
+**`lib/relatorios-carteira.ts`**, no mesmo molde do arquivo vizinho — uma
+varredura por consulta, `GROUPING SETS` devolvendo todos os eixos empilhados,
+`$1..$4` na mesma ordem.
+
+### A parte fácil: a parcela existe e é confiável
+
+`acordo_parcela` (1,25 milhão de linhas) tem `acoparnum`, `acoparvallan` (valor)
+e `acopardatven` (vencimento), ligada ao acordo por `acocod`. A agenda de
+vencimento sai daí direto.
+
+A **atribuição por operadora** é copiada, não reinventada: o mesmo
+`LEFT JOIN LATERAL` sobre `retorno.retusucod` da decisão 35 (última ação manual,
+janela de 30 dias, fallback `acousuinc`). Quem fechou o acordo é quem deve
+lembrar do boleto. A diferença é que aqui ele roda **por acordo e não por
+parcela** — um acordo em 12x são 12 linhas, e repetir a parte cara doze vezes
+para chegar ao mesmo nome seria pagar doze vezes pela mesma resposta.
+
+### A parte difícil: "paga" não é uma coluna
+
+Nenhuma coluna de pagamento da parcela funciona neste banco. O ADR **D-009** do
+projeto irmão mediu uma a uma: `acoparvalrec` e `acoparvalrep` são 0,
+`acoparstacal` é vazio, `boleto.bolvalpgo` é 0, `boleto.boldatpar` e
+`acordo.acodatrec` são a sentinela `0001-01-01`, e `conparstacal = '1'` **não**
+significa paga (só ~2% delas têm baixa).
+
+O dinheiro está nas razões de baixa: `boleto_baixa` (~R$ 82M) e `operacao`
+(~R$ 112M). A cadeia até a parcela é
+`acordo_parcela → boleto → boleto_baixa`.
+
+**Por que o join casa quatro colunas e não duas.** `boleto.bolcon` guarda o
+código da negociação, e a negociação pode ser um ACORDO **ou** um CONTRATO — os
+dois numerados em sequências próprias. Casar só `bolcon = acocod AND bolpar =
+acoparnum` faz um contrato de mesmo número passar por acordo, e a parcela de uma
+pessoa aparece paga pela baixa de outra. Por isso o join exige também
+`boldevcod = devcod` e `bolcarcod = carcod`: mesmo número, mesmo devedor, mesma
+carteira. Não é prova — é o quanto dá para estreitar sem uma coluna de tipo.
+(`boleto_controle.bolacocod` existiria para isso e nenhum diagnóstico do projeto
+irmão a validou.)
+
+**A consequência está escrita na tela, com todas as letras:** "em atraso" aqui
+quer dizer **venceu e não achamos a baixa**, não "o devedor não pagou". Um
+painel que chama de caloteiro quem já pagou queima a confiança no relatório
+inteiro, inclusive na metade que está certa.
+
+**E por isso existe `scripts/validar-parcelas.ts`** (`npm run
+db:validar-parcelas`), somente leitura, que mede a cobertura desse join, compara
+o de 4 colunas com o de 2, cruza com `operacao` para achar acordo recebendo que
+o boleto não vê, e imprime uma amostra por carteira para conferência contra o
+PDF oficial. Ele termina com um veredito de três faixas — acima de 40% de
+cobertura o número sai limpo; abaixo de 20% ele **não deve** ser publicado como
+valor absoluto. É a mesma disciplina que fez o `SQL_ACORDOS` bater 104/104: SQL
+que ninguém conferiu é SQL que não funciona.
+
+### O painel que ninguém tinha: a primeira parcela
+
+Dos acordos fechados nos últimos 90 dias cuja 1ª parcela já venceu, quantas
+foram honradas. É o divisor entre acordo que vinga e acordo que só ocupou a
+agenda — e no relatório de produção os dois contam igual. Junto vem o de
+**acordos quebrados** (`acoati = 1`, por `acodatqueaco`), que é o flag que o
+relatório de produção **exclui**: lá quebra é ruído, aqui é o assunto. Fechar e
+quebrar não é produção, é retrabalho.
+
+### Três papéis, uma tela, recortes diferentes
+
+Este é o único relatório que três papéis alcançam, e cada um leva uma coisa:
+
+| | agregados | ranking por operadora | lista com nome de devedor |
+|---|---|---|---|
+| ADMIN | sim | sim | sim |
+| SUPERVISOR | sim | sim | **não** |
+| COBRANCA | sim | **não** | sim |
+
+**A cobrança entra** porque a agenda de vencimento é a agenda de trabalho dela —
+quem liga para o devedor amanhã é quem precisa saber que o boleto vence amanhã.
+Negar a tela empurraria o trabalho de volta para o Siscobra, que é de onde este
+painel existe para tirá-lo.
+
+**E não leva o recorte por operadora**, porque a decisão 35 tirou a cobrança do
+relatório de produção justamente por ele ser um ranking nominal de colegas — e a
+carteira por operadora é o mesmo ranking com outro nome. O corte é feito **no
+servidor**, apagando as listas antes de virar JSON, e não escondendo o bloco na
+tela: é a mesma escolha da nota interna do chamado (decisão 20). O teste
+verifica que o nome não sobra em canto nenhum do payload.
+
+**O supervisor não leva a lista nominal.** É a decisão 27 sem nenhuma emenda:
+alcance sobre dado de devedor se decide pelo ofício, e o ofício dele é a sala.
+Portão próprio, `exigirCarteiraNominal` — e separado do `exigirChat` de
+propósito, embora os papéis coincidam hoje: um guarda a conversa, o outro a
+carteira, e colá-los faria uma mudança futura vazar para o lado errado calada.
+
+**A lista não carrega sozinha.** Vem num clique, porque é dado pessoal e a maior
+parte das visitas à tela é para olhar o número. Tem teto de 300 linhas, e a tela
+diz quando cortou — lista truncada em silêncio parece uma carteira menor do que
+é. O CPF sai **mascarado da consulta**, não da tela: o que não trafega não vaza
+depois por descuido.
+
+**O cruzamento que só este app consegue.** O Siscobra sabe quem deve; o `/chat`
+sabe com quem já existe conversa aberta no WhatsApp. Os dois bancos nunca se
+falam — o cruzamento é feito em memória, por `devcod`, numa consulta só com os
+devedores da página. É o que transforma a lista em ação: em vez de "ligue para
+fulano", a linha vira um link para a conversa que já existe.
+
+## 37. O relógio: o app deixou de depender de alguém abrir a tela
+
+Até aqui o sistema era **100% pull**. Garantia vencendo, estoque zerado, boleto
+atrasado, backup falhado — tudo existia só enquanto alguém olhava. `grep` por
+`cron|node-cron|schedule` no projeto inteiro achava exatamente uma coisa: o ping
+do SSE. O backup era a prova do problema: script pronto (`scripts/backup-db.sh`,
+com `VACUUM INTO` e rotação), unit de systemd escrita em `docs/backup.md`, e
+**nunca agendado**, porque agendar dependia de escolher a máquina.
+
+**Por que dentro do app e não um cron do host.** Um sidecar no compose seria mais
+ortodoxo, e perde para a realidade: onde o app vai morar ainda não está
+decidido. O que sobe junto com o container é o que funciona no dia em que o
+container subir em qualquer lugar — e o backup mostra o que acontece com a
+alternativa.
+
+**O preço, dito em voz alta:** vale **uma instância**. Duas rodariam tudo em
+dobro. A deduplicação por `chave` no `Aviso` segura o estrago, mas o desenho
+supõe uma só — exatamente como o barramento de eventos de `lib/chat-eventos.ts`.
+
+`instrumentation.ts` liga `lib/agendador.ts`, com **duas guardas**:
+`NEXT_RUNTIME === "nodejs"` (o hook também roda no Edge, onde não há Prisma) e
+`AGENDADOR_LIGADO=1`. A segunda existe porque, sem ela, todo `npm run dev` na
+máquina de alguém viraria um agendador — e às 18h o desenvolvedor mandaria o
+fechamento do dia para o celular da gerência com os dados do banco de teste
+dele.
+
+> **Armadilha de build.** A guarda impede a execução no Edge, **não a
+> compilação**: o webpack segue o `import()` mesmo dentro do `if`, chega no `pg`
+> e quebra com "Module not found: fs". A correção é um `IgnorePlugin` no
+> `next.config.mjs` para os runtimes não-Node. Foi tentado antes com
+> `resolve.alias` e **não funcionou** — alias casa com a string do import, e
+> `@/lib/...` aqui é path do tsconfig, resolvido por outro caminho. Passou
+> batido em silêncio, que é o pior jeito de uma correção não funcionar.
+
+**O que já rodou fica no banco** (`TarefaAgendada`), não em memória: um
+`docker compose restart` às 12h05 mandaria o digest do meio-dia de novo, e duas
+mensagens iguais é como se treina alguém a ignorar notificação. Junto vão o
+resultado e a duração — sem isso, uma tarefa que falha toda noite falha
+invisível, que é o defeito que o backup tem hoje.
+
+**A janela de recuperação é de 2 horas.** Faltou luz das 11h às 13h? O digest do
+meio-dia ainda vale às 13h. Subiu o container às 19h? Não vale mais — "produção
+parcial do dia" chegando depois do expediente não é informação atrasada, é
+informação errada. E o dia é gravado **mesmo no erro**: uma tarefa que falha e é
+reagendada a cada minuto bate no CRM cem vezes com o mesmo problema.
+
+### Os avisos: gravar antes de enviar
+
+A ordem não é detalhe de implementação, é a decisão inteira. O canal de saída é
+o mesmo gateway não-oficial da decisão 29, que pode estar fora do ar, com a
+sessão caída ou com o chip banido. Se o aviso só existisse na mensagem, o dia em
+que o canal falhasse seria justamente o dia em que ninguém ficaria sabendo de
+nada — e a falha do canal é uma das coisas que se quer avisar.
+
+É o **inverso** do `/chat`, onde a regra é entregar primeiro (mensagem fantasma
+para o devedor é pior que repetida). Aqui o destinatário é interno e a tela é o
+registro que vale; falhar no empurrão vira uma coluna (`entrega`), não um aviso
+perdido.
+
+O aviso sai pelo **mesmo número da cobrança** — o WAHA Core só sustenta uma
+sessão. Volume baixo e só de saída, mas é o chip banível da decisão 29, e é mais
+uma razão para gravar primeiro.
+
+**Nível `info` não vai ao celular** por padrão; alerta e grave, sim. Um resumo
+que chega todo dia vira notificação ignorada em duas semanas, e aí o alerta
+grave cai no mesmo balde do ruído. Os digests são a exceção explícita
+(`empurrar: true`): eles são `info` e ainda assim precisam chegar, porque o
+valor deles é justamente não depender de alguém abrir a tela.
+
+### A baseline: por que gravar o que o CRM já tem
+
+`FechamentoDiario` guarda uma linha por dia com os agregados da operação. Existe
+por um motivo concreto: o Siscobra é o banco de produção e `lib/relatorios.ts`
+impõe teto de 92 dias — sem história própria, *"hoje está fraco"* não é uma
+frase que se possa provar. Com ela, o digest das 18h passa a comparar com a
+média das últimas quatro mesmas-feiras. Com menos de duas semanas de base ele
+diz que não tem base, em vez de inventar uma média de uma amostra só.
+
+Só agregado: nenhuma coluna guarda devedor.
+
+## 38. Retenção: guardar para sempre é uma escolha, e era a errada
+
+O app guarda dado pessoal de terceiro — telefone do devedor, dossiê congelado
+com saldo e CPF mascarado, áudio e foto que ele mandou. Não havia política
+nenhuma: o dado entrava e ficava, e o único apagamento era o `DELETE` manual da
+decisão 33, admin a admin, conversa a conversa. Guardar para sempre não é
+neutro; é a escolha mais arriscada das disponíveis, tomada por omissão.
+
+O comentário do schema em `ConversaMensagem.midiaArquivo` já dizia que o anexo
+"pode ser purgado sem perder o histórico". Isto é aquilo, escrito.
+
+**Padrões:** conversa **encerrada** há mais de **180 dias** (meio ano cobre
+contestação de acordo e reclamação de atendimento, que é para o que o histórico
+serve como prova); auditoria com mais de **730 dias**. Ambos em variável de
+ambiente, com **piso de 30 dias** na conversa — freio contra o dedo escorregando
+no `.env`, porque `RETENCAO_CONVERSAS_DIAS=3` apagaria a semana passada e o erro
+só apareceria quando alguém fosse procurar a prova de um acordo.
+
+**Modo seco por padrão.** A purga relata no `/avisos` o que apagaria e não apaga.
+Vira `PURGA_MODO=ativo` depois que alguém conferir a primeira lista — a primeira
+execução de uma rotina que apaga tem que ser conferida por gente, e um padrão
+destrutivo faria a conferência acontecer depois do estrago. No modo seco o aviso
+sai como **alerta**, não info: há dado vencido esperando, e a inércia é
+justamente o risco.
+
+**Só conversa `encerrada`.** Uma parada há um ano na fila é problema de operação
+— apagá-la resolveria o sintoma e apagaria a evidência. E ancorada em
+`encerradaEm`, não em `ultimaMensagemEm`: a contagem começa quando o atendimento
+acabou, não quando o devedor parou de responder. Sem data de encerramento
+(registro antigo), fica.
+
+**Uma a uma, e não `deleteMany`.** O `deleteMany` levaria as linhas e deixaria
+todo arquivo de áudio no disco, sem nada que leve até ele. Por isso o corpo do
+`DELETE` manual saiu da rota para **`lib/chat-purga.ts`** e é chamado pelos dois
+caminhos: a cascata no banco mais os arquivos no disco são um par que precisa de
+dono único, e duas implementações divergiriam na segunda vez que alguém mexesse
+numa delas — a que roda de madrugada, sem ninguém olhando, é a que ficaria para
+trás.
+
+**Anexos órfãos** também saem: arquivo na pasta de mídia sem mensagem apontando
+para ele. Eles aparecem (um `deleteMany` antigo, um restore do banco sem o
+disco, um download que terminou depois de a conversa sumir), e áudio de devedor
+parado no volume, sem trilha e sem dono, é o pior tipo de dado pessoal — ninguém
+sabe que ele está lá.
+
+**O texto do aviso não carrega dado de devedor.** Nem telefone, ao contrário da
+auditoria do apagamento manual (onde o telefone é o que identifica o registro
+que sumiu). Este texto sai por WhatsApp: uma lista de números de devedor
+viajando por um gateway não-oficial seria trocar um risco de LGPD por outro
+maior. Há um teste só para isso, para alguém pensar duas vezes antes de
+acrescentar telefone "para facilitar".
+
+Testes: 685 → **767** (`lib/relatorios-carteira.test.ts` 10, `lib/agendador.test.ts`
+10, `lib/retencao.test.ts` 11, `tests/api/relatorios-carteira.test.ts` 22,
+`tests/api/agendador.test.ts` 17, mais 12 de janela em `lib/relatorios.test.ts`).

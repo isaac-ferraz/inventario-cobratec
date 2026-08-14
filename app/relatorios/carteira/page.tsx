@@ -1,26 +1,31 @@
-// Relatório de cobrança — a produção da operação, lida do Siscobra.
+// Carteira de acordos — o que vence e o que atrasou, lido do Siscobra.
 //
-// A página é servidor só para conferir o papel e desenhar o cabeçalho; os
-// números chegam pela API, do lado do cliente, porque cada troca de filtro
-// consulta um banco EXTERNO. Renderizar isso no servidor a cada mudança faria a
-// navegação inteira do Next esperar o CRM responder.
+// A outra metade do relatório de cobrança: aquele responde "o que fechou", este
+// responde "o que vem". São telas separadas e não abas do mesmo painel porque
+// os filtros são de naturezas opostas — lá o período olha para trás, aqui a
+// janela olha para frente, e um seletor só serviria mal aos dois.
+//
+// Servidor apenas para conferir o papel e desenhar o cabeçalho; os números
+// chegam pela API, do lado do cliente, porque cada troca de filtro consulta um
+// banco EXTERNO (mesmo motivo do painel de cobrança).
 import { redirect } from "next/navigation";
 import { sessaoAtual } from "@/lib/sessao-servidor";
 import { telaInicial } from "@/lib/supervisao";
 import { configSiscobra } from "@/lib/siscobra";
 import { AlternadorRelatorio } from "@/components/relatorios/alternador";
-import { PainelCobranca } from "./painel";
+import { PainelCarteira } from "./painel";
 
 export const dynamic = "force-dynamic";
 
-export default async function RelatorioCobrancaPage() {
+export default async function RelatorioCarteiraPage() {
   const usuario = await sessaoAtual();
   if (!usuario) redirect("/login");
-  // Espelha `exigirRelatorio` (lib/autorizacao.ts) e o middleware. O portão de
-  // verdade está na API — esta checagem existe para a pessoa não ver uma tela
-  // vazia com erro 403 dentro.
-  if (usuario.papel !== "ADMIN" && usuario.papel !== "SUPERVISOR") {
-    redirect(telaInicial(usuario.papel));
+  // Espelha `exigirCarteira` (lib/autorizacao.ts) e PERMITIDO_COBRANCA no
+  // middleware. O portão de verdade está na API — esta checagem existe para a
+  // pessoa não ver uma tela vazia com 403 dentro.
+  const { papel } = usuario;
+  if (papel !== "ADMIN" && papel !== "SUPERVISOR" && papel !== "COBRANCA") {
+    redirect(telaInicial(papel));
   }
 
   return (
@@ -29,17 +34,17 @@ export default async function RelatorioCobrancaPage() {
         <div>
           <div className="eyebrow">relatórios</div>
           <h1 className="font-display text-2xl font-bold tracking-tight">
-            Cobrança
+            Carteira de acordos
           </h1>
           <p className="text-sm text-muted-foreground">
-            Acordos e acionamentos da operação, direto do Siscobra.
+            O que vence nos próximos dias e o que venceu sem entrar.
           </p>
         </div>
-        <AlternadorRelatorio papel={usuario.papel} />
+        <AlternadorRelatorio papel={papel} />
       </div>
 
       {configSiscobra() ? (
-        <PainelCobranca />
+        <PainelCarteira papel={papel} />
       ) : (
         <div className="rounded-md border tom-alerta p-4 text-sm">
           <p className="font-medium">Conexão com o Siscobra não configurada.</p>

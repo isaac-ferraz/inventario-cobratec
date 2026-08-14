@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import {
   BarrasRanking,
-  ColunasPorHora,
+  ColunasPorFaixa,
   Numero,
   TabelaFatias,
   type Ponto,
@@ -333,7 +333,7 @@ export function PainelCobranca() {
               </p>
             </CardHeader>
             <CardContent>
-              <ColunasPorHora
+              <ColunasPorFaixa
                 dados={acordos!.porHora}
                 serie="acordo"
                 formato={dinheiro}
@@ -461,7 +461,7 @@ export function PainelCobranca() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ColunasPorHora
+                <ColunasPorFaixa
                   dados={acionamentos!.porHora}
                   serie="acionamento"
                   formato={devedores}

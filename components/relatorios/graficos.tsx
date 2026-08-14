@@ -30,15 +30,39 @@ export type Ponto = {
   valor: number;
 };
 
-export type Serie = "acordo" | "acionamento";
+export type Serie = "acordo" | "acionamento" | "aVencer" | "atraso";
 
 const COR: Record<Serie, string> = {
   acordo: "var(--serie-acordo)",
   acionamento: "var(--serie-acionamento)",
+  aVencer: "var(--serie-avencer)",
+  atraso: "var(--serie-atraso)",
 };
 
 /** Rótulo do que a segunda métrica significa em cada série. */
 export type Formato = (p: Ponto) => string;
+
+/**
+ * Quais colunas levam rótulo escrito no eixo.
+ *
+ * A PRIMEIRA sempre leva, e é o detalhe que importa: numa agenda que começa
+ * hoje, esconder a primeira coluna esconde exatamente o dia que a pessoa abriu
+ * a tela para ver.
+ */
+function mostraRotulo(
+  p: Ponto,
+  i: number,
+  total: number,
+  eixo: "hora" | "dia",
+): boolean {
+  // Em hora o passo é pela HORA e não pelo índice: assim o eixo mostra sempre
+  // as pares (10, 12, 14…), a cadência que se lê sem pensar — pelo índice, um
+  // expediente que começa às 9h mostraria as ímpares.
+  if (eixo === "hora") return total <= 12 || (p.chave ?? 0) % 2 === 0;
+  // "14/08" ocupa cinco caracteres; dez deles já enchem a largura de um card.
+  const passo = Math.max(1, Math.ceil(total / 10));
+  return i % passo === 0;
+}
 
 function Dica({ children }: { children: React.ReactNode }) {
   return (
@@ -52,25 +76,36 @@ function Dica({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Acordos hora a hora — colunas, uma por hora do expediente.
+ * Colunas por faixa de tempo — uma por hora do expediente, ou uma por dia da
+ * agenda de vencimento.
  *
- * Coluna e não linha: cada hora é um balde fechado ("o que entrou entre 9h e
- * 10h"), e linha entre baldes desenha uma transição contínua que não existe.
+ * Coluna e não linha: cada faixa é um balde fechado ("o que entrou entre 9h e
+ * 10h", "o que vence dia 14"), e linha entre baldes desenha uma transição
+ * contínua que não existe.
  *
- * A hora VAZIA continua na tela, com um traço rente à base. É informação de
- * primeira: some as 12h e as barras das 11h e das 13h ficam coladas, contando
- * que o time trabalhou sem parar no horário em que ninguém atendeu.
+ * A faixa VAZIA continua na tela, com um traço rente à base. É informação de
+ * primeira nos dois usos: some as 12h e as barras das 11h e das 13h ficam
+ * coladas, contando que o time trabalhou sem parar no horário em que ninguém
+ * atendeu; some o domingo e a agenda esconde o fim de semana, que é justamente
+ * o vão que faz a cobrança de sexta valer por três dias.
+ *
+ * `denso` só muda o eixo escrito: com muitas colunas, rótulo em todas vira
+ * mancha. Em hora dá para pular as ímpares (dois dígitos, cadência conhecida);
+ * em dia o rótulo tem cinco caracteres, e aí o passo é calculado para caberem
+ * no máximo dez.
  */
-export function ColunasPorHora({
+export function ColunasPorFaixa({
   dados,
   serie,
   formato,
   vazio = "Sem movimento no período.",
+  eixo = "hora",
 }: {
   dados: Ponto[];
   serie: Serie;
   formato: Formato;
   vazio?: string;
+  eixo?: "hora" | "dia";
 }) {
   if (dados.length === 0) {
     return <p className="py-8 text-center text-sm text-muted-foreground">{vazio}</p>;
@@ -123,16 +158,14 @@ export function ColunasPorHora({
         })}
       </div>
       {/* O eixo mora FORA da caixa de altura fixa: dentro dela, o rótulo das
-          horas seria cortado e o card ganharia uma barra de rolagem interna. */}
+          faixas seria cortado e o card ganharia uma barra de rolagem interna. */}
       <div className="mt-1.5 flex gap-1 border-t pt-1.5">
-        {dados.map((d) => (
+        {dados.map((d, i) => (
           <span
             key={d.chave ?? d.rotulo}
             className="flex-1 text-center font-mono text-[10px] tabular-nums text-muted-foreground"
           >
-            {/* Com muitas horas, só as pares levam rótulo — 12 números de dois
-                dígitos lado a lado viram uma mancha. */}
-            {dados.length > 12 && (d.chave ?? 0) % 2 !== 0 ? "" : d.rotulo.replace("h", "")}
+            {mostraRotulo(d, i, dados.length, eixo) ? d.rotulo.replace("h", "") : ""}
           </span>
         ))}
       </div>

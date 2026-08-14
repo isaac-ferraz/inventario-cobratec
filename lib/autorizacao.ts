@@ -13,6 +13,8 @@
 //   exigirChat    — admin OU cobrança. É o portão das conversas com devedor.
 //   exigirRelatorio — admin OU supervisor. É o portão dos relatórios de
 //                   cobrança (produção agregada, sem dado de devedor).
+//   exigirCarteiraNominal — admin OU cobrança. A lista de boletos COM nome de
+//                   devedor; o supervisor vê os agregados dela, nunca a lista.
 //   exigirAdmin   — só administrador: telas globais (usuários, tipos, catálogo,
 //                   auditoria, depósito, exportação).
 //
@@ -126,6 +128,70 @@ export async function exigirRelatorio(req: Request): Promise<Autorizado | Negado
   if (papel !== "ADMIN" && papel !== "SUPERVISOR") {
     return {
       resposta: erro("Acesso restrito ao TI e aos supervisores.", 403),
+    };
+  }
+  return r;
+}
+
+/**
+ * Admin, supervisor OU cobrança — o portão dos AGREGADOS da carteira de acordos
+ * (o que vence, o que atrasou).
+ *
+ * É o único portão com três papéis, e é assim porque a mesma tela responde a
+ * duas perguntas diferentes. O gestor pergunta "quanto vence esta semana e quem
+ * fechou"; a operadora pergunta "de quem eu cobro amanhã". Negar a tela a ela
+ * empurraria o trabalho de volta para o Siscobra, que é de onde este painel
+ * existe para tirá-lo.
+ *
+ * O que ela NÃO leva é o recorte por operadora: a decisão 35 tirou a cobrança
+ * do relatório de produção porque ele é um ranking nominal de colegas, e a
+ * carteira por operadora é o mesmo ranking com outro nome. Quem aplica esse
+ * corte é a ROTA, apagando `porOperadora` antes de virar JSON — do mesmo jeito
+ * que a nota interna do chamado é filtrada no servidor (decisão 20), e não
+ * escondida na tela.
+ */
+export async function exigirCarteira(req: Request): Promise<Autorizado | Negado> {
+  const r = await exigirSessao(req);
+  if ("resposta" in r) return r;
+  const { papel } = r.usuario;
+  if (papel !== "ADMIN" && papel !== "SUPERVISOR" && papel !== "COBRANCA") {
+    return { resposta: erro("Acesso restrito à operação de cobrança e ao TI.", 403) };
+  }
+  return r;
+}
+
+/** Quem enxerga o ranking por operadora dentro da carteira. */
+export function podeVerOperadoras(papel: string): boolean {
+  return papel === "ADMIN" || papel === "SUPERVISOR";
+}
+
+/**
+ * Admin ou cobrança — o portão da LISTA NOMINAL da carteira de acordos.
+ *
+ * É a exceção que confirma a regra do `exigirRelatorio` acima. Lá o supervisor
+ * entra porque não há devedor nenhum no que ele lê; aqui há: nome, CPF
+ * mascarado, valor e vencimento de gente que deve. O mesmo raciocínio da
+ * decisão 27 vale sem nenhuma emenda — alcance sobre dado de devedor se decide
+ * pelo ofício, e o ofício do supervisor é a sala, não a cobrança.
+ *
+ * Por que não reusar `exigirChat`, se os papéis são os mesmos: eles coincidem
+ * hoje, e as razões são outras. `exigirChat` guarda a CONVERSA; este guarda a
+ * CARTEIRA. No dia em que um dos dois mudar de lista — um papel de supervisão
+ * de cobrança, por exemplo — colar os dois faria a mudança vazar para o lado
+ * errado calada. Portões separados custam sete linhas e evitam isso.
+ */
+export async function exigirCarteiraNominal(
+  req: Request,
+): Promise<Autorizado | Negado> {
+  const r = await exigirSessao(req);
+  if ("resposta" in r) return r;
+  const { papel } = r.usuario;
+  if (papel !== "ADMIN" && papel !== "COBRANCA") {
+    return {
+      resposta: erro(
+        "A lista com dados de devedor é restrita à equipe de cobrança.",
+        403,
+      ),
     };
   }
   return r;

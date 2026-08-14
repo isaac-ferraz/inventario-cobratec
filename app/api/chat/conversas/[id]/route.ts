@@ -1,11 +1,10 @@
-import { unlink } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { erro, tratarErroPrisma, validarCorpo } from "@/lib/api";
 import { exigirAdmin, exigirChat } from "@/lib/autorizacao";
 import { conversaSituacaoSchema } from "@/lib/validations";
 import { podeMudarSituacao } from "@/lib/conversas";
-import { caminhoDoArquivo } from "@/lib/chat-midia";
+import { apagarConversa } from "@/lib/chat-purga";
 import { registrarAuditoria } from "@/lib/auditoria";
 
 type Params = { params: { id: string } };
@@ -182,50 +181,17 @@ export async function DELETE(req: Request, { params }: Params) {
   const auth = await exigirAdmin(req);
   if ("resposta" in auth) return auth.resposta;
 
-  const conversa = await prisma.conversa.findUnique({
-    where: { id: params.id },
-    select: {
-      id: true,
-      telefone: true,
-      mensagens: { select: { midiaArquivo: true } },
-    },
-  });
-  if (!conversa) return erro("Conversa não encontrada.", 404);
-
-  // Os nomes dos anexos são lidos ANTES do delete. Depois da cascata não sobra
-  // linha apontando para o arquivo, e anexo órfão é áudio ou foto de devedor
-  // parado no disco (decisão 30: o arquivo mora fora do banco) sem nada que
-  // leve até ele — ninguém acharia para apagar depois.
-  const arquivos = conversa.mensagens
-    .map((m) => m.midiaArquivo)
-    .filter((a): a is string => Boolean(a));
-
+  // O apagamento em si mora em `lib/chat-purga.ts`, compartilhado com a purga
+  // agendada por retenção. A cascata no banco mais os arquivos no disco são um
+  // par que precisa de dono único: duas implementações divergiriam, e a que
+  // roda de madrugada sem ninguém olhando é a que ficaria para trás.
+  let r;
   try {
-    // Cascata leva as mensagens junto (onDelete: Cascade no schema).
-    await prisma.conversa.delete({ where: { id: conversa.id } });
+    r = await apagarConversa(params.id);
   } catch (e) {
     return tratarErroPrisma(e);
   }
-
-  // Banco primeiro, disco depois: enquanto a linha existe o anexo continua
-  // sendo servido pela rota de mídia, então derrubar a linha é o que de fato
-  // tira o arquivo do alcance. Falhar aqui não desfaz o apagamento — vira ruído
-  // no log, que é o pior caso aceitável.
-  let sobraram = 0;
-  for (const arquivo of arquivos) {
-    const caminho = caminhoDoArquivo(arquivo);
-    if (!caminho) continue;
-    try {
-      await unlink(caminho);
-    } catch (e) {
-      // Arquivo que já não existe é sucesso, não falha: o download pode ter
-      // fracassado lá atrás sem derrubar a fala (decisão 30).
-      if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") {
-        sobraram++;
-        console.warn(`[chat] anexo não apagado: ${arquivo}`);
-      }
-    }
-  }
+  if (!r.ok) return erro("Conversa não encontrada.", 404);
 
   // A trilha é o que torna aceitável poder apagar: some a conversa, fica quem
   // mandou sumir. Telefone entra (mesma escolha do PATCH acima); CPF, saldo e
@@ -233,11 +199,11 @@ export async function DELETE(req: Request, { params }: Params) {
   await registrarAuditoria(req, {
     acao: "remover",
     entidade: "Conversa",
-    entidadeId: conversa.id,
+    entidadeId: params.id,
     descricao:
-      `Conversa com ${conversa.telefone} apagada` +
-      (arquivos.length ? ` (${arquivos.length} anexo(s))` : ""),
+      `Conversa com ${r.telefone} apagada` +
+      (r.anexos ? ` (${r.anexos} anexo(s))` : ""),
   });
 
-  return NextResponse.json({ ok: true, anexosRemovidos: arquivos.length - sobraram });
+  return NextResponse.json({ ok: true, anexosRemovidos: r.anexosRemovidos });
 }

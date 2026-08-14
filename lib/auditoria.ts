@@ -20,7 +20,8 @@ type Entrada = {
     | "Usuario"
     | "Chamado"
     | "Manutencao"
-    | "Conversa";
+    | "Conversa"
+    | "Aviso";
   entidadeId?: string | null;
   descricao: string;
   // Ator informado pelo próprio chamador. Usado no LOGIN: naquele instante o

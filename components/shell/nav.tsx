@@ -4,7 +4,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
 import {
+  BellRing,
   Boxes,
+  CalendarClock,
   DoorOpen,
   Gauge,
   KeyRound,
@@ -42,6 +44,21 @@ const NAV = [
   // quem entra querendo o número do dia não deveria ter que passar pelo painel
   // de informática para chegar nele.
   { href: "/relatorios/cobranca", label: "Relatórios", icon: TrendingUp, supervisor: true },
+  // A carteira é o único item do menu que a operadora de cobrança enxerga além
+  // dos chamados: é a agenda de trabalho dela (o que vence, o que atrasou), e o
+  // servidor já apaga dali o recorte por operadora, que seria ranking de
+  // colegas. Espelha PERMITIDO_COBRANCA no middleware e `exigirCarteira`.
+  {
+    href: "/relatorios/carteira",
+    label: "Carteira",
+    icon: CalendarClock,
+    supervisor: true,
+    cobranca: true,
+  },
+  // Avisos é o que o relógio produziu sozinho (lib/agendador.ts). Fica logo
+  // abaixo dos relatórios porque é a mesma pergunta vista pelo outro lado: lá
+  // se procura o número, aqui o número procura a pessoa.
+  { href: "/avisos", label: "Avisos", icon: BellRing, supervisor: true, contador: true },
   { href: "/chamados", label: "Chamados", icon: LifeBuoy, operador: true, supervisor: true },
   { href: "/computadores", label: "Computadores", icon: Monitor, supervisor: true },
   { href: "/celulares", label: "Celulares", icon: Smartphone, supervisor: true },
@@ -57,9 +74,10 @@ const NAV = [
 function itens(papel: Papel) {
   if (papel === "ADMIN") return NAV;
   if (papel === "SUPERVISOR") return NAV.filter((i) => i.supervisor);
-  // COBRANCA cai aqui junto com OPERADOR de propósito: do inventário ela só usa
-  // os chamados. O destino dela é o /chat, que não é item de menu — é o bloco
-  // destacado logo acima do perfil (ver Sidebar).
+  // Do INVENTÁRIO a cobrança continua vendo só os chamados — o destino dela é o
+  // /chat, que não é item de menu e sim o bloco destacado acima do perfil (ver
+  // Sidebar). O que ela ganhou foi a carteira, que é relatório e não parque.
+  if (papel === "COBRANCA") return NAV.filter((i) => i.operador || i.cobranca);
   return NAV.filter((i) => i.operador);
 }
 
@@ -71,6 +89,24 @@ function itens(papel: Papel) {
  */
 function podeChat(papel: Papel) {
   return papel === "ADMIN" || papel === "COBRANCA";
+}
+
+/**
+ * O contador de avisos por ler.
+ *
+ * Com número dentro, e não uma bolinha: "3" e "40" pedem reações diferentes, e
+ * um ponto colorido faz as duas parecerem a mesma coisa. Acima de 99 vira "99+"
+ * porque a largura do rail é fixa.
+ */
+function Contador({ n }: { n: number }) {
+  return (
+    <span
+      aria-label={`${n} aviso${n === 1 ? "" : "s"} por ler`}
+      className="ml-auto rounded-full bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-medium leading-none tabular-nums text-amber-700 dark:text-amber-300"
+    >
+      {n > 99 ? "99+" : n}
+    </span>
+  );
 }
 
 function ativo(pathname: string, href: string) {
@@ -118,7 +154,15 @@ function useSair() {
 }
 
 // Rail lateral (desktop).
-export function Sidebar({ papel, usuario }: { papel: Papel; usuario: string }) {
+export function Sidebar({
+  papel,
+  usuario,
+  avisos = 0,
+}: {
+  papel: Papel;
+  usuario: string;
+  avisos?: number;
+}) {
   const pathname = usePathname();
   const { sair, saindo } = useSair();
   return (
@@ -146,6 +190,7 @@ export function Sidebar({ papel, usuario }: { papel: Papel; usuario: string }) {
               )}
               <item.icon className="h-4 w-4" />
               {item.label}
+              {item.contador && avisos > 0 && <Contador n={avisos} />}
             </Link>
           );
         })}
@@ -208,7 +253,15 @@ export function Sidebar({ papel, usuario }: { papel: Papel; usuario: string }) {
 }
 
 // Barra superior (mobile).
-export function TopBar({ papel, usuario }: { papel: Papel; usuario: string }) {
+export function TopBar({
+  papel,
+  usuario,
+  avisos = 0,
+}: {
+  papel: Papel;
+  usuario: string;
+  avisos?: number;
+}) {
   const pathname = usePathname();
   const { sair, saindo } = useSair();
   return (
@@ -249,6 +302,7 @@ export function TopBar({ papel, usuario }: { papel: Papel; usuario: string }) {
             >
               <item.icon className="h-3.5 w-3.5" />
               {item.label}
+              {item.contador && avisos > 0 && <Contador n={avisos} />}
             </Link>
           );
         })}

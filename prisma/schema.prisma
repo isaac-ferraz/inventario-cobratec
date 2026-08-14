@@ -2,7 +2,7 @@
 // SQLite é a fonte única de verdade. O Excel é apenas relatório de saída.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // "native" cobre o ambiente local; o target musl cobre a imagem Alpine do Docker.
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
@@ -18,18 +18,18 @@ datasource db {
 // ao funcionário (onde a pessoa senta). Celular não tem sala: o aparelho anda
 // com o dono. Ver /docs/decisoes.md.
 model Sala {
-  id           String        @id @default(cuid())
-  nome         String        @unique // "Sala 93 — piso superior"
+  id           String           @id @default(cuid())
+  nome         String           @unique // "Sala 93 — piso superior"
   predio       String? // "93", "83"... texto livre
   piso         String? // "superior", "inferior", "térreo"... texto livre
-  ordem        Int           @default(0) // ordem de exibição nas listas
-  ativa        Boolean       @default(true) // sala desativada some dos seletores
+  ordem        Int              @default(0) // ordem de exibição nas listas
+  ativa        Boolean          @default(true) // sala desativada some dos seletores
   observacoes  String?
   computadores Computador[]
   funcionarios Funcionario[]
   chamados     Chamado[]
   supervisores SupervisorSala[]
-  criadoEm     DateTime      @default(now())
+  criadoEm     DateTime         @default(now())
 }
 
 // Quem responde por uma sala. Tabela de ligação explícita (e não relação
@@ -37,12 +37,12 @@ model Sala {
 // precisar e um supervisor pode responder por mais de uma sala; e `criadoEm`
 // registra desde quando, que é o tipo de pergunta que aparece depois.
 model SupervisorSala {
-  id         String   @id @default(cuid())
-  usuarioId  String
-  usuario    Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  salaId     String
-  sala       Sala     @relation(fields: [salaId], references: [id], onDelete: Cascade)
-  criadoEm   DateTime @default(now())
+  id        String   @id @default(cuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  salaId    String
+  sala      Sala     @relation(fields: [salaId], references: [id], onDelete: Cascade)
+  criadoEm  DateTime @default(now())
 
   // Uma pessoa não supervisiona a mesma sala duas vezes.
   @@unique([usuarioId, salaId])
@@ -66,19 +66,19 @@ model SupervisorSala {
 // Guardado como String, no mesmo espírito de `cargo`/`categoria` — o SQLite não
 // tem enum nativo e a lista é curta e estável.
 model Usuario {
-  id             String       @id @default(cuid())
-  login          String       @unique
-  nome           String
+  id              String       @id @default(cuid())
+  login           String       @unique
+  nome            String
   // Hash scrypt no formato "scrypt$N$salt$hash" — ver lib/senha.ts. Diferente
   // das senhas do cofre (Siscobra/Vonix/PC), que são texto puro por precisarem
   // ser LIDAS de volta; esta aqui só precisa ser comparada.
-  senhaHash      String
-  papel          String       @default("OPERADOR")
-  ativo          Boolean      @default(true)
+  senhaHash       String
+  papel           String       @default("OPERADOR")
+  ativo           Boolean      @default(true)
   // Marca a senha inicial gerada pelo seed: a UI cobra a troca até ser mudada.
-  senhaProvisoria Boolean     @default(false)
-  funcionarioId  String?
-  funcionario    Funcionario? @relation(fields: [funcionarioId], references: [id])
+  senhaProvisoria Boolean      @default(false)
+  funcionarioId   String?
+  funcionario     Funcionario? @relation(fields: [funcionarioId], references: [id])
   // `usuario.usucod` da operadora no Siscobra (CRM de cobrança). Só faz sentido
   // para o papel COBRANCA, e sem ele não há como atribuir uma conversa a quem
   // de fato trabalhou o caso nem medir conversão — as regras de atribuição do
@@ -88,12 +88,12 @@ model Usuario {
   // LEITURA. Guardar o código solto é o único vínculo possível, e por isso ele
   // pode apontar para um operador que não existe mais lá — quem consome trata
   // o vazio, em vez de o SQLite prometer uma integridade que não pode cumprir.
-  siscobraUsucod Int?
-  criadoEm       DateTime     @default(now())
-  ultimoAcessoEm DateTime?
+  siscobraUsucod  Int?
+  criadoEm        DateTime     @default(now())
+  ultimoAcessoEm  DateTime?
 
-  chamadosAbertos    Chamado[]         @relation("solicitante")
-  chamadosAtribuidos Chamado[]         @relation("responsavel")
+  chamadosAbertos    Chamado[]          @relation("solicitante")
+  chamadosAtribuidos Chamado[]          @relation("responsavel")
   mensagens          ChamadoMensagem[]
   // Salas pelas quais responde. Só faz sentido com papel SUPERVISOR; para os
   // outros papéis a lista fica vazia.
@@ -149,7 +149,7 @@ model Conversa {
   // humana     — uma operadora assumiu; o robô cala nesta conversa.
   // encerrada  — acabou.
   // String pelo mesmo motivo de `papel` e `status` do chamado.
-  situacao String @default("bot")
+  situacao            String  @default("bot")
   // Por que saiu do robô — "pediu_humano", "fora_da_regra", "irritado"... Texto
   // livre porque quem classifica é o n8n, e engessar aqui obrigaria migration a
   // cada motivo novo que o prompt aprender.
@@ -197,15 +197,15 @@ model Conversa {
 
   documentoPendente String? // só dígitos: 11 (CPF) ou 14 (CNPJ)
   nomePendente      String? // como o devedor digitou; a conferência é em código
-  saldo              Float?
-  vencidoDesde       String? // já formatado DD/MM/AAAA, como veio do Siscobra
+  saldo             Float?
+  vencidoDesde      String? // já formatado DD/MM/AAAA, como veio do Siscobra
   // A oferta que o robô colocou na mesa, como JSON (parcelas, valor, desconto).
   //
   // Era um booleano `ofertou`, e booleano não bastava: a operadora assume a
   // conversa no meio de uma negociação e precisa saber O QUE foi prometido. Sem
   // isso ela contradiz o robô na frente do devedor — que em cobrança é
   // contestação, não constrangimento.
-  oferta             String?
+  oferta            String?
 
   criadoEm         DateTime  @default(now())
   ultimaMensagemEm DateTime  @default(now())
@@ -222,9 +222,9 @@ model Conversa {
 // Uma mensagem da conversa. Append-only: mensagem enviada ao devedor não se
 // edita nem se apaga — é registro de cobrança.
 model ConversaMensagem {
-  id        String   @id @default(cuid())
+  id         String   @id @default(cuid())
   conversaId String
-  conversa  Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  conversa   Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
 
   // devedor | bot | operadora | sistema
   // "sistema" são os marcos do atendimento (assumiu, encerrou), que aparecem na
@@ -288,7 +288,7 @@ model Chamado {
 
   // Quem pediu. Sempre vem da sessão, nunca do corpo da requisição.
   solicitanteId String
-  solicitante   Usuario @relation("solicitante", fields: [solicitanteId], references: [id])
+  solicitante   Usuario  @relation("solicitante", fields: [solicitanteId], references: [id])
   // Admin que assumiu (opcional: chamado pode estar sem dono ainda).
   responsavelId String?
   responsavel   Usuario? @relation("responsavel", fields: [responsavelId], references: [id])
@@ -386,10 +386,10 @@ model Celular {
 }
 
 model Computador {
-  id            String       @id @default(cuid())
-  identificador String       @unique // patrimônio, hostname ou etiqueta
-  apelido       String?
-  observacoes   String?
+  id               String  @id @default(cuid())
+  identificador    String  @unique // patrimônio, hostname ou etiqueta
+  apelido          String?
+  observacoes      String?
   // Login/licenças/conta da máquina — opcionais (nem todo PC tem tudo registrado)
   loginPadrao      String? // login padrão do computador, ex: "COB-1024"
   senha            String? // senha de acesso do computador
@@ -398,9 +398,9 @@ model Computador {
   contaOutlook     String? // conta do Outlook corporativo (e-mail)
   // Periféricos: apenas presença (sem modelo). Mouse/teclado normalmente vêm
   // com a máquina; headset é o que mais varia.
-  temMouse   Boolean @default(true)
-  temTeclado Boolean @default(true)
-  temHeadset Boolean @default(false)
+  temMouse         Boolean @default(true)
+  temTeclado       Boolean @default(true)
+  temHeadset       Boolean @default(false)
 
   // --- Ciclo de vida do ativo (decisão 21) ---
   // `situacao` é o estado do EQUIPAMENTO, independente de ter dono: uma máquina
@@ -459,18 +459,18 @@ model Manutencao {
   celularId    String?
   celular      Celular?    @relation(fields: [celularId], references: [id], onDelete: Cascade)
 
-  tipo        String // "corretiva" (quebrou) | "preventiva" (revisão)
-  descricao   String
-  fornecedor  String? // assistência técnica, loja...
-  custo       Float?
+  tipo       String // "corretiva" (quebrou) | "preventiva" (revisão)
+  descricao  String
+  fornecedor String? // assistência técnica, loja...
+  custo      Float?
   // Chamado que originou o conserto, quando veio de um. Fecha o ciclo
   // suporte → manutenção. SetNull: a manutenção sobrevive ao chamado.
-  chamadoId   String?
-  chamado     Chamado? @relation(fields: [chamadoId], references: [id], onDelete: SetNull)
+  chamadoId  String?
+  chamado    Chamado? @relation(fields: [chamadoId], references: [id], onDelete: SetNull)
 
-  abertaEm     DateTime  @default(now())
-  concluidaEm  DateTime? // null = ainda no conserto
-  observacoes  String?
+  abertaEm    DateTime  @default(now())
+  concluidaEm DateTime? // null = ainda no conserto
+  observacoes String?
 
   @@index([computadorId])
   @@index([celularId])
@@ -518,4 +518,87 @@ model LogAuditoria {
 
   @@index([criadoEm])
   @@index([entidade])
+}
+
+// ─────────────────────────── automação: o relógio ───────────────────────────
+//
+// O app não tinha nenhum. Tudo que ele sabia só existia quando alguém abria a
+// tela; garantia vencendo, boleto atrasado e backup falhado morriam em silêncio.
+// Os três modelos abaixo são o mínimo para isso mudar: o que já rodou, o que
+// precisa ser dito, e o histórico que o CRM não guarda.
+
+/// Marca de execução de cada tarefa agendada.
+///
+/// Existe por dois motivos concretos. Sem ela, um `docker compose restart` às
+/// 12h05 faria o digest do meio-dia sair de novo — o relógio em memória não
+/// sabe o que já aconteceu. E sem `ultimoResultado`, uma tarefa que falha toda
+/// noite falha invisível, que é exatamente o defeito que o backup tem hoje.
+model TarefaAgendada {
+  nome            String    @id
+  /// Dia (AAAA-MM-DD, fuso do Brasil) da última execução bem-sucedida. String e
+  /// não DateTime porque a pergunta é "já rodou HOJE?", e comparar dia com dia
+  /// não passa perto de fuso.
+  ultimoDia       String?
+  ultimaExecucao  DateTime?
+  /// "ok" | "erro". O texto do erro fica em `ultimoDetalhe`.
+  ultimoResultado String?
+  ultimoDetalhe   String?
+  /// Quanto tempo levou, em milissegundos — é o que denuncia a tarefa que está
+  /// ficando lenta antes de ela começar a estourar o tempo do CRM.
+  duracaoMs       Int?
+}
+
+/// Um aviso que o sistema produziu sozinho.
+///
+/// Gravado ANTES de ser enviado, sempre. O canal de saída é o WhatsApp pelo
+/// gateway não-oficial (decisão 29), que é justamente o que mais cai — se o
+/// aviso só existisse na mensagem, o dia em que o gateway estiver fora seria o
+/// dia em que ninguém fica sabendo de nada.
+model Aviso {
+  id       String    @id @default(cuid())
+  /// Que assunto é: "carteira", "integracao", "backup", "purga".
+  tipo     String
+  /// "info" | "alerta" | "grave" — decide a cor e se o WhatsApp sai.
+  nivel    String    @default("info")
+  titulo   String
+  corpo    String
+  /// Para onde o aviso leva (com os filtros já na URL, decisão 23).
+  link     String?
+  /// Chave de deduplicação: "carteira:vence-hoje:2026-08-14". UNIQUE porque a
+  /// mesma tarefa pode rodar duas vezes (retry, restart) e o mesmo aviso duas
+  /// vezes na tela é o começo de as pessoas pararem de ler a tela.
+  chave    String    @unique
+  /// Quando alguém marcou como visto. Null = pendente, e é o que o contador da
+  /// navegação conta.
+  lidoEm   DateTime?
+  /// Resultado do empurrão: null = não tentou, "ok", ou o motivo da falha.
+  entrega  String?
+  criadoEm DateTime  @default(now())
+
+  @@index([lidoEm, criadoEm])
+  @@index([tipo])
+}
+
+/// Fotografia diária dos números da operação.
+///
+/// O Siscobra é o banco de produção e o relatório tem teto de 92 dias — sem
+/// história própria, "hoje está fraco" não é uma frase que se possa provar.
+/// Aqui ela fica: uma linha por dia, gravada à noite, que sobrevive ao teto e
+/// permite comparar hoje com a média das últimas quatro mesmas-feiras.
+///
+/// Só agregado, e por isso não é dado pessoal: nenhuma coluna guarda devedor.
+model FechamentoDiario {
+  /// AAAA-MM-DD no fuso do Brasil.
+  dia             String   @id
+  acordosQtd      Int      @default(0)
+  acordosValor    Float    @default(0)
+  acionamentosQtd Int      @default(0)
+  acionamentosDev Int      @default(0)
+  aVencer7Qtd     Int      @default(0)
+  aVencer7Valor   Float    @default(0)
+  atrasoQtd       Int      @default(0)
+  atrasoValor     Float    @default(0)
+  quebrasQtd      Int      @default(0)
+  quebrasValor    Float    @default(0)
+  criadoEm        DateTime @default(now())
 }

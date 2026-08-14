@@ -140,6 +140,100 @@ export function resolverPeriodo(
   return { ok: true, inicio, fim };
 }
 
+// ─────────────────────────── a janela que olha para frente ───────────────────
+//
+// O relatório de acordos pergunta "o que fechou" e por isso só olha para trás —
+// `resolverPeriodo` acima nem aceita data futura. A carteira pergunta o oposto:
+// "o que vence", e a resposta útil está nos próximos dias.
+//
+// São duas funções e não um parâmetro `futuro: boolean` porque os limites são
+// diferentes de verdade: lá o teto existe para proteger o CRM de uma varredura
+// de um ano em `retorno` (55M linhas); aqui ele existe para a agenda caber na
+// tela — trinta colunas de dia já são o limite do que alguém lê de uma vez.
+
+export type ChaveJanela = "prox7" | "prox15" | "prox30" | "prox60" | "personalizado";
+
+export const JANELAS: { chave: ChaveJanela; rotulo: string }[] = [
+  { chave: "prox7", rotulo: "Próximos 7 dias" },
+  { chave: "prox15", rotulo: "Próximos 15 dias" },
+  { chave: "prox30", rotulo: "Próximos 30 dias" },
+  { chave: "prox60", rotulo: "Próximos 60 dias" },
+  { chave: "personalizado", rotulo: "Escolher datas" },
+];
+
+const CHAVES_JANELA = new Set<string>(JANELAS.map((j) => j.chave));
+
+export function ehChaveJanela(v: string): v is ChaveJanela {
+  return CHAVES_JANELA.has(v);
+}
+
+/**
+ * A janela de vencimento — de hoje para frente.
+ *
+ * Inclui HOJE na ponta de baixo: parcela que vence hoje ainda é cobrável hoje,
+ * e deixá-la de fora esvaziaria o painel justamente no dia em que ele mais
+ * serve. O teto de `MAX_DIAS` continua valendo porque a consulta cruza
+ * `acordo_parcela` (1,25M linhas) com o LATERAL de atribuição.
+ */
+export function resolverJanela(
+  entrada: { janela?: string | null; inicio?: string | null; fim?: string | null },
+  hoje: string,
+): ResultadoPeriodo {
+  const chave = entrada.janela ?? "prox15";
+  if (!ehChaveJanela(chave)) {
+    return { ok: false, erro: `Janela desconhecida: ${chave}.` };
+  }
+
+  if (chave !== "personalizado") {
+    const dias: Record<Exclude<ChaveJanela, "personalizado">, number> = {
+      prox7: 6,
+      prox15: 14,
+      prox30: 29,
+      prox60: 59,
+    };
+    return { ok: true, inicio: hoje, fim: somarDias(hoje, dias[chave]) };
+  }
+
+  const { inicio, fim } = entrada;
+  if (!inicio || !fim) {
+    return { ok: false, erro: "Informe a data inicial e a data final." };
+  }
+  for (const [rotulo, valor] of [
+    ["inicial", inicio],
+    ["final", fim],
+  ] as const) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+      return { ok: false, erro: `Data ${rotulo} deve estar no formato AAAA-MM-DD.` };
+    }
+    if (!dataDoCalendario(valor)) {
+      return {
+        ok: false,
+        erro: `Data ${rotulo} não existe no calendário: ${valor}.`,
+      };
+    }
+  }
+  if (inicio > fim) {
+    return { ok: false, erro: "A data inicial não pode ser depois da final." };
+  }
+  const dias = diasNoIntervalo(inicio, fim);
+  if (dias > MAX_DIAS) {
+    return {
+      ok: false,
+      erro: `A janela é de ${dias} dias; o máximo é ${MAX_DIAS} (o CRM é o banco de produção).`,
+    };
+  }
+  return { ok: true, inicio, fim };
+}
+
+/** Os dias de um intervalo, em ordem — "2026-08-14", "2026-08-15", … */
+export function diasDoIntervalo(inicio: string, fim: string): string[] {
+  const total = diasNoIntervalo(inicio, fim);
+  if (total <= 0) return [];
+  const dias: string[] = [];
+  for (let i = 0; i < total; i++) dias.push(somarDias(inicio, i));
+  return dias;
+}
+
 /** "2026-08-13" → "13/08/2026". */
 export function formatarDiaBr(iso: string): string {
   const [ano, mes, dia] = iso.split("-");

@@ -6,9 +6,11 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_DIAS,
+  diasDoIntervalo,
   diasNoIntervalo,
   formatarDiaBr,
   hojeNoBrasil,
+  resolverJanela,
   resolverPeriodo,
   rotuloPeriodo,
   somarDias,
@@ -175,5 +177,96 @@ describe("rótulos", () => {
     expect(rotuloPeriodo("2026-08-01", HOJE, HOJE)).toBe(
       "01/08/2026 a 13/08/2026",
     );
+  });
+});
+
+// ─────────────────── a janela que olha para frente (carteira) ───────────────────
+
+describe("resolverJanela", () => {
+  it("o padrão são os próximos 15 dias, começando hoje", () => {
+    const r = resolverJanela({}, "2026-08-14");
+    expect(r).toEqual({ ok: true, inicio: "2026-08-14", fim: "2026-08-28" });
+  });
+
+  it("inclui HOJE na ponta de baixo", () => {
+    // Parcela que vence hoje ainda é cobrável hoje. Começar amanhã esvaziaria o
+    // painel justamente no dia em que ele mais serve.
+    for (const chave of ["prox7", "prox15", "prox30", "prox60"]) {
+      const r = resolverJanela({ janela: chave }, "2026-08-14");
+      expect(r.ok && r.inicio, chave).toBe("2026-08-14");
+    }
+  });
+
+  it("prox7 são sete dias contando hoje, não oito", () => {
+    const r = resolverJanela({ janela: "prox7" }, "2026-08-14");
+    expect(r.ok && diasNoIntervalo(r.inicio, r.fim)).toBe(7);
+  });
+
+  it("recusa janela desconhecida", () => {
+    const r = resolverJanela({ janela: "sempre" }, "2026-08-14");
+    expect(r.ok).toBe(false);
+  });
+
+  it("aceita datas futuras no personalizado", () => {
+    // É a diferença central para `resolverPeriodo`: lá o futuro não faz sentido,
+    // aqui é o assunto.
+    const r = resolverJanela(
+      { janela: "personalizado", inicio: "2026-09-01", fim: "2026-09-30" },
+      "2026-08-14",
+    );
+    expect(r).toEqual({ ok: true, inicio: "2026-09-01", fim: "2026-09-30" });
+  });
+
+  it("recusa data que não existe no calendário", () => {
+    const r = resolverJanela(
+      { janela: "personalizado", inicio: "2026-02-31", fim: "2026-03-05" },
+      "2026-08-14",
+    );
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.erro).toContain("calendário");
+  });
+
+  it("recusa intervalo invertido", () => {
+    const r = resolverJanela(
+      { janela: "personalizado", inicio: "2026-09-30", fim: "2026-09-01" },
+      "2026-08-14",
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("respeita o teto de MAX_DIAS", () => {
+    const r = resolverJanela(
+      { janela: "personalizado", inicio: "2026-08-14", fim: somarDias("2026-08-14", MAX_DIAS) },
+      "2026-08-14",
+    );
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.erro).toContain(String(MAX_DIAS));
+  });
+});
+
+describe("diasDoIntervalo", () => {
+  it("devolve os dias em ordem, com as duas pontas", () => {
+    expect(diasDoIntervalo("2026-08-14", "2026-08-17")).toEqual([
+      "2026-08-14",
+      "2026-08-15",
+      "2026-08-16",
+      "2026-08-17",
+    ]);
+  });
+
+  it("um dia só é uma lista de um", () => {
+    expect(diasDoIntervalo("2026-08-14", "2026-08-14")).toEqual(["2026-08-14"]);
+  });
+
+  it("atravessa a virada do mês", () => {
+    expect(diasDoIntervalo("2026-08-30", "2026-09-01")).toEqual([
+      "2026-08-30",
+      "2026-08-31",
+      "2026-09-01",
+    ]);
+  });
+
+  it("intervalo invertido é lista vazia, não laço infinito", () => {
+    expect(diasDoIntervalo("2026-08-17", "2026-08-14")).toEqual([]);
   });
 });

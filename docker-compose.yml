@@ -59,6 +59,22 @@ services:
       DB_USER: "${DB_USER:-}"
       DB_PASSWORD: "${DB_PASSWORD:-}"
       DB_NAME: "${DB_NAME:-}"
+      # Automação (decisões 36-38). O relógio embutido é o que faz os digests,
+      # a fotografia diária e a purga acontecerem sem ninguém abrir tela.
+      #
+      # Fica DESLIGADO por padrão de propósito: ligar é uma decisão, e o dia em
+      # que o app rodar em duas instâncias tudo sai em dobro. Também é aqui que
+      # se garante que só o servidor de verdade agenda — nunca o `npm run dev`
+      # de alguém.
+      AGENDADOR_LIGADO: "${AGENDADOR_LIGADO:-}"
+      # Celulares que recebem os avisos, separados por vírgula. Vazio = eles
+      # ficam só na tela /avisos. Sai pelo mesmo número da cobrança.
+      AVISOS_WHATSAPP: "${AVISOS_WHATSAPP:-}"
+      # Retenção. "seco" (padrão) relata o que apagaria e não apaga: a primeira
+      # execução de uma rotina que apaga precisa ser conferida por gente.
+      PURGA_MODO: "${PURGA_MODO:-seco}"
+      RETENCAO_CONVERSAS_DIAS: "${RETENCAO_CONVERSAS_DIAS:-180}"
+      RETENCAO_AUDITORIA_DIAS: "${RETENCAO_AUDITORIA_DIAS:-730}"
     # Alcança serviços publicados na máquina hospedeira. Não é o caminho do
     # gateway (esse é pela rede, acima), mas destrava integrações que morem no
     # host — no Linux este nome não existe sem esta linha.

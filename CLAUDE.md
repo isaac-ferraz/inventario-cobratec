@@ -155,6 +155,7 @@ npm run db:seed             # catálogo + dados de exemplo
 npm run db:catalogo         # garante só o catálogo de tipos (idempotente)
 npm run db:salas            # garante as salas iniciais (idempotente)
 npm run db:admin            # garante um administrador inicial (idempotente)
+npm run db:validar-parcelas # confere a baixa de parcela no Siscobra (leitura)
 docker compose up -d --build # subir via Docker (porta 3000, banco em volume)
 ```
 
@@ -477,6 +478,64 @@ nunca foram ligados — o recorte é o filtro de equipe. Período em
 container sobe em UTC e o painel zeraria às 21h) e teto de **92 dias**, porque o
 CRM é produção. Fora de propósito: recuperação (a fonte ainda é disputada — D-003
 vs D-009 no projeto irmão), percentuais de conversão (D-005) e exportação Excel.
+
+**Carteira de acordos (decisão 36):** `/relatorios/carteira` é a terceira
+posição do alternador e responde o que a 35 não respondia — **o que vem**.
+Agenda de vencimento dia a dia, aging em faixas (1-7, 8-15, 16-30, 31-60, 60+),
+quebras do mês e **primeira parcela honrada** (o divisor entre acordo que vinga
+e acordo que só ocupou a agenda; no relatório de produção os dois contam igual).
+Tudo em `lib/relatorios-carteira.ts`, no molde da 35 — uma varredura por
+consulta, `GROUPING SETS`, e a atribuição por operadora **copiada** do
+`SQL_ACORDOS` (roda por acordo, não por parcela).
+
+A armadilha está dita na tela: **"paga" não é uma coluna.** Todas as candidatas
+estão zeradas ou com sentinela `0001-01-01` (D-009 do projeto irmão), então o
+pagamento é procurado em `boleto_baixa` casando **quatro** colunas — acordo,
+número da parcela, devedor e carteira —, porque `boleto.bolcon` guarda código de
+acordo *e* de contrato e o join de duas colunas marcaria como paga a parcela de
+outra pessoa. Por isso "em atraso" significa **venceu e não achamos a baixa**, e
+`scripts/validar-parcelas.ts` (`npm run db:validar-parcelas`) mede a cobertura
+antes de o número ser levado a sério.
+
+Três papéis, recortes diferentes, cortados **no servidor**: admin leva tudo;
+supervisor leva os agregados e o ranking por operadora, **nunca** a lista com
+nome de devedor (decisão 27 intacta); **cobrança** leva os agregados e a lista —
+é a agenda de trabalho dela — mas **não** o ranking por operadora, que é o mesmo
+ranking nominal de colegas que a decisão 35 já lhe negou. Portão próprio
+`exigirCarteiraNominal`, separado do `exigirChat` de propósito. A lista não
+carrega sozinha (dado pessoal), tem teto de 300 linhas, avisa quando cortou, e
+cruza `Conversa.siscobraDevcod` com `acordo.devcod` para virar link direto da
+conversa no `/chat` — cruzamento que só este app consegue, feito em código
+porque são dois bancos.
+
+**O relógio (decisão 37):** o app deixou de ser 100% pull. `instrumentation.ts`
+liga `lib/agendador.ts` — um laço de um minuto, com dupla guarda
+(`NEXT_RUNTIME === "nodejs"` **e** `AGENDADOR_LIGADO=1`, senão todo `npm run
+dev` viraria um agendador). Quatro tarefas em `lib/tarefas.ts`: digest do
+meio-dia (12h), fechamento (18h), fotografia diária (23h40) e purga (03h).
+O que já rodou fica em `TarefaAgendada` **no banco**, com resultado e duração —
+um restart às 12h05 não repete o digest, e tarefa que falha toda noite deixa de
+falhar invisível. Janela de recuperação de 2h: horário perdido fica perdido.
+Vale **uma instância**, como o barramento de `chat-eventos.ts`.
+
+Os avisos (`lib/avisos.ts`, model `Aviso`, tela `/avisos` + contador na
+navegação) são **gravados antes de enviados** — o inverso do `/chat`, e de
+propósito: o canal é o gateway não-oficial da decisão 29, e se o aviso só
+existisse na mensagem, o dia em que ele cair seria o dia em que ninguém fica
+sabendo de nada. Saem pelo número da cobrança (`AVISOS_WHATSAPP`). `info` não
+vai ao celular, salvo os digests, que pedem exceção explícita. `FechamentoDiario`
+guarda a baseline que o CRM não guarda: o relatório tem teto de 92 dias, e sem
+história própria "hoje está fraco" não é afirmável.
+
+**Retenção (decisão 38):** conversa **encerrada** há mais de 180 dias sai —
+mensagens em cascata, anexos no disco e a memória do robô —, mais anexos órfãos
+e auditoria com mais de 730 dias. Janelas em `.env` com piso de 30 dias, e
+**`PURGA_MODO=seco` por padrão**: relata no `/avisos` o que apagaria e não apaga
+até alguém conferir. O corpo do `DELETE` manual saiu da rota para
+`lib/chat-purga.ts` e é chamado pelos dois caminhos — a cascata no banco mais os
+arquivos no disco precisam de dono único, e a implementação que roda de
+madrugada é a que ficaria para trás. Decisões puras e testadas em
+`lib/retencao.ts`; o texto do aviso nunca carrega telefone.
 
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
