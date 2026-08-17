@@ -26,6 +26,66 @@ services:
       # logs`. Em ambos os casos nasce provisória.
       ADMIN_INICIAL_LOGIN: "${ADMIN_INICIAL_LOGIN:-admin}"
       ADMIN_INICIAL_SENHA: "${ADMIN_INICIAL_SENHA:-}"
+      # Conversas com devedor (aba /chat). OPCIONAIS: em branco, o app sobe
+      # igual e o /chat avisa que o serviço não está ligado — ninguém fica
+      # achando que mandou mensagem. Ver .env.example e docs/conversas.md.
+      CHAT_SERVICE_TOKEN: "${CHAT_SERVICE_TOKEN:-}"
+      CHAT_ENVIO_URL: "${CHAT_ENVIO_URL:-}"
+      # Modo direto — WhatsApp sem n8n, para testes (decisão 29). Também
+      # opcionais; `CHAT_ENVIO_URL` acima tem precedência sobre elas.
+      #
+      # ATENÇÃO ao endereço: aqui dentro, "127.0.0.1" é o próprio container, e o
+      # `127.0.0.1:3001` do host NÃO aceita conexão vinda da rede do Docker. Os
+      # dois se falam pelo NOME DO CONTAINER — o gateway entra nesta mesma rede
+      # (ver o fim do docker-compose.waha.yml). Os padrões abaixo já são esses;
+      # qualquer valor no .env vence.
+      WAHA_URL: "${WAHA_URL:-http://cobratec-waha:3000}"
+      WAHA_API_KEY: "${WAHA_API_KEY:-}"
+      WAHA_SESSION: "${WAHA_SESSION:-default}"
+      WAHA_WEBHOOK_URL: "${WAHA_WEBHOOK_URL:-http://inventario-cobratec:3000/api/chat/waha/webhook}"
+      # Robô local de triagem (decisão 31). Vazio = sem robô, tudo cai na fila.
+      # O Ollama roda no HOST, não em container: daqui é `host.docker.internal`,
+      # e ele precisa escutar fora do loopback (`OLLAMA_HOST=0.0.0.0`).
+      OLLAMA_URL: "${OLLAMA_URL:-}"
+      OLLAMA_MODELO: "${OLLAMA_MODELO:-llama3.2:1b}"
+      # Só quando o modelo mora fora da rede (Colab): segredo do proxy.
+      OLLAMA_TOKEN: "${OLLAMA_TOKEN:-}"
+      # Siscobra (PostgreSQL do CRM), SOMENTE LEITURA — decisão 32. Sem estas
+      # variáveis o robô não identifica ninguém e toda conversa que encostar em
+      # valor vai para a operadora: falha segura, mas silenciosa. O usuário do
+      # banco deve ter GRANT SELECT apenas.
+      DB_HOST: "${DB_HOST:-}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_USER: "${DB_USER:-}"
+      DB_PASSWORD: "${DB_PASSWORD:-}"
+      DB_NAME: "${DB_NAME:-}"
+      # Automação (decisões 36-38). O relógio embutido é o que faz os digests,
+      # a fotografia diária e a purga acontecerem sem ninguém abrir tela.
+      #
+      # Fica DESLIGADO por padrão de propósito: ligar é uma decisão, e o dia em
+      # que o app rodar em duas instâncias tudo sai em dobro. Também é aqui que
+      # se garante que só o servidor de verdade agenda — nunca o `npm run dev`
+      # de alguém.
+      AGENDADOR_LIGADO: "${AGENDADOR_LIGADO:-}"
+      # Celulares que recebem os avisos, separados por vírgula. Vazio = eles
+      # ficam só na tela /avisos. Sai pelo mesmo número da cobrança.
+      AVISOS_WHATSAPP: "${AVISOS_WHATSAPP:-}"
+      # Retenção. "seco" (padrão) relata o que apagaria e não apaga: a primeira
+      # execução de uma rotina que apaga precisa ser conferida por gente.
+      PURGA_MODO: "${PURGA_MODO:-seco}"
+      RETENCAO_CONVERSAS_DIAS: "${RETENCAO_CONVERSAS_DIAS:-180}"
+      RETENCAO_AUDITORIA_DIAS: "${RETENCAO_AUDITORIA_DIAS:-730}"
+      # Backup das 22h. O padrão fica DENTRO do volume (/app/data), senão a
+      # cópia moraria na imagem e sumiria no próximo `--build` — parecendo que
+      # existe. Para valer como proteção, aponte para um NAS montado no host e
+      # mapeie o caminho aqui em volumes.
+      BACKUP_DIR: "${BACKUP_DIR:-/app/data/backups}"
+      BACKUP_DIAS: "${BACKUP_DIAS:-30}"
+    # Alcança serviços publicados na máquina hospedeira. Não é o caminho do
+    # gateway (esse é pela rede, acima), mas destrava integrações que morem no
+    # host — no Linux este nome não existe sem esta linha.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Persiste o dev.db entre reinícios/rebuilds do container.
       - inventario-db:/app/data

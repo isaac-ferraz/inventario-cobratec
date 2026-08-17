@@ -6,12 +6,21 @@
 // dado sensível chama uma das funções daqui no seu início — assim, um erro de
 // matcher no middleware não vira vazamento de dados.
 //
-// São três níveis:
+// São quatro níveis:
 //   exigirSessao  — qualquer autenticado (usado pelos chamados).
 //   exigirEscopo  — admin OU supervisor; devolve o escopo de salas, e a rota
 //                   filtra por ele. É o portão do inventário.
+//   exigirChat    — admin OU cobrança. É o portão das conversas com devedor.
+//   exigirRelatorio — admin OU supervisor. É o portão dos relatórios de
+//                   cobrança (produção agregada, sem dado de devedor).
+//   exigirCarteiraNominal — admin OU cobrança. A lista de boletos COM nome de
+//                   devedor; o supervisor vê os agregados dela, nunca a lista.
 //   exigirAdmin   — só administrador: telas globais (usuários, tipos, catálogo,
 //                   auditoria, depósito, exportação).
+//
+// E um portão que não é de gente:
+//   exigirServico — o n8n entregando mensagem no webhook. Token, não sessão.
+import { timingSafeEqual } from "node:crypto";
 import { erro } from "@/lib/api";
 import {
   sessaoDaRequisicao,
@@ -69,6 +78,167 @@ export async function exigirEscopo(
     };
   }
   return { usuario: r.usuario, escopo: escopoDe(r.usuario) };
+}
+
+/**
+ * Admin ou operadora de cobrança — o portão das conversas com devedor (/chat e
+ * /api/chat).
+ *
+ * O supervisor de sala NÃO entra aqui, e isso é deliberado: ele responde pelo
+ * inventário de uma sala, não pela cobrança. Conversa com devedor carrega dado
+ * pessoal de terceiro (CPF, dívida) sob LGPD — o alcance dela se decide pelo
+ * ofício da pessoa, nunca pela sala em que ela senta.
+ */
+export async function exigirChat(req: Request): Promise<Autorizado | Negado> {
+  const r = await exigirSessao(req);
+  if ("resposta" in r) return r;
+  const { papel } = r.usuario;
+  if (papel !== "ADMIN" && papel !== "COBRANCA") {
+    return {
+      resposta: erro("Acesso restrito à equipe de cobrança.", 403),
+    };
+  }
+  return r;
+}
+
+/**
+ * Admin ou supervisor — o portão dos RELATÓRIOS de cobrança (produção da
+ * operação lida do Siscobra).
+ *
+ * Parece o `exigirEscopo`, e é outra coisa: ali o supervisor recebe um escopo
+ * de SALAS que a rota precisa aplicar; aqui não existe recorte a aplicar, e
+ * dizer que existe seria pior que não ter nenhum. Sala é divisão física do
+ * inventário; equipe é `grupo` do Siscobra — os dois nunca foram ligados, e
+ * inventar o vínculo agora produziria um número que ninguém sabe explicar.
+ * O recorte que o gestor quer é o que ele escolhe no filtro de equipe.
+ *
+ * O que autoriza abrir isto ao supervisor, depois de a decisão 27 ter fechado
+ * a cobrança para ele: **aqui não há devedor**. O relatório agrega produção de
+ * funcionário (contagem, valor, hora, situação); não tem nome, CPF, telefone
+ * nem contrato de terceiro. A porta que continua fechada é a das conversas
+ * (`exigirChat`), onde o dado pessoal realmente está.
+ *
+ * A operadora de COBRANCA fica de fora: ela atende devedor, não avalia equipe
+ * — e o relatório é um ranking nominal de colegas.
+ */
+export async function exigirRelatorio(req: Request): Promise<Autorizado | Negado> {
+  const r = await exigirSessao(req);
+  if ("resposta" in r) return r;
+  const { papel } = r.usuario;
+  if (papel !== "ADMIN" && papel !== "SUPERVISOR") {
+    return {
+      resposta: erro("Acesso restrito ao TI e aos supervisores.", 403),
+    };
+  }
+  return r;
+}
+
+/**
+ * Admin, supervisor OU cobrança — o portão dos AGREGADOS da carteira de acordos
+ * (o que vence, o que atrasou).
+ *
+ * É o único portão com três papéis, e é assim porque a mesma tela responde a
+ * duas perguntas diferentes. O gestor pergunta "quanto vence esta semana e quem
+ * fechou"; a operadora pergunta "de quem eu cobro amanhã". Negar a tela a ela
+ * empurraria o trabalho de volta para o Siscobra, que é de onde este painel
+ * existe para tirá-lo.
+ *
+ * O que ela NÃO leva é o recorte por operadora: a decisão 35 tirou a cobrança
+ * do relatório de produção porque ele é um ranking nominal de colegas, e a
+ * carteira por operadora é o mesmo ranking com outro nome. Quem aplica esse
+ * corte é a ROTA, apagando `porOperadora` antes de virar JSON — do mesmo jeito
+ * que a nota interna do chamado é filtrada no servidor (decisão 20), e não
+ * escondida na tela.
+ */
+export async function exigirCarteira(req: Request): Promise<Autorizado | Negado> {
+  const r = await exigirSessao(req);
+  if ("resposta" in r) return r;
+  const { papel } = r.usuario;
+  if (papel !== "ADMIN" && papel !== "SUPERVISOR" && papel !== "COBRANCA") {
+    return { resposta: erro("Acesso restrito à operação de cobrança e ao TI.", 403) };
+  }
+  return r;
+}
+
+/** Quem enxerga o ranking por operadora dentro da carteira. */
+export function podeVerOperadoras(papel: string): boolean {
+  return papel === "ADMIN" || papel === "SUPERVISOR";
+}
+
+/**
+ * Admin ou cobrança — o portão da LISTA NOMINAL da carteira de acordos.
+ *
+ * É a exceção que confirma a regra do `exigirRelatorio` acima. Lá o supervisor
+ * entra porque não há devedor nenhum no que ele lê; aqui há: nome, CPF
+ * mascarado, valor e vencimento de gente que deve. O mesmo raciocínio da
+ * decisão 27 vale sem nenhuma emenda — alcance sobre dado de devedor se decide
+ * pelo ofício, e o ofício do supervisor é a sala, não a cobrança.
+ *
+ * Por que não reusar `exigirChat`, se os papéis são os mesmos: eles coincidem
+ * hoje, e as razões são outras. `exigirChat` guarda a CONVERSA; este guarda a
+ * CARTEIRA. No dia em que um dos dois mudar de lista — um papel de supervisão
+ * de cobrança, por exemplo — colar os dois faria a mudança vazar para o lado
+ * errado calada. Portões separados custam sete linhas e evitam isso.
+ */
+export async function exigirCarteiraNominal(
+  req: Request,
+): Promise<Autorizado | Negado> {
+  const r = await exigirSessao(req);
+  if ("resposta" in r) return r;
+  const { papel } = r.usuario;
+  if (papel !== "ADMIN" && papel !== "COBRANCA") {
+    return {
+      resposta: erro(
+        "A lista com dados de devedor é restrita à equipe de cobrança.",
+        403,
+      ),
+    };
+  }
+  return r;
+}
+
+/**
+ * O n8n batendo no webhook das conversas. Não é gente: não tem cookie, não tem
+ * papel, não aparece na auditoria como usuário.
+ *
+ * Token estático em `CHAT_SERVICE_TOKEN`, comparado em tempo constante. Sem a
+ * variável configurada a rota responde 503 e não 401 — "o serviço não está
+ * ligado" é a verdade, e um 401 mandaria o TI procurar credencial errada
+ * durante horas. É o mesmo espírito do `AUTH_SECRET` obrigatório: falta de
+ * configuração se anuncia, não se disfarça de erro de permissão.
+ *
+ * Por que token e não sessão de usuário-robô: um `Usuario` com papel COBRANCA
+ * para o n8n apareceria na fila, poderia assumir conversa e teria senha no
+ * cofre. O n8n não é uma atendente — é o canal.
+ */
+export function exigirServico(req: Request): { resposta: ReturnType<typeof erro> } | null {
+  const esperado = process.env.CHAT_SERVICE_TOKEN;
+  if (!esperado) {
+    return {
+      resposta: erro(
+        "Serviço de conversas não configurado (CHAT_SERVICE_TOKEN ausente).",
+        503,
+      ),
+    };
+  }
+  const cabecalho = req.headers.get("authorization") ?? "";
+  const recebido = cabecalho.startsWith("Bearer ")
+    ? cabecalho.slice(7).trim()
+    : "";
+  if (!recebido || !igualEmTempoConstante(recebido, esperado)) {
+    return { resposta: erro("Token de serviço inválido.", 401) };
+  }
+  return null;
+}
+
+// Comparar com `===` vazaria o tamanho e o prefixo do token pelo tempo de
+// resposta. `timingSafeEqual` exige buffers do mesmo tamanho, daí a checagem
+// antes — que só revela o comprimento, não o conteúdo.
+function igualEmTempoConstante(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
 }
 
 /**

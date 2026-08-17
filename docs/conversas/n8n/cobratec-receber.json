@@ -1,0 +1,160 @@
+{
+  "name": "Cobratec — receber (WhatsApp → inventário)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cobratec-receber",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-receber",
+      "name": "WAHA envia",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-560, 300],
+      "webhookId": "cobratec-receber"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Traduz o evento do WAHA para o vocabulário do inventário.\n//\n// Descarta o que NÃO pode virar atendimento — e cada descarte tem motivo:\n//   fromMe  → é a nossa própria resposta voltando como eco;\n//   @g.us   → grupo: cobrar dívida na frente de terceiros expõe o devedor;\n//   sem texto → o modelo só guarda texto (áudio precisa de transcrição).\nconst eventos = [];\n\nfor (const item of $input.all()) {\n  const corpo = item.json.body ?? item.json;\n  if (corpo.event !== 'message') continue;\n\n  const p = corpo.payload ?? {};\n  if (p.fromMe === true) continue;\n\n  const jid = String(p.from ?? '');\n  const [numero, dominio] = jid.split('@');\n  if (dominio !== 'c.us' && dominio !== 's.whatsapp.net') continue;\n\n  const texto = typeof p.body === 'string' ? p.body.trim() : '';\n  if (!texto) continue;\n\n  eventos.push({\n    json: {\n      telefone: numero.replace(/\\D/g, ''),\n      nome: p.notifyName ?? p._data?.pushName ?? null,\n      corpo: texto.slice(0, 5000),\n      waId: typeof p.id === 'string' ? p.id : null,\n    },\n  });\n}\n\nreturn eventos;"
+      },
+      "id": "extrair",
+      "name": "Extrair a fala",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-340, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.COBRATEC_URL }}/api/chat/webhook",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CHAT_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telefone: $json.telefone, nome: $json.nome, autor: 'devedor', corpo: $json.corpo, waId: $json.waId }) }}",
+        "options": {}
+      },
+      "id": "gravar-devedor",
+      "name": "Gravar a fala do devedor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-120, 300],
+      "notes": "ANTES de pensar: se o LLM cair, o devedor já está na fila."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.situacao }}",
+              "rightValue": "humana",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "robo-conduz",
+      "name": "O robô ainda conduz?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "notes": "situacao == humana → uma operadora assumiu; o robô CALA."
+    },
+    {
+      "parameters": {},
+      "id": "classificar",
+      "name": "LLM: classificar (prompt 1)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [320, 200],
+      "notes": "SUBSTITUA pelo seu nó de LLM. Prompt 1 de docs/conversas/prompts.md, temperature 0, saída JSON. Depois: consultar o Siscobra (consultas 1-4 de siscobra.sql) e redigir com o prompt 2 — o bloco de dossiê só entra se a conversa estiver identificada."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.COBRATEC_URL }}/api/chat/webhook",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CHAT_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telefone: $('Extrair a fala').item.json.telefone, autor: 'bot', corpo: $json.resposta, identificado: $json.identificado === true, siscobraDevcod: $json.devcod, siscobraCarcod: $json.carcod, carteira: $json.carteira, dossie: $json.dossie, escalar: $json.escalar === true, motivoEscalonamento: $json.motivo }) }}",
+        "options": {}
+      },
+      "id": "gravar-bot",
+      "name": "Gravar a resposta do robô",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAHA_URL }}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Api-Key", "value": "={{ $env.WAHA_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Extrair a fala').item.json.telefone + '@c.us', text: $('LLM: classificar (prompt 1)').item.json.resposta }) }}",
+        "options": {}
+      },
+      "id": "responder-whatsapp",
+      "name": "Responder no WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [760, 200],
+      "notes": "Pular quando escalou sem resposta."
+    }
+  ],
+  "connections": {
+    "WAHA envia": {
+      "main": [[{ "node": "Extrair a fala", "type": "main", "index": 0 }]]
+    },
+    "Extrair a fala": {
+      "main": [
+        [{ "node": "Gravar a fala do devedor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gravar a fala do devedor": {
+      "main": [[{ "node": "O robô ainda conduz?", "type": "main", "index": 0 }]]
+    },
+    "O robô ainda conduz?": {
+      "main": [
+        [{ "node": "LLM: classificar (prompt 1)", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "LLM: classificar (prompt 1)": {
+      "main": [
+        [{ "node": "Gravar a resposta do robô", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gravar a resposta do robô": {
+      "main": [[{ "node": "Responder no WhatsApp", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

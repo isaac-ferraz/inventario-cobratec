@@ -27,6 +27,7 @@ import {
 import { PENDENCIAS } from "@/lib/pendencias";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButton } from "@/components/export-button";
+import { AlternadorRelatorio } from "@/components/relatorios/alternador";
 import { BarList, CardPendencia, Kpi } from "@/components/dashboard/cards";
 import {
   LIMITE_DETALHE,
@@ -357,13 +358,16 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="eyebrow">painel</div>
+          <div className="eyebrow">relatórios</div>
           <h1 className="font-display text-2xl font-bold tracking-tight">
-            Dashboard
+            Informática
           </h1>
-          <p className="text-sm text-muted-foreground">
+          {/* Largura travada para o texto não empurrar o alternador e o botão
+              de Excel para a linha de baixo — com a frase inteira solta, eles
+              caíam desalinhados sob o título. */}
+          <p className="max-w-xl text-sm text-muted-foreground">
             Clique em qualquer número para ver quais registros estão por trás
             dele.{" "}
             {soDaSala
@@ -371,9 +375,12 @@ export default async function DashboardPage() {
               : "O Excel reflete exatamente estes dados."}
           </p>
         </div>
-        {/* A planilha sai com o parque inteiro; recortá-la é outro trabalho.
-            Até lá, o botão é só do TI — coerente com /api/export. */}
-        {!soDaSala && <ExportButton />}
+        <div className="flex flex-wrap items-center gap-3">
+          <AlternadorRelatorio papel={usuario.papel} />
+          {/* A planilha sai com o parque inteiro; recortá-la é outro trabalho.
+              Até lá, o botão é só do TI — coerente com /api/export. */}
+          {!soDaSala && <ExportButton />}
+        </div>
       </div>
 
       {/* Suporte vem primeiro: é o que pede ação hoje. */}

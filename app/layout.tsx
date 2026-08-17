@@ -7,6 +7,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { ConfirmarProvider } from "@/components/ui/confirmar-dialog";
 import { TemaProvider, SCRIPT_ANTI_FLASH } from "@/components/ui/tema";
 import { sessaoAtual } from "@/lib/sessao-servidor";
+import { pendentes } from "@/lib/avisos";
 import { COOKIE_SESSAO } from "@/lib/sessao";
 import { cn } from "@/lib/utils";
 import "./globals.css";
@@ -52,11 +53,19 @@ export default async function RootLayout({
     redirect("/api/sessao/encerrar");
   }
 
+  // O contador de avisos por ler. Um COUNT no SQLite por navegação, e só para
+  // quem alcança a tela — o operador e a cobrança nunca veem o item, então
+  // contar para eles seria uma consulta por página para descartar o resultado.
+  const avisos =
+    usuario && (usuario.papel === "ADMIN" || usuario.papel === "SUPERVISOR")
+      ? await pendentes()
+      : 0;
+
   const corpo = usuario ? (
     <div className="md:flex">
-      <Sidebar papel={usuario.papel} usuario={usuario.nome} />
+      <Sidebar papel={usuario.papel} usuario={usuario.nome} avisos={avisos} />
       <div className="flex min-h-screen flex-1 flex-col">
-        <TopBar papel={usuario.papel} usuario={usuario.nome} />
+        <TopBar papel={usuario.papel} usuario={usuario.nome} avisos={avisos} />
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:px-8">
           {children}
         </main>

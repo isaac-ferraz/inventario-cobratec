@@ -8,7 +8,7 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { COOKIE_SESSAO, lerSessao, type Sessao } from "@/lib/sessao";
-import type { Escopo, Papel } from "@/lib/supervisao";
+import { papelDe, type Escopo, type Papel } from "@/lib/supervisao";
 
 export type UsuarioSessao = {
   id: string;
@@ -45,15 +45,10 @@ async function confirmarNoBanco(
   if (!usuario || !usuario.ativo) return null;
 
   // O papel VALE O DO BANCO, não o do cookie: rebaixar alguém tem efeito na
-  // requisição seguinte, sem esperar a sessão expirar. Papel desconhecido cai
-  // no menos privilegiado — se alguém escrever lixo na coluna, o resultado é
-  // acesso de operador, nunca de admin.
-  const papel: Papel =
-    usuario.papel === "ADMIN"
-      ? "ADMIN"
-      : usuario.papel === "SUPERVISOR"
-        ? "SUPERVISOR"
-        : "OPERADOR";
+  // requisição seguinte, sem esperar a sessão expirar. A conversão é a mesma
+  // que o login usa para assinar o cookie (lib/supervisao.ts) — se as duas
+  // divergirem, o middleware barra um papel que a API aceitaria.
+  const papel: Papel = papelDe(usuario.papel);
 
   return {
     id: usuario.id,

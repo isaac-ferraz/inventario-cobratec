@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
+import { ImportarCsv } from "@/components/importar-csv";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
@@ -127,9 +128,12 @@ export default function TiposPage() {
             sem mexer no código.
           </p>
         </div>
-        <Button onClick={abrirNovo}>
-          <Plus /> Novo tipo
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportarCsv entidade="tipos" onPronto={carregar} />
+          <Button onClick={abrirNovo}>
+            <Plus /> Novo tipo
+          </Button>
+        </div>
       </div>
 
       <Card>

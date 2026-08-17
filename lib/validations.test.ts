@@ -150,3 +150,93 @@ describe("componenteSchema", () => {
     expect(r.especificacoes).toEqual({ capacidadeGB: 8 });
   });
 });
+
+// Datas do ciclo de vida (aquisição, garantia, manutenção).
+//
+// A validação antiga olhava só o FORMATO, e o JS tem duas maneiras ruins de
+// tratar uma data que não existe: "2026-13-01" vira Invalid Date (a rota
+// respondia 500) e "2026-02-31" ROLA para 03/03 — gravava calado um dia que
+// ninguém digitou. As duas coisas são erro de entrada e devem dar 400.
+describe("datas do ciclo de vida", () => {
+  it("aceita data real e fixa ao meio-dia UTC", () => {
+    const r = computadorSchema.parse({
+      identificador: "PAT-1",
+      dataAquisicao: "2026-08-06",
+    });
+    expect(r.dataAquisicao?.toISOString()).toBe("2026-08-06T12:00:00.000Z");
+  });
+
+  it("recusa 31 de fevereiro em vez de rolar para março", () => {
+    const r = computadorSchema.safeParse({
+      identificador: "PAT-1",
+      garantiaAte: "2026-02-31",
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.errors[0].message).toMatch(/inexistente no calendário/i);
+    }
+  });
+
+  it("recusa mês 13 em vez de estourar erro interno", () => {
+    expect(
+      computadorSchema.safeParse({
+        identificador: "PAT-1",
+        dataAquisicao: "2026-13-01",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("recusa 0000-00-00 e dia 00", () => {
+    for (const data of ["0000-00-00", "2026-08-00", "2026-00-10"]) {
+      expect(
+        computadorSchema.safeParse({ identificador: "PAT-1", dataAquisicao: data })
+          .success,
+        data,
+      ).toBe(false);
+    }
+  });
+
+  it("recusa o que não é AAAA-MM-DD", () => {
+    for (const data of ["06/08/2026", "2026-8-6", "ontem", "2026-08-06T10:00"]) {
+      expect(
+        computadorSchema.safeParse({ identificador: "PAT-1", dataAquisicao: data })
+          .success,
+        data,
+      ).toBe(false);
+    }
+  });
+
+  it("29 de fevereiro passa em ano bissexto e falha fora dele", () => {
+    expect(
+      computadorSchema.safeParse({
+        identificador: "PAT-1",
+        dataAquisicao: "2028-02-29",
+      }).success,
+    ).toBe(true);
+    expect(
+      computadorSchema.safeParse({
+        identificador: "PAT-1",
+        dataAquisicao: "2026-02-29",
+      }).success,
+    ).toBe(false);
+  });
+
+  it('"" limpa a data e ausente não mexe no campo', () => {
+    const limpa = computadorSchema.parse({
+      identificador: "PAT-1",
+      garantiaAte: "",
+    });
+    expect(limpa.garantiaAte).toBeNull();
+    const ausente = computadorSchema.parse({ identificador: "PAT-1" });
+    expect(ausente.garantiaAte).toBeUndefined();
+  });
+
+  it("vale igual para o celular", () => {
+    expect(
+      celularSchema.safeParse({
+        identificador: "CEL-1",
+        garantiaAte: "2026-02-31",
+      }).success,
+    ).toBe(false);
+  });
+});

@@ -9,6 +9,7 @@ import { estadoGarantia } from "@/lib/ativos";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
+import { ImportarCsv } from "@/components/importar-csv";
 import { Filtros } from "@/components/computadores/filtros";
 import { ComputadorCard } from "@/components/computadores/computador-card";
 import { ComputadorDialog } from "@/components/computadores/computador-dialog";
@@ -191,9 +192,12 @@ export default function ComputadoresPage() {
             Gerencie máquinas, hardware e a quem cada uma pertence.
           </p>
         </div>
-        <Button onClick={() => setPcDialog({ aberto: true, computador: null })}>
-          <Plus /> Novo computador
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportarCsv entidade="computadores" onPronto={carregarTudo} />
+          <Button onClick={() => setPcDialog({ aberto: true, computador: null })}>
+            <Plus /> Novo computador
+          </Button>
+        </div>
       </div>
 
       <Filtros

@@ -17,6 +17,8 @@
     "db:admin": "node prisma/seed-admin.cjs",
     "db:wal": "prisma db execute --schema prisma/schema.prisma --file prisma/sqlite-wal.sql",
     "db:backup": "sh scripts/backup-db.sh",
+    "db:validar-parcelas": "tsx --env-file=.env scripts/validar-parcelas.ts",
+    "db:investigar-baixa": "tsx --env-file=.env scripts/investigar-baixa.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {
@@ -33,6 +35,7 @@
     "exceljs": "^4.4.0",
     "lucide-react": "^0.469.0",
     "next": "14.2.35",
+    "pg": "^8.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.6.0",
@@ -41,6 +44,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.10",
+    "@types/pg": "^8.21.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "autoprefixer": "^10.4.20",

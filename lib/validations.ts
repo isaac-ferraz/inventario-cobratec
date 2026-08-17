@@ -2,6 +2,11 @@
 import { z } from "zod";
 import { PRIORIDADES, STATUS } from "@/lib/chamados";
 import { SITUACOES, TIPOS_MANUTENCAO } from "@/lib/ativos";
+import { aplicarMensagensPtBr } from "@/lib/zod-ptbr";
+
+// Traduz as mensagens padrão do zod. Aqui, e não em cada rota, porque toda rota
+// que valida entrada importa este arquivo.
+aplicarMensagensPtBr();
 
 // Campo de texto opcional. Regras:
 //  - ausente (undefined)  -> não mexe no campo (importante no PATCH parcial)
@@ -53,13 +58,28 @@ export const usuarioSchema = z.object({
     .regex(/^[a-zA-Z0-9._-]+$/, "Use apenas letras, números, ponto, hífen ou _"),
   nome: z.string().trim().min(1, "Nome é obrigatório").max(200, "Nome muito longo"),
   senha: senhaNova.optional(), // ausente na edição = mantém a senha atual
-  papel: z.enum(["ADMIN", "SUPERVISOR", "OPERADOR"], {
+  papel: z.enum(["ADMIN", "SUPERVISOR", "COBRANCA", "OPERADOR"], {
     errorMap: () => ({
-      message: "Papel deve ser ADMIN, SUPERVISOR ou OPERADOR",
+      message: "Papel deve ser ADMIN, SUPERVISOR, COBRANCA ou OPERADOR",
     }),
   }),
   ativo: z.boolean().optional(),
   funcionarioId: relacaoOpcional,
+  // Código da operadora no Siscobra (`usuario.usucod`). Só vale para COBRANCA —
+  // a API zera nos outros papéis. Inteiro positivo: lá é uma sequência, e 0 ou
+  // negativo não identificaria ninguém. `null` limpa o vínculo.
+  //
+  // `coerce` como em `quantidade`: a célula de uma planilha é sempre texto, e a
+  // importação entrega a linha a ESTE schema (decisão 26) em vez de converter
+  // por fora. `null` não passa pela coerção — o `.nullable()` corta antes —,
+  // então "sem código" continua distinguível de zero.
+  siscobraUsucod: z.coerce
+    .number({ invalid_type_error: "Código do Siscobra deve ser um número" })
+    .int("Código do Siscobra deve ser um número inteiro")
+    .positive("Código do Siscobra deve ser maior que zero")
+    .max(99999999, "Código do Siscobra fora de faixa")
+    .nullable()
+    .optional(),
   // Salas pelas quais o supervisor responde. Sem limite de quantas, nem de
   // quantos supervisores tem cada sala. Ausente = não mexe no vínculo atual;
   // lista vazia = tira todas.
@@ -73,19 +93,56 @@ export const trocaSenhaSchema = z.object({
 
 // --- Ciclo de vida do ativo ---
 
+/**
+ * A data existe no calendário? O formato AAAA-MM-DD sozinho não garante nada:
+ * "2026-13-01" e "2026-02-31" passam pela regex e o JS os aceita de dois jeitos
+ * ruins — "2026-13-01" vira Invalid Date (e o Prisma estourava em 500) e
+ * "2026-02-31" ROLA para 03/03, gravando silenciosamente uma data que ninguém
+ * digitou. Reconstruímos a data em UTC e conferimos se os três componentes
+ * sobreviveram: se o dia mudou, ele não existia.
+ *
+ * Exportada porque o período dos relatórios (`lib/relatorios.ts`) precisa da
+ * MESMA regra: uma segunda cópia dela é uma segunda chance de divergir, e este
+ * projeto já teve duas listas de papéis que divergiram (decisão 25.1).
+ */
+export function dataDoCalendario(iso: string): Date | null {
+  const [ano, mes, dia] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(ano, mes - 1, dia, 12, 0, 0, 0));
+  const sobreviveu =
+    d.getUTCFullYear() === ano &&
+    d.getUTCMonth() === mes - 1 &&
+    d.getUTCDate() === dia;
+  return sobreviveu ? d : null;
+}
+
 // Data vinda de <input type="date"> ("2026-08-06"). Regras iguais às de texto:
 // ausente não mexe, "" limpa. A data é fixada ao MEIO-DIA UTC de propósito:
 // com 00:00 UTC, quem está em fuso negativo (Brasil) veria o dia anterior.
+//
+// O <input type="date"> do Chrome já recusa data impossível, mas a API é porta
+// aberta para script de importação e outros clientes — a validação mora aqui.
 const dataOpcional = z
   .string()
   .trim()
   .optional()
   .transform((v) => (v === "" || v == null ? (v === "" ? null : undefined) : v))
-  .refine(
-    (v) => v == null || /^\d{4}-\d{2}-\d{2}$/.test(v),
-    "Data deve estar no formato AAAA-MM-DD",
-  )
-  .transform((v) => (v == null ? v : new Date(`${v}T12:00:00.000Z`)));
+  .superRefine((v, ctx) => {
+    if (v == null) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Data deve estar no formato AAAA-MM-DD",
+      });
+      return;
+    }
+    if (!dataDoCalendario(v)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Data inexistente no calendário: ${v} (confira dia e mês)`,
+      });
+    }
+  })
+  .transform((v) => (v == null ? v : dataDoCalendario(v)));
 
 const valorOpcional = z
   .union([z.number(), z.string()])
@@ -266,12 +323,17 @@ export const celularSchema = z.object({
   ...camposCicloVida,
 });
 
+// Teto de estoque. Exportado porque o ajuste rápido (± no depósito) precisa do
+// MESMO limite: o caminho do delta não o respeitava e aceitava gravar
+// 1.000.000.000 unidades de um cabo HDMI.
+export const LIMITE_QUANTIDADE = 1_000_000;
+
 // Quantidade inteira, não-negativa e com teto (evita entrada absurda/abuso).
 const quantidadeOpcional = z.coerce
   .number({ invalid_type_error: "Quantidade deve ser um número" })
   .int("Quantidade deve ser um número inteiro")
   .min(0, "Quantidade não pode ser negativa")
-  .max(1_000_000, "Quantidade muito alta")
+  .max(LIMITE_QUANTIDADE, "Quantidade muito alta")
   .optional();
 
 export const itemDepositoSchema = z.object({
@@ -285,6 +347,27 @@ export const itemDepositoSchema = z.object({
   quantidadeMinima: quantidadeOpcional,
   localizacao: textoOpcional,
   observacoes: textoOpcional,
+});
+
+// Importação de CSV. O texto do arquivo vem no corpo (não multipart): o parser é
+// nosso e roda no servidor, então uma string basta — e a mesma rota serve para
+// script. Tetos: 2 MB de texto e 1000 linhas por vez, para uma planilha
+// gigante não prender o processo numa transação só.
+export const LIMITE_CSV_BYTES = 2 * 1024 * 1024;
+export const LIMITE_CSV_LINHAS = 1000;
+
+export const importarSchema = z.object({
+  entidade: z.string().min(1, "Escolha o que importar"),
+  csv: z
+    .string()
+    .min(1, "O arquivo está vazio")
+    .max(LIMITE_CSV_BYTES, "Arquivo muito grande (máximo 2 MB)"),
+  // "criar" recusa quem já existe; "atualizar" também atualiza o que já existe.
+  modo: z.enum(["criar", "atualizar"]).default("criar"),
+  // false = só a prévia (não escreve nada).
+  aplicar: z.boolean().default(false),
+  // true = grava as linhas boas e ignora as com erro.
+  ignorarErros: z.boolean().default(false),
 });
 
 export const tipoComponenteSchema = z.object({
@@ -320,6 +403,60 @@ export const componenteUpdateSchema = componenteSchema.partial({
   computadorId: true,
 });
 
+// --- Conversas com devedor (cobrança) ---
+
+// O que o n8n entrega no webhook a cada mensagem que passa pelo WhatsApp.
+//
+// `telefone` cru: quem normaliza é `normalizarTelefone` (lib/conversas.ts), para
+// existir uma definição só de "qual conversa é esta". O schema não tenta
+// adivinhar formato — o gateway manda E.164 e a operadora digita como quiser.
+export const conversaWebhookSchema = z.object({
+  telefone: z.string().trim().min(10, "Telefone inválido").max(30),
+  // pushName do WhatsApp. Não é identificação: qualquer um escreve o que quiser.
+  nome: z.string().trim().max(200).nullable().optional(),
+  autor: z.enum(["devedor", "bot"], {
+    errorMap: () => ({ message: "Autor deve ser devedor ou bot" }),
+  }),
+  corpo: z.string().trim().min(1, "Mensagem vazia").max(5000, "Mensagem muito longa"),
+  // Id da mensagem no gateway. Chega aqui para a reentrega do webhook não
+  // duplicar a fala do devedor — a trava real é o UNIQUE no banco.
+  waId: z.string().trim().max(200).nullable().optional(),
+
+  // ── identificação (só quando o devedor confirmou documento **e** nome) ──
+  // O n8n manda os três juntos ou nenhum: meia identificação destravaria valor
+  // sem prova, que é exatamente o que `podeRevelarValores` impede.
+  siscobraDevcod: z.coerce.number().int().positive().nullable().optional(),
+  siscobraCarcod: z.coerce.number().int().positive().nullable().optional(),
+  carteira: textoOpcional,
+  identificado: z.boolean().optional(),
+
+  // ── escalonamento ──
+  // Quando o robô desiste (pediu humano, saiu da regra, cliente irritado).
+  escalar: z.boolean().optional(),
+  motivoEscalonamento: z.string().trim().max(200).nullable().optional(),
+
+  // Dossiê do Siscobra como objeto livre — o formato é do n8n, e travar o
+  // schema aqui obrigaria a mexer neste arquivo a cada campo novo da consulta.
+  // Vira JSON em texto na gravação, como `Componente.especificacoes`.
+  dossie: z.record(z.any()).nullable().optional(),
+});
+
+export const conversaMensagemSchema = z.object({
+  corpo: z
+    .string()
+    .trim()
+    .min(1, "Escreva a mensagem")
+    .max(5000, "Mensagem muito longa"),
+});
+
+export const conversaSituacaoSchema = z.object({
+  situacao: z.enum(["bot", "fila", "humana", "encerrada"], {
+    errorMap: () => ({
+      message: "Situação deve ser bot, fila, humana ou encerrada",
+    }),
+  }),
+});
+
 export type ManutencaoInput = z.infer<typeof manutencaoSchema>;
 export type ManutencaoUpdateInput = z.infer<typeof manutencaoUpdateSchema>;
 export type ChamadoInput = z.infer<typeof chamadoSchema>;
@@ -336,3 +473,6 @@ export type CelularInput = z.infer<typeof celularSchema>;
 export type ItemDepositoInput = z.infer<typeof itemDepositoSchema>;
 export type TipoComponenteInput = z.infer<typeof tipoComponenteSchema>;
 export type ComponenteInput = z.infer<typeof componenteSchema>;
+export type ConversaWebhookInput = z.infer<typeof conversaWebhookSchema>;
+export type ConversaMensagemInput = z.infer<typeof conversaMensagemSchema>;
+export type ConversaSituacaoInput = z.infer<typeof conversaSituacaoSchema>;

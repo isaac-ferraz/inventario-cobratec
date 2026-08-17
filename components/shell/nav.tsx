@@ -4,15 +4,19 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
 import {
+  BellRing,
   Boxes,
+  CalendarClock,
   DoorOpen,
   Gauge,
   KeyRound,
   LifeBuoy,
   LogOut,
+  MessageCircle,
   Monitor,
   ShieldCheck,
   Smartphone,
+  TrendingUp,
   Wrench,
   Users,
   Tags,
@@ -35,6 +39,26 @@ import type { Papel } from "@/lib/supervisao";
 // (catálogo global), Usuários e Auditoria.
 const NAV = [
   { href: "/", label: "Dashboard", icon: Gauge, supervisor: true },
+  // O relatório de cobrança é a outra metade do "Dashboard": as duas telas
+  // trocam entre si pelo alternador no cabeçalho. Fica no menu também porque
+  // quem entra querendo o número do dia não deveria ter que passar pelo painel
+  // de informática para chegar nele.
+  { href: "/relatorios/cobranca", label: "Relatórios", icon: TrendingUp, supervisor: true },
+  // A carteira é o único item do menu que a operadora de cobrança enxerga além
+  // dos chamados: é a agenda de trabalho dela (o que vence, o que atrasou), e o
+  // servidor já apaga dali o recorte por operadora, que seria ranking de
+  // colegas. Espelha PERMITIDO_COBRANCA no middleware e `exigirCarteira`.
+  {
+    href: "/relatorios/carteira",
+    label: "Carteira",
+    icon: CalendarClock,
+    supervisor: true,
+    cobranca: true,
+  },
+  // Avisos é o que o relógio produziu sozinho (lib/agendador.ts). Fica logo
+  // abaixo dos relatórios porque é a mesma pergunta vista pelo outro lado: lá
+  // se procura o número, aqui o número procura a pessoa.
+  { href: "/avisos", label: "Avisos", icon: BellRing, supervisor: true, contador: true },
   { href: "/chamados", label: "Chamados", icon: LifeBuoy, operador: true, supervisor: true },
   { href: "/computadores", label: "Computadores", icon: Monitor, supervisor: true },
   { href: "/celulares", label: "Celulares", icon: Smartphone, supervisor: true },
@@ -50,7 +74,39 @@ const NAV = [
 function itens(papel: Papel) {
   if (papel === "ADMIN") return NAV;
   if (papel === "SUPERVISOR") return NAV.filter((i) => i.supervisor);
+  // Do INVENTÁRIO a cobrança continua vendo só os chamados — o destino dela é o
+  // /chat, que não é item de menu e sim o bloco destacado acima do perfil (ver
+  // Sidebar). O que ela ganhou foi a carteira, que é relatório e não parque.
+  if (papel === "COBRANCA") return NAV.filter((i) => i.operador || i.cobranca);
   return NAV.filter((i) => i.operador);
+}
+
+/**
+ * Quem alcança as conversas com devedor. Espelha `exigirChat`
+ * (lib/autorizacao.ts) e PERMITIDO_COBRANCA (middleware.ts) — quem muda um,
+ * muda os três. Supervisor de sala fica de fora: cobrança não é assunto de
+ * sala.
+ */
+function podeChat(papel: Papel) {
+  return papel === "ADMIN" || papel === "COBRANCA";
+}
+
+/**
+ * O contador de avisos por ler.
+ *
+ * Com número dentro, e não uma bolinha: "3" e "40" pedem reações diferentes, e
+ * um ponto colorido faz as duas parecerem a mesma coisa. Acima de 99 vira "99+"
+ * porque a largura do rail é fixa.
+ */
+function Contador({ n }: { n: number }) {
+  return (
+    <span
+      aria-label={`${n} aviso${n === 1 ? "" : "s"} por ler`}
+      className="ml-auto rounded-full bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-medium leading-none tabular-nums text-amber-700 dark:text-amber-300"
+    >
+      {n > 99 ? "99+" : n}
+    </span>
+  );
 }
 
 function ativo(pathname: string, href: string) {
@@ -98,7 +154,15 @@ function useSair() {
 }
 
 // Rail lateral (desktop).
-export function Sidebar({ papel, usuario }: { papel: Papel; usuario: string }) {
+export function Sidebar({
+  papel,
+  usuario,
+  avisos = 0,
+}: {
+  papel: Papel;
+  usuario: string;
+  avisos?: number;
+}) {
   const pathname = usePathname();
   const { sair, saindo } = useSair();
   return (
@@ -126,10 +190,39 @@ export function Sidebar({ papel, usuario }: { papel: Papel; usuario: string }) {
               )}
               <item.icon className="h-4 w-4" />
               {item.label}
+              {item.contador && avisos > 0 && <Contador n={avisos} />}
             </Link>
           );
         })}
       </nav>
+      {/* Conversas fica FORA da lista de navegação, logo acima do perfil: não é
+          uma tela a mais do inventário, é o outro ofício da casa. O destaque
+          existe porque, para a operadora de cobrança, é a única porta que
+          importa — e ela precisa cair nela sem procurar. */}
+      {podeChat(papel) && (
+        <div className="px-3 pb-2">
+          <Link
+            href="/chat"
+            aria-current={ativo(pathname, "/chat") ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
+              ativo(pathname, "/chat")
+                ? "border-primary/40 bg-primary/10"
+                : "bg-muted/40 hover:border-primary/30 hover:bg-primary/5",
+            )}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+              <MessageCircle className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 leading-tight">
+              <span className="block text-sm font-medium">Conversas</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                WhatsApp · devedores
+              </span>
+            </span>
+          </Link>
+        </div>
+      )}
       <div className="space-y-2 border-t p-3">
         <div className="flex items-center justify-between gap-2 px-2">
           <div className="min-w-0">
@@ -160,13 +253,39 @@ export function Sidebar({ papel, usuario }: { papel: Papel; usuario: string }) {
 }
 
 // Barra superior (mobile).
-export function TopBar({ papel, usuario }: { papel: Papel; usuario: string }) {
+export function TopBar({
+  papel,
+  usuario,
+  avisos = 0,
+}: {
+  papel: Papel;
+  usuario: string;
+  avisos?: number;
+}) {
   const pathname = usePathname();
   const { sair, saindo } = useSair();
   return (
     <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-card px-4 py-3 md:hidden">
       <Marca compact />
       <nav className="-mx-1 flex flex-1 gap-1 overflow-x-auto px-1">
+        {/* No mobile não existe rodapé de perfil para ficar "acima" dele, então
+            Conversas vira o PRIMEIRO item da barra, destacado — mesma intenção
+            do bloco do desktop: é a porta principal de quem atende. */}
+        {podeChat(papel) && (
+          <Link
+            href="/chat"
+            aria-current={ativo(pathname, "/chat") ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
+              ativo(pathname, "/chat")
+                ? "border-primary/40 bg-primary/10"
+                : "bg-muted/40 hover:bg-primary/5",
+            )}
+          >
+            <MessageCircle className="h-3.5 w-3.5 text-primary" />
+            Conversas
+          </Link>
+        )}
         {itens(papel).map((item) => {
           const on = ativo(pathname, item.href);
           return (
@@ -183,6 +302,7 @@ export function TopBar({ papel, usuario }: { papel: Papel; usuario: string }) {
             >
               <item.icon className="h-3.5 w-3.5" />
               {item.label}
+              {item.contador && avisos > 0 && <Contador n={avisos} />}
             </Link>
           );
         })}

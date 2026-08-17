@@ -8,8 +8,12 @@ import {
   filtroChamado,
   filtroComputador,
   filtroSala,
+  papelDe,
+  telaInicial,
   podeMover,
   temEscopo,
+  PAPEIS,
+  ROTULO_PAPEL,
   type Escopo,
 } from "./supervisao";
 
@@ -18,6 +22,62 @@ const operador: Escopo = { id: "u-op", papel: "OPERADOR", salaIds: [] };
 // Responde por duas salas — o caso que prova que o escopo não é de uma só.
 const sup: Escopo = { id: "u-sup", papel: "SUPERVISOR", salaIds: ["s1", "s2"] };
 const supSemSala: Escopo = { id: "u-novo", papel: "SUPERVISOR", salaIds: [] };
+const cobranca: Escopo = { id: "u-cob", papel: "COBRANCA", salaIds: [] };
+
+// papelDe é o ponto único de conversão da decisão 25 — e estava sem teste, que
+// é como o bug original passou. Todo papel precisa atravessar inteiro: um que
+// se perca aqui vira OPERADOR calado, e a pessoa é expulsa da própria tela.
+describe("papelDe", () => {
+  it("devolve inteiro todo papel conhecido", () => {
+    for (const p of PAPEIS) {
+      expect(papelDe(p), p).toBe(p);
+    }
+  });
+
+  it("desconhecido, vazio e nulo caem no MENOS privilegiado", () => {
+    expect(papelDe("DEUS")).toBe("OPERADOR");
+    expect(papelDe("")).toBe("OPERADOR");
+    expect(papelDe(null)).toBe("OPERADOR");
+    expect(papelDe(undefined)).toBe("OPERADOR");
+  });
+
+  it("não promove por diferença de caixa — lixo na coluna nunca vira admin", () => {
+    expect(papelDe("admin")).toBe("OPERADOR");
+    expect(papelDe("Cobranca")).toBe("OPERADOR");
+  });
+
+  it("todo papel da lista tem rótulo para a tela", () => {
+    for (const p of PAPEIS) {
+      expect(ROTULO_PAPEL[p], p).toBeTruthy();
+    }
+  });
+});
+
+// A cobrança atende devedor, não cuida de patrimônio. Aqui dentro ela tem de se
+// comportar exatamente como o operador: nenhum alcance de inventário.
+describe("cobrança não alcança inventário", () => {
+  it("não alcança sala, computador, celular nem funcionário", () => {
+    expect(alcancaSala(cobranca, "s1")).toBe(false);
+    expect(alcancaComputador(cobranca, { salaId: "s1" })).toBe(false);
+    expect(alcancaCelular(cobranca, { funcionario: { salaId: "s1" } })).toBe(
+      false,
+    );
+    expect(alcancaFuncionario(cobranca, { salaId: "s1" })).toBe(false);
+  });
+
+  it("não tem escopo e o filtro de computador não devolve nada", () => {
+    expect(temEscopo(cobranca)).toBe(false);
+    expect(filtroComputador(cobranca)).toEqual({ id: { in: [] } });
+  });
+
+  it("nos chamados enxerga só os próprios, como o operador", () => {
+    expect(filtroChamado(cobranca)).toEqual({ solicitanteId: "u-cob" });
+  });
+
+  it("não move equipamento entre salas", () => {
+    expect(podeMover(cobranca, "s1", "s2")).toBe(false);
+  });
+});
 
 describe("alcance de sala", () => {
   it("admin alcança qualquer sala", () => {
@@ -172,5 +232,29 @@ describe("filtros do Prisma", () => {
 
   it("supervisor sem sala ainda vê os chamados que abriu", () => {
     expect(filtroChamado(supSemSala)).toEqual({ solicitanteId: "u-novo" });
+  });
+});
+
+// Onde cada papel começa. Testado porque esta regra JÁ existiu em duas cópias
+// que discordavam: o middleware mandava a cobrança para /chat e a tela de login
+// mandava para /chamados, então o usuário de cobrança entrava e não achava as
+// conversas — o sintoma foi relatado como "o chat não aparece para ele".
+describe("tela inicial de cada papel", () => {
+  it("cobrança começa nas conversas, que é o ofício dela", () => {
+    expect(telaInicial("COBRANCA")).toBe("/chat");
+  });
+
+  it("admin e supervisor começam no dashboard", () => {
+    expect(telaInicial("ADMIN")).toBe("/");
+    expect(telaInicial("SUPERVISOR")).toBe("/");
+  });
+
+  it("operador começa nos chamados, a única tela dele", () => {
+    expect(telaInicial("OPERADOR")).toBe("/chamados");
+  });
+
+  // Papel estranho no banco não vira acesso privilegiado nem tela em branco.
+  it("papel desconhecido cai no menos privilegiado", () => {
+    expect(telaInicial(papelDe("QUALQUER_COISA"))).toBe("/chamados");
   });
 });

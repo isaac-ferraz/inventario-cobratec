@@ -155,6 +155,7 @@ npm run db:seed             # catálogo + dados de exemplo
 npm run db:catalogo         # garante só o catálogo de tipos (idempotente)
 npm run db:salas            # garante as salas iniciais (idempotente)
 npm run db:admin            # garante um administrador inicial (idempotente)
+npm run db:validar-parcelas # confere a baixa de parcela no Siscobra (leitura)
 docker compose up -d --build # subir via Docker (porta 3000, banco em volume)
 ```
 
@@ -273,6 +274,282 @@ cadastrar/remover registros, catálogo de tipos, depósito, usuários, auditoria
 exportação. No helpdesk o supervisor vê os chamados da sala mas age como
 operador (a fila é do TI, e a nota interna não é dele).
 
+**Rodada de caça a bugs (decisão 25):** varredura no navegador + API achou e
+corrigiu oito defeitos. O mais grave: o login assinava o cookie de um
+**SUPERVISOR como OPERADOR**, e como o middleware julga a navegação só pelo
+cookie (roda no Edge), o papel da decisão 24 era **inalcançável na prática** — a
+conversão virou `papelDe()` em `lib/supervisao.ts`, ponto único usado pelo login e
+pela releitura server-side. Os outros: data inexistente no calendário (`2026-13-01`
+dava 500; `2026-02-31` era gravada calada como 03/03), admin conseguia **inativar
+a própria conta** e se trancar fora, o ajuste ± do depósito ignorava o teto de
+estoque, login sem freio de força bruta (agora `lib/rate-limit.ts`, 10 erros/5 min
+por IP+login), **CSP** entrou revendo a decisão 9, mensagens do zod em inglês
+viraram pt-BR (`lib/zod-ptbr.ts`) e a movimentação de sala não mais responde "ok"
+para id inexistente. Cobertura foi de 177 para 244 testes, incluindo os dois
+arquivos que faltavam: `tests/api/sessao.test.ts` (papel gravado no cookie) e
+`tests/api/middleware.test.ts` (portão de navegação, papel por papel).
+
+**Importação de CSV (decisão 26):** carga em massa nas sete entidades
+(funcionários, computadores, celulares, depósito, tipos, salas, usuários) via
+`POST /api/importar` + o diálogo único `components/importar-csv.tsx` no cabeçalho
+de cada tela; só admin. **A validação não é duplicada:** `lib/importacao.ts`
+converte a linha e entrega ao **mesmo schema zod da tela**, então data do
+calendário, "1.234,90", e-mail e tetos vêm de graça. Relação vem **por nome**
+("Ana Souza", "Sala 93") e nome ambíguo é recusado em vez de adivinhado. Fluxo em
+duas fases: **prévia** linha por linha sem escrever, depois transação
+tudo-ou-nada (com opção de "só as linhas válidas"). **Célula vazia não apaga** o
+que já está gravado. `lib/csv.ts` é parser próprio para o CSV do Excel-BR
+(delimitador `;`, BOM, CRLF, aspas), com modelo para baixar por entidade.
+Componentes, chamados e manutenções ficaram de fora de propósito.
+
+**Papel de cobrança e `/chat` (decisão 27):** a Cobratec é empresa de cobrança, e
+o atendimento ao devedor por WhatsApp passa a morar aqui — um **segundo ofício**
+dentro do app, com dado pessoal de terceiro que o inventário nunca teve. Papel
+`COBRANCA` separado (não operador com flag: senão todo operador de helpdesk
+herdaria a porta do dado do devedor). Ela entra em `/chat` — bloco destacado
+fora da lista de navegação, porque para quem atende é a única porta que importa
+— e **não enxerga inventário nenhum**, nem o dashboard; leva só o que o operador
+tem (abrir chamado, trocar a senha). O **supervisor de sala fica de fora** das
+conversas de propósito: alcance sobre dado de devedor se decide pelo ofício, não
+pela sala — por isso nada em `lib/supervisao.ts` se ramifica para `COBRANCA`, e o
+alcance extra vive em `exigirChat` (`lib/autorizacao.ts`), espelhado por
+`PERMITIDO_COBRANCA` (middleware) e `podeChat` (nav). `Usuario.siscobraUsucod` é
+o código da operadora no Siscobra (CRM, PostgreSQL **somente leitura**): `Int?`
+solto e não relação, porque é outro banco; anda **colado ao papel** nos três
+caminhos de escrita (POST, PATCH e importação) — sair de `COBRANCA` zera. A tela
+`/chat` está em **fase 0**: portão e lugar prontos, serviço de WhatsApp e dossiê
+do Siscobra ainda por ligar.
+
+**Identificação: documento + nome (decisão 34).** A dupla verificação deixou de
+ser CPF + nascimento: as **2.532 empresas** do Siscobra têm
+`devdatnas = 0001-01-01` (sentinela), então nenhuma conseguia se identificar.
+Agora é **CPF + nome do titular** ou **CNPJ + razão social**, com a conferência
+em `lib/identificacao.ts` (`nomeConfere`): **dois pedaços quaisquer**, ignorando
+acento, caixa, partícula, letra solta e sufixo de razão social. O preço está
+dito: razão social é pública, então para PJ o segundo fator é mais fraco. A
+recusa **não diz** qual metade falhou. E o nome só é lido como nome **quando o
+robô espera um** (documento pendente, documento na mesma mensagem, ou intenção
+`identificar`) — sem isso "bom dia, tudo bem" virava identificação, porque data
+tem forma e nome não tem.
+
+**Chatbot de cobrança (decisão 28):** o `/chat` da decisão 27 ganhou serviço.
+Modelos `Conversa` (telefone como identidade, `situacao` bot|fila|humana|
+encerrada, `siscobraDevcod`/`identificadaEm`, `dossie` JSON em texto) e
+`ConversaMensagem` (autor devedor|bot|operadora|sistema, `waId` UNIQUE).
+Fronteiras: **n8n é o chatbot** (classifica → consulta Siscobra → redige →
+decide escalar), **WAHA** é o gateway (Docker, `docker-compose.waha.yml`), e o
+inventário **não abre conexão com o Siscobra nem com o WhatsApp** — o dossiê
+chega empurrado pelo webhook e fica congelado como prova do que a operadora
+tinha à frente. As regras vivem em **funções puras** em `lib/conversas.ts`:
+nenhum valor antes de CPF **e** nascimento (`podeRevelarValores` — código, não
+prompt), nenhuma proposta fora da regra oficial da carteira
+(`propostaCabeNaRegra`), e a situação **só anda para frente** (de `humana` não
+volta para `bot`). Ao responder, **entrega primeiro e grava depois**: mensagem
+fantasma é pior que mensagem repetida. `exigirServico` (token, não sessão) é o
+portão do n8n, e `/api/chat/webhook` é público no middleware por **caminho
+exato**. Guia de ligação, SQL do Siscobra e prompts em
+[`docs/conversas/`](./docs/conversas/README.md).
+
+**Modo direto do WhatsApp (decisão 29):** dá para **conectar um número e
+conversar sem o n8n** — sem Twilio e sem API oficial da Meta. É o caminho de
+**teste**, ligado só por `WAHA_URL` no `.env`; `CHAT_ENVIO_URL` (n8n) tem
+precedência, senão uma variável esquecida silenciaria o chatbot inteiro. O
+pareamento é um QR na tela **`/chat` → Conexão** (`app/chat/conexao`, só admin;
+a rota `/api/chat/conexao` fala com o gateway por `lib/waha.ts`). A fronteira da
+decisão 28 continua: **nada de Siscobra aqui**, e o dossiê segue empurrado — o
+que encurta é só o trecho do canal. Sem robô do outro lado, toda mensagem entra
+**escalada** e cai na fila. As duas portas de webhook (`/api/chat/webhook`, do
+n8n, e `/api/chat/waha/webhook`, do gateway) dividem a mesma máquina de estados
+em **`lib/chat-registro.ts`** e o mesmo `CHAT_SERVICE_TOKEN` — o WAHA manda o
+`Authorization` porque a sessão é criada pelo próprio app, com `customHeaders`.
+Não viram conversa: eco da própria resposta (`fromMe`), grupo e broadcast — tudo
+responde 200 "ignorado", porque recusar faria o gateway reentregar para sempre.
+**Risco dito em voz alta:** gateway não-oficial contraria os termos do WhatsApp
+e o número pode ser banido — chip dedicado.
+
+**Anexo e fila ao vivo (decisão 30):** o primeiro teste com gente de verdade
+expôs que o filtro descartava **em silêncio** — o gateway entregava, o app
+respondia 200 e não havia rastro. Agora todo evento ignorado grava o motivo, sem
+conteúdo nem número (LGPD). **Mídia entra**: áudio, foto e PDF viram mensagem com
+marcador (`[áudio]`) e o arquivo é baixado depois, **fora do banco**, ao lado do
+`dev.db`; falha de download não derruba a fala, e servir passa pelo mesmo portão
+da conversa (`exigirChat`), com a mensagem amarrada ao id da conversa. Endereço
+do download só da origem do gateway (SSRF), nome do arquivo derivado do id da
+mensagem (nunca o nome que veio do WhatsApp). Remetente em **LID** (`@lid`, o
+novo endereçamento do WhatsApp) tem o telefone procurado nos campos vizinhos —
+não havendo, ignora e registra, porque LID no lugar do telefone criaria uma
+segunda conversa da mesma pessoa. A **fila é ao vivo** por SSE
+(`/api/chat/eventos`) sobre um barramento de processo (`lib/chat-eventos.ts`) —
+sem Redis, e o limite de uma-instância-só está dito lá; a consulta periódica
+continua como rede de segurança (60s com o canal vivo, 15s sem ele) e a tela diz
+qual dos dois está valendo. Fluxos do n8n prontos para importar em
+[`docs/conversas/n8n/`](./docs/conversas/n8n/).
+
+**Robô de cobrança (decisões 31 e 32):** o modo direto tem um robô que
+**conduz a conversa** — identifica o devedor por CPF **e** nascimento, informa
+saldo e vencimento, e oferece acordo dentro da regra da carteira. Ligado só por
+`OLLAMA_URL`; vazio mantém tudo caindo na fila.
+
+O desenho é a virada da decisão 32: **o modelo classifica, o código responde.**
+Ele devolve um rótulo de uma lista fechada (`lib/chat-intencao.ts`) e nunca
+escreve o que o devedor lê — cada frase sai de molde em `lib/chat-respostas.ts`
+preenchido com campo do Siscobra. A garantia de não inventar deixou de ser
+promessa sobre comportamento e virou propriedade da estrutura: **nenhum número,
+nome ou data que chega ao devedor passou pelo modelo.** Rótulo fora da lista
+vira `outro`, e `outro` é gente.
+
+Três travas, e o caminho do erro é sempre o seguro: palavra na entrada
+(`assuntoExigeGente` — dívida, pagamento, jurídico, dado pessoal e horário/
+endereço nem chegam ao modelo), rótulo na saída (`exigeGente`), e o fluxo não
+ter molde para o caso. A conversa vive em **`lib/chat-fluxo.ts`**, puro e
+testado turno a turno sem banco, sem rede e sem modelo.
+
+**Apagar conversa (decisão 33):** `DELETE /api/chat/conversas/[id]` — **só
+admin** — apaga a conversa inteira: mensagens (cascata), anexos no disco e a
+**memória do robô** (`siscobraDevcod`, `cpfPendente`, `saldo`, `oferta`,
+`dossie`). É conversa e não mensagem de propósito: a memória não está na thread,
+então apagar mensagem deixaria a tela limpa e o robô sabendo de tudo — e
+mensagem avulsa apagada deixaria histórico adulterado, pior que histórico
+nenhum. O append-only de `ConversaMensagem` continua valendo. Fica na auditoria
+quem apagou (telefone sim, CPF nunca).
+
+**Siscobra (decisão 32):** `lib/siscobra.ts` lê o CRM — **somente leitura**,
+quatro consultas fixas e parametrizadas, usuário com `GRANT SELECT` apenas.
+Reverte a fronteira da decisão 28 (o inventário não abria conexão), porque sem
+dado o robô inventava. O dado alimenta molde, **nunca prompt** — é o que mantém
+a fala do devedor dentro da empresa mesmo com o modelo rodando fora dela. A
+oferta é calculada por `montarOferta` e conferida por `propostaCabeNaRegra`
+antes de virar texto; carteira sem regra ativa não recebe proposta nenhuma.
+O primeiro nome passa por **`primeiroNomeDe`** (decisão 32.3): o `devnom` traz o
+código de cadastro antes do nome, ora separado ("40067713 ANA"), ora **colado**
+("735705Violene") — e o robô cumprimentava "Olá, 760361Gabrieli!". Corta corrida
+de **2+ dígitos**, colada ou não; **1 dígito fica**, porque é razão social
+("7M INSTALACOES", "3C SERVICES", "3 B S COMERCIO"), e dígito no meio da palavra
+também fica, porque é erro de digitação ("SANT0S"). A regra desceu do SQL para o
+TypeScript para poder ter teste.
+
+**O classificador precisa de 3B ou mais.** Medido: `llama3.2:3b` acerta 26/26
+com zero erros perigosos, `llama3.2:1b` faz 10/26 e erra para `saudacao` — o
+rótulo que o robô atende. E o prompt tem exemplos porque foram medidos (sem
+eles, 20/26); acrescentar *explicação* em vez de exemplo piorou.
+
+**Modelo no Colab (decisão 31.1):** quando a máquina não aguenta o modelo, o
+notebook [`docs/conversas/colab/`](./docs/conversas/colab/ollama-colab.ipynb)
+sobe o Ollama numa GPU do Colab, **mede** as falas típicas contra o teto de 45s
+e imprime as linhas do `.env`. É **caminho de teste**: modelo fora da rede
+significa que a fala do devedor sai da empresa, que é o que a decisão 31
+recusou. O desenho não impede, mas não deixa invisível — `ehLocal()` decide se o
+endereço é alcançável da internet (na dúvida responde "fora") e a tela
+`/chat → Conexão` avisa em vermelho. O túnel não expõe o Ollama direto, que não
+tem autenticação nenhuma: um proxy exige `OLLAMA_TOKEN` e libera só duas rotas.
+O **endereço é fixo** desde a emenda de 13/08/2026: o notebook parou de sortear
+o par endereço+token e passou a **lê-lo** do cofre de Secrets do Colab
+(`OLLAMA_TOKEN`, `NGROK_TOKEN`, `NGROK_URL`), com um domínio reservado do ngrok
+no lugar do `trycloudflare`. O `.env` é escrito uma vez; faltando Secret, a
+célula avisa e cai no túnel sorteado de antes. As duas pontas vêm juntas de
+propósito — endereço fixo com token sorteado é 401 sem sintoma.
+
+**Relatórios: o dashboard virou dois (decisão 35).** "Dashboard" deixou de ser
+uma tela e virou uma **chave de duas posições** no cabeçalho: **Informática** (o
+painel de sempre, em `/`) e **Cobrança** (`/relatorios/cobranca`), que lê o
+**Siscobra** e responde a pergunta que a operação faz o dia inteiro — quantos
+acordos fecharam hoje, por equipe, por carteira, **hora a hora**, em visão
+resumida ou detalhada. Todo filtro vive na URL, então o recorte é um link.
+
+As regras de KPI **não foram inventadas aqui**: vieram do projeto irmão
+`siscobra_postgresql`, conferidas contra os PDFs que o próprio Siscobra imprime
+(acordos 104/104, acionamentos 100%). O que se aproveitou é justamente o que
+ninguém adivinha, porque **a coluna de nome óbvio é a errada**: valor é
+`acovalatu` (com juros/multa) e não `acoval`; a data é `acodatinc` (gravação
+real) e não `acodatcad`; o acordo é creditado a `retusucod` da última ação manual
+(quem trabalhou o caso) e não a `acousuinc` (quem digitou); acionamento é
+`rettip = 0` (o `7` é o discador, ~95% de 55M linhas), pelo `usucod`. Acordo e
+acionamento usam as colunas de usuário **trocadas entre si** — de propósito.
+Tudo em `lib/relatorios-cobranca.ts`, uma varredura por consulta
+(`GROUPING SETS` devolve operadora + carteira + hora + total de uma vez).
+
+O portão é **`exigirRelatorio`** (admin **e supervisor**), e ele não reabre a
+porta que a decisão 27 fechou: o relatório agrega **produção de funcionário**,
+sem nome, CPF ou dívida de devedor. A operadora de `COBRANCA` fica de fora — o
+relatório é um ranking nominal das colegas. O supervisor vê o painel **inteiro**,
+sem recorte de sala: `Sala` é do inventário, `grupo` é do Siscobra, e os dois
+nunca foram ligados — o recorte é o filtro de equipe. Período em
+`lib/relatorios.ts`, puro e testado: "hoje" calculado no **fuso do Brasil** (o
+container sobe em UTC e o painel zeraria às 21h) e teto de **92 dias**, porque o
+CRM é produção. Fora de propósito: recuperação (a fonte ainda é disputada — D-003
+vs D-009 no projeto irmão), percentuais de conversão (D-005) e exportação Excel.
+
+**Carteira de acordos (decisão 36):** `/relatorios/carteira` é a terceira
+posição do alternador e responde o que a 35 não respondia — **o que vem**.
+Agenda de vencimento dia a dia, aging em faixas (1-7, 8-15, 16-30, 31-60, 60+),
+quebras do mês e **primeira parcela honrada** (o divisor entre acordo que vinga
+e acordo que só ocupou a agenda; no relatório de produção os dois contam igual).
+Tudo em `lib/relatorios-carteira.ts`, no molde da 35 — uma varredura por
+consulta, `GROUPING SETS`, e a atribuição por operadora **copiada** do
+`SQL_ACORDOS` (roda por acordo, não por parcela).
+
+A armadilha está dita na tela: **"paga" não é uma coluna.** Todas as candidatas
+estão zeradas ou com sentinela `0001-01-01` (D-009 do projeto irmão), então o
+pagamento é procurado em `boleto_baixa` casando **quatro** colunas — acordo,
+número da parcela, devedor e carteira —, porque `boleto.bolcon` guarda código de
+acordo *e* de contrato e o join de duas colunas marcaria como paga a parcela de
+outra pessoa. Por isso "em atraso" significa **venceu e não achamos a baixa**, e
+`scripts/validar-parcelas.ts` (`npm run db:validar-parcelas`) mede a cobertura
+antes de o número ser levado a sério.
+
+Três papéis, recortes diferentes, cortados **no servidor**: admin leva tudo;
+supervisor leva os agregados e o ranking por operadora, **nunca** a lista com
+nome de devedor (decisão 27 intacta); **cobrança** leva os agregados e a lista —
+é a agenda de trabalho dela — mas **não** o ranking por operadora, que é o mesmo
+ranking nominal de colegas que a decisão 35 já lhe negou. Portão próprio
+`exigirCarteiraNominal`, separado do `exigirChat` de propósito. A lista não
+carrega sozinha (dado pessoal), tem teto de 300 linhas, avisa quando cortou, e
+cruza `Conversa.siscobraDevcod` com `acordo.devcod` para virar link direto da
+conversa no `/chat` — cruzamento que só este app consegue, feito em código
+porque são dois bancos.
+
+**O relógio (decisão 37):** o app deixou de ser 100% pull. `instrumentation.ts`
+liga `lib/agendador.ts` — um laço de um minuto, com dupla guarda
+(`NEXT_RUNTIME === "nodejs"` **e** `AGENDADOR_LIGADO=1`, senão todo `npm run
+dev` viraria um agendador). Cinco tarefas em `lib/tarefas.ts`: digest do
+meio-dia (12h), fechamento (18h), **backup (22h)**, fotografia diária (23h40) e
+purga (03h). O que já rodou fica em `TarefaAgendada` **no banco**, com resultado
+e duração — um restart às 12h05 não repete o digest, e tarefa que falha toda
+noite deixa de falhar invisível. Janela de recuperação de 2h: horário perdido
+fica perdido. Vale **uma instância**, como o barramento de `chat-eventos.ts`.
+
+O **backup** (decisão 37.1) é a quinta tarefa e fecha o exemplo que a própria
+decisão 37 usou para nomear o problema: `scripts/backup-db.sh` existia desde a
+decisão 11 e **nunca foi agendado**, porque agendar dependia de escolher a
+máquina. `lib/backup.ts` faz o mesmo `VACUUM INTO` de dentro do app (o container
+não tem CLI do Prisma nem cron), grava em `BACKUP_DIR` — padrão `data/backups`,
+**dentro do volume**, senão a cópia sumiria no próximo `--build` — e roda a
+rotação por `BACKUP_DIAS` (piso de 1) apagando **só** o que ela mesma gerou. Só
+avisa quando **falha**, e aí como `grave`: "backup ok" diário é a mensagem que
+se aprende a ignorar. O script continua valendo para cópia na hora ou com o app
+parado. Junto saiu um defeito do relógio: `executar()` relia `agoraNoBrasil()`
+em vez de usar o instante que mandou rodar, e na virada da meia-noite gravava o
+dia seguinte — o que faria a tarefa do dia seguinte se dar por feita.
+
+Os avisos (`lib/avisos.ts`, model `Aviso`, tela `/avisos` + contador na
+navegação) são **gravados antes de enviados** — o inverso do `/chat`, e de
+propósito: o canal é o gateway não-oficial da decisão 29, e se o aviso só
+existisse na mensagem, o dia em que ele cair seria o dia em que ninguém fica
+sabendo de nada. Saem pelo número da cobrança (`AVISOS_WHATSAPP`). `info` não
+vai ao celular, salvo os digests, que pedem exceção explícita. `FechamentoDiario`
+guarda a baseline que o CRM não guarda: o relatório tem teto de 92 dias, e sem
+história própria "hoje está fraco" não é afirmável.
+
+**Retenção (decisão 38):** conversa **encerrada** há mais de 180 dias sai —
+mensagens em cascata, anexos no disco e a memória do robô —, mais anexos órfãos
+e auditoria com mais de 730 dias. Janelas em `.env` com piso de 30 dias, e
+**`PURGA_MODO=seco` por padrão**: relata no `/avisos` o que apagaria e não apaga
+até alguém conferir. O corpo do `DELETE` manual saiu da rota para
+`lib/chat-purga.ts` e é chamado pelos dois caminhos — a cascata no banco mais os
+arquivos no disco precisam de dono único, e a implementação que roda de
+madrugada é a que ficaria para trás. Decisões puras e testadas em
+`lib/retencao.ts`; o texto do aviso nunca carrega telefone.
+
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
   `exceljs` não cria gráficos nativos na escrita (decisão 6).
@@ -287,12 +564,17 @@ operador (a fila é do TI, e a nota interna não é dele).
   **headers de segurança** em todas as respostas; Next fixado na linha 14.2.x
   (14.2.35). A antiga auth Basic opcional foi removida (decisões 9 e 19).
 
-**Autenticação e papéis (decisões 19 e 24):** o sistema **exige login**. Model
-`Usuario` (login único, `senhaHash` scrypt, papel `ADMIN`|`SUPERVISOR`|`OPERADOR`, `ativo`,
-`senhaProvisoria`, vínculo opcional com `Funcionario`) + CRUD em `/usuarios` (só
+**Autenticação e papéis (decisões 19, 24 e 27):** o sistema **exige login**. Model
+`Usuario` (login único, `senhaHash` scrypt, papel
+`ADMIN`|`SUPERVISOR`|`COBRANCA`|`OPERADOR`, `ativo`, `senhaProvisoria`, vínculo
+opcional com `Funcionario` e `siscobraUsucod`) + CRUD em `/usuarios` (só
 admin). **Administrador** faz tudo; **supervisor de sala** vê e edita o que está nas
 salas dele (inclusive o cofre de senhas da equipe) e não alcança as telas globais;
-**operador** só alcança `/chamados` e `/trocar-senha`. Sessão em cookie httpOnly assinado por HMAC (`lib/sessao.ts`,
+**cobrança** alcança as conversas (`/chat`) e nada do inventário;
+**operador** só alcança `/chamados` e `/trocar-senha`. A lista de papéis vive em
+um lugar só (`PAPEIS`/`papelDe`, em `lib/supervisao.ts`) e é importada pelo
+cookie, pelo login e pela releitura — duas cópias dela já divergiram uma vez
+(decisão 25.1). Sessão em cookie httpOnly assinado por HMAC (`lib/sessao.ts`,
 Web Crypto — funciona no Edge do middleware), com **reconferência no banco** em
 `lib/sessao-servidor.ts` (papel e `ativo` valem os do banco, não os do cookie).
 Autorização em duas camadas: `middleware.ts` (portão de navegação) **e**

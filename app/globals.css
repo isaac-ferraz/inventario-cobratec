@@ -34,6 +34,35 @@
       não deve ser reaproveitado para botão, link ou estado.
     */
     --brand-blue: #025297;
+    /*
+      Cores das SÉRIES dos relatórios (acordos × acionamentos).
+
+      Ficam aqui, e não soltas no componente, pelo mesmo motivo dos tons de
+      estado abaixo: cada uma precisa do par claro/escuro, e o par foi MEDIDO.
+      Rodadas no validador de paleta: separação ΔE 18,9 sob deuteranopia (o teto
+      é 8) e 27,0 na visão normal, dentro da faixa de luminosidade e acima do
+      piso de croma nos dois temas. Trocar um hex no olho quebra isso em
+      silêncio — quem enxerga cor não nota, quem não enxerga perde o gráfico.
+
+      A série segue a ENTIDADE, nunca a posição: acordo é sempre teal,
+      acionamento é sempre violeta, em qualquer gráfico e com qualquer filtro.
+    */
+    --serie-acordo: #0d9488;
+    --serie-acionamento: #7c3aed;
+    /*
+      A carteira de acordos usa outro par: azul para o que VENCE, âmbar para o
+      que ATRASOU. Azul×âmbar é o par canônico seguro para daltonismo — ele
+      separa por luminosidade além de por matiz, então sobrevive a
+      deuteranopia e protanopia sem depender do vermelho.
+
+      Ressalva honesta: este par NÃO passou pelo validador que mediu
+      teal×violeta acima. Ele não precisa passar contra aquele — as duas duplas
+      nunca dividem um gráfico (o relatório de produção e o da carteira são
+      telas separadas) —, mas se o validador for rodado de novo, é esta dupla
+      que precisa entrar junto.
+    */
+    --serie-avencer: #2563eb;
+    --serie-atraso: #d97706;
   }
 
   .dark {
@@ -62,6 +91,11 @@
       não precisa saber qual tema está ativo.
     */
     --brand-blue: #7FB9EC;
+    /* Passos próprios para o fundo de rack — não é o claro "invertido". */
+    --serie-acordo: #11a596;
+    --serie-acionamento: #8b5cf6;
+    --serie-avencer: #60a5fa;
+    --serie-atraso: #fbbf24;
   }
 }
 

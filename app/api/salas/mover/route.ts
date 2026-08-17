@@ -26,6 +26,30 @@ export async function POST(req: Request): Promise<NextResponse> {
   const destinoNome = await rotuloDestino(destinoSalaId);
   if (!destinoNome) return erro("Sala de destino não encontrada.", 404);
 
+  // Id que não existe mais: antes seguia em silêncio e a resposta dizia
+  // `ok: true` com um total menor — quem estava com a tela velha aberta (item
+  // removido em outra aba) via "sucesso" onde nada tinha acontecido. Confere a
+  // seleção inteira antes e recusa o lote, que é o que "transacional" promete.
+  // Com isto, `computadores: 0` passa a significar uma coisa só: já estavam lá.
+  const pedidosPc = [...new Set(r.data.computadorIds ?? [])];
+  const pedidosFunc = [...new Set(r.data.funcionarioIds ?? [])];
+  const [achadosPc, achadosFunc] = await Promise.all([
+    pedidosPc.length
+      ? prisma.computador.count({ where: { id: { in: pedidosPc } } })
+      : 0,
+    pedidosFunc.length
+      ? prisma.funcionario.count({ where: { id: { in: pedidosFunc } } })
+      : 0,
+  ]);
+  const faltando =
+    pedidosPc.length - achadosPc + (pedidosFunc.length - achadosFunc);
+  if (faltando > 0) {
+    return erro(
+      `${faltando} item(ns) da seleção não existe(m) mais. Atualize a página e tente de novo.`,
+      404,
+    );
+  }
+
   // Escopo do supervisor: cada item precisa SAIR de uma sala dele e CHEGAR em
   // outra sala dele. Conferimos a origem real no banco — confiar no que a tela
   // mandou permitiria forjar um id e arrastar equipamento de outra sala.

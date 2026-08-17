@@ -13,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
+import { ImportarCsv } from "@/components/importar-csv";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
@@ -154,9 +155,12 @@ export default function SalasPage() {
             levado para ela e mover itens entre salas.
           </p>
         </div>
-        <Button onClick={abrirNovo}>
-          <Plus /> Nova sala
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportarCsv entidade="salas" onPronto={carregar} />
+          <Button onClick={abrirNovo}>
+            <Plus /> Nova sala
+          </Button>
+        </div>
       </div>
 
       {carregando ? (

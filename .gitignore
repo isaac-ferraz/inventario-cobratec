@@ -3,13 +3,24 @@ node_modules
 out
 *.log
 .env
+# Qualquer variação (.env.bak, .env.producao, .env.anterior-...) — um backup do
+# .env foi commitado por descuido e levou junto senha do Siscobra, AUTH_SECRET e
+# a chave do gateway. Um padrão só evita repetir.
+.env.*
+!.env.example
 prisma/dev.db
 prisma/dev.db-journal
 prisma/dev.db-wal
 prisma/dev.db-shm
 backups
+# Volume de dados do container quando o app roda fora do Docker: banco, anexos
+# baixados do WhatsApp (áudio e foto de devedor) e as cópias do backup. Nada
+# disso pode entrar no versionamento.
+data
 tmp
 .claude/settings.local.json
+.claude-backup-sessao
 next-env.d.ts
 *.tsbuildinfo
 .DS_Store
+.ipynb_checkpoints
