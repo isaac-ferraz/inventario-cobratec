@@ -13,6 +13,10 @@ prisma/dev.db-journal
 prisma/dev.db-wal
 prisma/dev.db-shm
 backups
+# Volume de dados do container quando o app roda fora do Docker: banco, anexos
+# baixados do WhatsApp (áudio e foto de devedor) e as cópias do backup. Nada
+# disso pode entrar no versionamento.
+data
 tmp
 .claude/settings.local.json
 .claude-backup-sessao

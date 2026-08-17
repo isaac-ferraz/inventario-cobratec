@@ -2443,6 +2443,67 @@ diz que não tem base, em vez de inventar uma média de uma amostra só.
 
 Só agregado: nenhuma coluna guarda devedor.
 
+### 37.1 — O backup entrou no relógio (17/08/2026)
+
+A decisão 37 abriu citando o backup como **prova do problema**: script pronto
+(`scripts/backup-db.sh`), unit de systemd escrita em `docs/backup.md`, e **nunca
+agendado**, porque agendar dependia de escolher a máquina. Depois disso ela
+construiu o relógio e agendou digest, fechamento e purga — e deixou o backup de
+fora. O exemplo continuou sendo exemplo.
+
+Agora é a quinta tarefa, às **22h**: depois do expediente (o horário que o cron
+de exemplo já sugeria) e antes da virada, para a cópia levar a data do dia que
+ela guarda. O código está em `lib/backup.ts`.
+
+**Por que não continuar no shell.** O script chama `npx prisma db execute`, e o
+container roda o build `standalone` do Next — sem CLI do Prisma. Um cron dentro
+do container também não existe (imagem Alpine enxuta, usuário não-root). Chamar
+o `.sh` de dentro do app seria arrastar `child_process` para dentro do processo
+que atende requisição, para ganhar nada: o que as duas implementações
+compartilham é `VACUUM INTO`, que é do SQLite e não nosso. Não há regra
+duplicada entre elas — só um comando de uma linha.
+
+**O script não foi tocado**, e continua sendo o caminho de duas coisas que o
+relógio não faz: cópia **agora**, com destino escolhido na hora, e cópia com o
+**app parado**.
+
+**O padrão mudou de pasta.** O script grava em `backups/`, na raiz do projeto.
+A tarefa grava em `data/backups`, que no container é o **volume** — `backups/` na
+raiz moraria dentro da imagem e sumiria no próximo `--build`, e um backup que
+evapora no deploy é pior que nenhum, porque parece que existe. É a mesma escolha
+de `pastaDeMidia()`.
+
+**Só avisa quando falha**, e aí como `grave`. Um "backup ok" chegando todo dia às
+22h é a mensagem que se aprende a ignorar em duas semanas — e o dia em que ela
+não chegar passa batido junto. O sucesso fica em `TarefaAgendada`, com tamanho e
+duração, para quem for conferir.
+
+**A rotação só apaga o que ela mesma gera** (`inventario-AAAAMMDD-HHMMSS.db`),
+nunca a pasta inteira: `backups/` do projeto tem hoje um
+`dev-seed-para-servidor.db` colocado ali de propósito, e varrer por extensão
+levaria exatamente ele. `BACKUP_DIAS` tem **piso de 1** — `0` apagaria a cópia
+recém-criada no mesmo minuto, que é o mesmo dedo escorregando no `.env` que a
+retenção freia com o piso de 30.
+
+**O que isto não resolve:** a cópia continua no mesmo disco do banco. Contra a
+máquina morrer, `BACKUP_DIR` apontando para um NAS montado — dito em três
+lugares, porque é o erro fácil de cometer.
+
+#### O defeito que apareceu junto: o relógio lido duas vezes
+
+`tique(agora)` recebia o relógio e `executar()` lia o seu próprio
+(`agoraNoBrasil()` sem argumento). Em produção os dois quase sempre concordam —
+mas na virada da meia-noite, não: a fotografia das 23h40 gravaria `ultimoDia` já
+no dia seguinte, e o dia seguinte se daria por feito e **não rodaria**.
+
+O teste que cobria a deduplicação (`não roda a mesma tarefa duas vezes no dia`)
+passava com data fixa de 14/08 e o dia real gravado por baixo — ou seja, **só
+passou no dia em que foi escrito**. Um teste que depende da data de hoje é um
+teste que já quebrou e ainda não avisou. `executar` passou a receber `agora`, e
+o caso da meia-noite virou teste próprio.
+
+Testes: 767 → **780** (`lib/backup.test.ts` 8, mais 5 em `tests/api/agendador.test.ts` — 4 do backup e 1 da meia-noite).
+
 ## 38. Retenção: guardar para sempre é uma escolha, e era a errada
 
 O app guarda dado pessoal de terceiro — telefone do devedor, dossiê congelado

@@ -1,7 +1,8 @@
 // O que o relógio roda. O relógio em si é `lib/agendador.ts`.
 //
-// Quatro tarefas, e cada uma existe porque um número que importa estava vivendo
-// só dentro de uma tela que alguém precisava lembrar de abrir.
+// Cinco tarefas, e cada uma existe porque algo que importa estava dependendo de
+// alguém lembrar: um número que só vivia dentro de uma tela, ou — no caso do
+// backup — um comando que só rodava quando alguém digitava.
 import { prisma } from "@/lib/prisma";
 import { configSiscobra } from "@/lib/siscobra";
 import { formatarDiaBr, hojeNoBrasil, somarDias } from "@/lib/relatorios";
@@ -9,6 +10,7 @@ import { acionamentosDe, acordosDo } from "@/lib/relatorios-cobranca";
 import { aVencerEm, emAtrasoAte, quebrasDe } from "@/lib/relatorios-carteira";
 import { registrarAviso } from "@/lib/avisos";
 import { configRetencao, resumoPurga, nadaAPurgar, type ContagemPurga } from "@/lib/retencao";
+import { fazerBackup } from "@/lib/backup";
 import { purgarAuditoria, purgarConversas, purgarOrfaos } from "@/lib/chat-purga";
 
 export type Tarefa = {
@@ -222,6 +224,40 @@ async function purga(): Promise<string> {
   return texto;
 }
 
+// ──────────────────────────── backup ────────────────────────────
+
+/**
+ * A cópia do banco, às 22h.
+ *
+ * Depois do expediente (o horário que `docs/backup.md` já recomendava para o
+ * cron) e antes da virada do dia, para a cópia levar o nome do dia que ela
+ * guarda.
+ *
+ * O aviso sai só quando dá errado, e como **grave**: um "backup ok" diário no
+ * celular de alguém é o tipo de mensagem que se aprende a ignorar em duas
+ * semanas — e aí o dia em que ela não chegar também passa batido. O sucesso
+ * fica em `TarefaAgendada`, com tamanho e duração, para quem for conferir.
+ */
+async function backup(): Promise<string> {
+  try {
+    return await fazerBackup();
+  } catch (e) {
+    const motivo = (e as Error).message ?? "falha desconhecida";
+    await registrarAviso({
+      tipo: "backup",
+      nivel: "grave",
+      titulo: "Backup do banco falhou",
+      corpo:
+        `A cópia automática de hoje não foi feita: ${motivo}\n\n` +
+        `O banco continua funcionando — o que não existe é a cópia. ` +
+        `Rode \`npm run db:backup\` e veja docs/backup.md.`,
+      link: "/avisos",
+      chave: `backup-falhou:${hojeNoBrasil()}`,
+    });
+    throw e;
+  }
+}
+
 /** Toda tarefa de cobrança para se o CRM não estiver configurado. */
 function exigeSiscobra(fn: () => Promise<string>): () => Promise<string> {
   return async () => {
@@ -234,5 +270,6 @@ export const TAREFAS: Tarefa[] = [
   { nome: "digest-meio-dia", hora: 12, minuto: 0, executar: exigeSiscobra(digestMeioDia) },
   { nome: "digest-fechamento", hora: 18, minuto: 0, executar: exigeSiscobra(digestFechamento) },
   { nome: "fechamento-diario", hora: 23, minuto: 40, executar: exigeSiscobra(fechamentoDiario) },
+  { nome: "backup", hora: 22, minuto: 0, executar: backup },
   { nome: "purga", hora: 3, minuto: 0, executar: purga },
 ];

@@ -23,14 +23,38 @@ BACKUP_DIAS=90 npm run db:backup       # guarda 90 dias
 sh scripts/backup-db.sh /mnt/nas/inventario.db   # destino específico
 ```
 
-## Agendar (escolha UMA)
+## Agendar
 
-> **A pasta `backups/` está no `.gitignore` e mora no mesmo disco do banco.**
-> Backup que só existe na mesma máquina não protege contra o cenário mais comum
-> (a máquina morrer). Aponte o destino para um pendrive, um compartilhamento de
-> rede ou o NAS — ou copie para lá depois.
+> **A pasta de backup mora no mesmo disco do banco.** Backup que só existe na
+> mesma máquina não protege contra o cenário mais comum (a máquina morrer).
+> Aponte o destino para um pendrive, um compartilhamento de rede ou o NAS — ou
+> copie para lá depois. Isto vale para as três formas abaixo.
 
-### Cron (mais simples)
+### Embutido no app (o padrão desde a decisão 37.1)
+
+Não precisa de cron nem de systemd: **o agendador do próprio app faz a cópia às
+22h**, junto com os digests e a purga. É o mesmo `VACUUM INTO`, com a mesma
+recusa de arquivo vazio e a mesma rotação por `BACKUP_DIAS`.
+
+```bash
+AGENDADOR_LIGADO=1          # sem isto, nada roda sozinho
+BACKUP_DIR=/app/data/backups # vazio = este mesmo caminho no container
+BACKUP_DIAS=30
+```
+
+Duas coisas a saber:
+
+- **Vale para uma instância só**, como o resto do relógio.
+- **Só avisa quando falha**, e aí é um aviso `grave` em `/avisos` (e no WhatsApp,
+  se `AVISOS_WHATSAPP` estiver preenchido). O sucesso fica registrado em
+  `TarefaAgendada`, com tamanho e duração — um "backup ok" diário no celular de
+  alguém é a mensagem que se aprende a ignorar, e aí o dia em que ela não chega
+  passa batido junto.
+
+As duas formas abaixo continuam válidas e são o caminho de quem quer a cópia com
+o app **parado**, ou num horário diferente do relógio embutido.
+
+### Cron
 
 `crontab -e` no usuário dono do projeto:
 

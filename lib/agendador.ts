@@ -80,13 +80,21 @@ export function deveRodar(
   return atraso >= 0 && atraso <= JANELA_MINUTOS;
 }
 
-/** Roda uma tarefa e registra o resultado, dê no que der. */
-export async function executar(nome: string): Promise<void> {
+/**
+ * Roda uma tarefa e registra o resultado, dê no que der.
+ *
+ * `agora` entra como argumento porque quem grava o dia tem que ser o mesmo
+ * relógio que decidiu rodar. Lendo o relógio de novo aqui, a execução que
+ * atravessa a meia-noite grava o dia seguinte — e aí a tarefa do dia seguinte
+ * se dá por feita e não roda. Era assim até 17/08/2026, e o teste que cobria a
+ * deduplicação só passava no dia em que foi escrito.
+ */
+export async function executar(nome: string, agora: Date = new Date()): Promise<void> {
   const tarefa = TAREFAS.find((t) => t.nome === nome);
   if (!tarefa) return;
 
   const inicio = Date.now();
-  const dia = agoraNoBrasil().dia;
+  const dia = agoraNoBrasil(agora).dia;
   let resultado = "ok";
   let detalhe = "";
   try {
@@ -140,7 +148,7 @@ export async function tique(agora: Date = new Date()): Promise<string[]> {
     // Em série, e não em paralelo: as tarefas de cobrança varrem o CRM de
     // produção, e o pool tem quatro conexões. Duas delas juntas competiriam com
     // a operação atendendo.
-    await executar(tarefa.nome);
+    await executar(tarefa.nome, agora);
   }
   return rodadas;
 }

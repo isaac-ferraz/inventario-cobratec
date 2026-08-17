@@ -4,6 +4,8 @@
 // a tarefa roda, deixa registro, não roda duas vezes, e a purga apaga (ou não)
 // o que deveria. É o tipo de coisa que só quebra em produção às 3h da manhã, e
 // por isso precisa de um teste que não dependa de alguém estar olhando.
+import fs from "node:fs/promises";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { limparBanco } from "./ajuda";
@@ -62,6 +64,16 @@ describe("registro de execução", () => {
     expect(t?.duracaoMs).toBeGreaterThanOrEqual(0);
   });
 
+  // O defeito: `executar` lia o relógio de novo, em vez de usar o que decidiu
+  // rodar. Na virada da meia-noite os dois discordam, e o dia gravado é o
+  // seguinte — que é o dia em que a tarefa então se dá por feita e não roda.
+  it("grava o dia de quem mandou rodar, não o de quem gravou", async () => {
+    // 23h50 em São Paulo já é o dia seguinte em UTC.
+    await executar("purga", new Date("2026-08-15T02:50:00Z"));
+    const t = await prisma.tarefaAgendada.findUnique({ where: { nome: "purga" } });
+    expect(t?.ultimoDia).toBe("2026-08-14");
+  });
+
   it("as tarefas de cobrança se pulam sozinhas sem o CRM", async () => {
     await executar("digest-fechamento");
     const t = await prisma.tarefaAgendada.findUnique({
@@ -94,6 +106,81 @@ describe("tique", () => {
 
   it("de madrugada, fora de qualquer horário, não roda nada", async () => {
     expect(await tique(new Date("2026-08-14T09:00:00Z"))).toEqual([]); // 06h em SP
+  });
+});
+
+describe("backup", () => {
+  const pasta = path.resolve(__dirname, "../../tmp/backup-teste");
+
+  beforeEach(async () => {
+    await fs.rm(pasta, { recursive: true, force: true });
+    process.env.BACKUP_DIR = pasta;
+    delete process.env.BACKUP_DIAS;
+  });
+
+  afterEach(async () => {
+    delete process.env.BACKUP_DIR;
+    await fs.rm(pasta, { recursive: true, force: true });
+  });
+
+  it("deixa uma cópia de verdade no disco", async () => {
+    await executar("backup");
+
+    const arquivos = await fs.readdir(pasta);
+    expect(arquivos).toHaveLength(1);
+    expect(arquivos[0]).toMatch(/^inventario-\d{8}-\d{6}\.db$/);
+
+    // Não basta existir: um backup de 0 byte é pior que nenhum, porque parece
+    // que está tudo certo até o dia do desastre.
+    const { size } = await fs.stat(path.join(pasta, arquivos[0]));
+    expect(size).toBeGreaterThan(0);
+
+    const t = await prisma.tarefaAgendada.findUnique({ where: { nome: "backup" } });
+    expect(t?.ultimoResultado).toBe("ok");
+    expect(t?.ultimoDetalhe).toContain("MB");
+  });
+
+  it("a rotação leva o velho e não encosta no que não é dela", async () => {
+    await fs.mkdir(pasta, { recursive: true });
+    const velho = path.join(pasta, "inventario-20200101-220000.db");
+    const alheio = path.join(pasta, "antes-da-migracao.db");
+    await fs.writeFile(velho, "x");
+    await fs.writeFile(alheio, "x");
+    const antigo = new Date(Date.now() - 90 * 86_400_000);
+    await fs.utimes(velho, antigo, antigo);
+    await fs.utimes(alheio, antigo, antigo);
+
+    await executar("backup");
+
+    const arquivos = await fs.readdir(pasta);
+    expect(arquivos).not.toContain("inventario-20200101-220000.db");
+    expect(arquivos).toContain("antes-da-migracao.db"); // colocado ali de propósito
+    expect(arquivos.filter((a) => /^inventario-/.test(a))).toHaveLength(1);
+  });
+
+  it("falhar não é ficar quieto: vira aviso grave", async () => {
+    // Pasta impossível — o pai é um arquivo, então o mkdir não tem como sair.
+    const arquivo = path.resolve(__dirname, "../../tmp/nao-sou-pasta");
+    await fs.writeFile(arquivo, "x");
+    process.env.BACKUP_DIR = path.join(arquivo, "backups");
+
+    await executar("backup");
+
+    const t = await prisma.tarefaAgendada.findUnique({ where: { nome: "backup" } });
+    expect(t?.ultimoResultado).toBe("erro");
+
+    const aviso = await prisma.aviso.findFirst({ where: { tipo: "backup" } });
+    expect(aviso?.nivel).toBe("grave");
+    expect(aviso?.titulo).toContain("Backup do banco falhou");
+
+    await fs.rm(arquivo, { force: true });
+  });
+
+  it("o sucesso NÃO vira aviso", async () => {
+    // De propósito: "backup ok" todo dia às 22h é a mensagem que se aprende a
+    // ignorar — e aí o dia em que ela não chega passa batido junto.
+    await executar("backup");
+    expect(await prisma.aviso.count({ where: { tipo: "backup" } })).toBe(0);
   });
 });
 

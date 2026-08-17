@@ -279,20 +279,79 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     leitura — revertendo a fronteira da decisão 28, porque sem dado ele
     inventava. Testes: 554 → **568**.
 
+26. **Apagar a conversa, e não a mensagem** (decisão 33): `DELETE` de conversa
+    inteira, **só admin** — mensagens em cascata, anexos no disco e a **memória
+    do robô** (`siscobraDevcod`, saldo, oferta, dossiê). É conversa e não
+    mensagem de propósito: a memória não está na thread, então apagar mensagem
+    deixaria a tela limpa e o robô sabendo de tudo; e mensagem avulsa apagada
+    deixaria histórico adulterado, que é pior que histórico nenhum. Fica na
+    auditoria quem apagou — telefone sim, CPF nunca.
+
+27. **Identificação: documento + nome** (decisão 34): a dupla verificação era CPF
+    + nascimento, e as **2.532 empresas** do Siscobra têm `devdatnas` de
+    sentinela — nenhuma conseguia se identificar. Virou **CPF + nome do titular**
+    ou **CNPJ + razão social**, conferido por `nomeConfere`: dois pedaços
+    quaisquer, ignorando acento, caixa, partícula e sufixo de razão social. O
+    preço está dito: razão social é pública, então para PJ o segundo fator é mais
+    fraco. A recusa não diz qual metade falhou, e o nome só é lido como nome
+    **quando o robô espera um** — sem isso, "bom dia, tudo bem" virava
+    identificação.
+
+28. **Relatórios: o dashboard virou dois** (decisão 35): "Dashboard" virou uma
+    chave de duas posições — **Informática** (o painel de sempre) e **Cobrança**
+    (`/relatorios/cobranca`), que lê o Siscobra e responde quantos acordos
+    fecharam hoje, por equipe, por carteira, **hora a hora**. As regras de KPI
+    vieram do projeto irmão, conferidas contra os PDFs do próprio Siscobra — e o
+    que se aproveitou é justamente o que ninguém adivinha, porque **a coluna de
+    nome óbvio é a errada** (`acovalatu` e não `acoval`; `acodatinc` e não
+    `acodatcad`). Portão `exigirRelatorio` (admin e supervisor); a operadora de
+    cobrança fica de fora, porque é um ranking nominal de colegas.
+
+29. **A carteira de acordos** (decisão 36): `/relatorios/carteira` responde o que
+    a 35 não respondia — **o que vem**. Agenda de vencimento, aging em faixas,
+    quebras do mês e **primeira parcela honrada**. A armadilha está dita na tela:
+    **"paga" não é uma coluna** — o pagamento é procurado em `boleto_baixa`
+    casando quatro colunas, e "em atraso" significa *venceu e não achamos a
+    baixa*. Três papéis, três recortes cortados no servidor: o supervisor nunca
+    leva a lista com nome de devedor; a cobrança leva a lista (é a agenda dela)
+    mas não o ranking por operadora.
+
+30. **O relógio** (decisão 37): o app deixou de ser 100% pull. Um laço de um
+    minuto, com dupla guarda (`AGENDADOR_LIGADO=1`), roda digest do meio-dia,
+    fechamento das 18h, fotografia diária e purga. O que já rodou fica **no
+    banco**, então um restart às 12h05 não repete o digest, e tarefa que falha
+    toda noite deixa de falhar invisível. Os avisos são **gravados antes de
+    enviados** — o inverso do `/chat`, porque o canal é o gateway não-oficial da
+    decisão 29. Vale para **uma instância**.
+
+    **37.1 —** o backup entrou junto (às 22h). Ele era o exemplo que a própria
+    decisão 37 usou para nomear o problema: script pronto desde a decisão 11 e
+    nunca agendado, porque agendar dependia de escolher a máquina. Agora sobe com
+    o container. Só avisa quando **falha**, e a rotação só apaga o que ela mesma
+    gerou.
+
+31. **Retenção** (decisão 38): conversa **encerrada** há mais de 180 dias sai —
+    mensagens, anexos e memória do robô —, mais anexos órfãos e auditoria com
+    mais de 730 dias. Janelas no `.env` com piso de 30 dias, e **`PURGA_MODO=seco`
+    por padrão**: relata no `/avisos` o que apagaria e não apaga até alguém
+    conferir. O corpo do `DELETE` manual saiu da rota para `lib/chat-purga.ts` e
+    é chamado pelos dois caminhos — a que roda de madrugada, sem ninguém olhando,
+    é a que ficaria para trás. Testes: 568 → **780**.
+
 ### O que sobrou para depois
 
 > Fora do chatbot, o que segura o projeto hoje não é código — é **onde ele
-> mora**. Os três primeiros itens são o mesmo problema visto de ângulos
-> diferentes: o sistema roda num notebook que vai para casa.
+> mora**. O sistema roda num notebook que vai para casa, e é disso que os dois
+> primeiros itens são feitos.
 
-- **Enviar o que existe para o GitHub.** São 17 commits que só existem nesta
-  máquina, e `origin/main` está em `86a2792` — antes até dos "commits atrasados".
-  Perder o disco é perder tudo, e a CI nunca rodou porque nunca houve push.
-  **Antes de empurrar**, resolver o item do histórico abaixo.
 - **Deploy**: `docs/deploy.md` está escrito (Oracle Always Free + Docker), mas o
-  sistema ainda roda só em LAN — falta escolher e provisionar o host.
-- **Agendar o backup de verdade**: o mecanismo e o passo a passo estão prontos
-  em [`backup.md`](./backup.md); o cron/systemd depende de onde o app for morar.
+  sistema ainda roda só em LAN — falta escolher e provisionar o host. Enquanto
+  isso, o backup automático (decisão 37.1) grava no mesmo disco do banco, que
+  protege contra apagão e engano, não contra a máquina morrer.
+- **Ligar o que está pronto e desligado no `.env`:** `AVISOS_WHATSAPP` vazio faz
+  todo aviso ser gravado e nenhum ser entregue; `PURGA_MODO` continua em `seco`
+  (de propósito) esperando alguém conferir a primeira lista; e `OLLAMA_URL` ainda
+  aponta para um túnel sorteado, não para o endereço fixo da emenda de 13/08.
 - **Confirmação visual em 390px**: a estrutura mobile foi auditada e não tem
   impedimento (layout empilha em `md:`, tabelas rolam no próprio container), mas
   falta olhar numa tela de celular de verdade — fonte, diálogos e alvo de toque

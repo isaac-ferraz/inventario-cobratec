@@ -511,12 +511,25 @@ porque são dois bancos.
 **O relógio (decisão 37):** o app deixou de ser 100% pull. `instrumentation.ts`
 liga `lib/agendador.ts` — um laço de um minuto, com dupla guarda
 (`NEXT_RUNTIME === "nodejs"` **e** `AGENDADOR_LIGADO=1`, senão todo `npm run
-dev` viraria um agendador). Quatro tarefas em `lib/tarefas.ts`: digest do
-meio-dia (12h), fechamento (18h), fotografia diária (23h40) e purga (03h).
-O que já rodou fica em `TarefaAgendada` **no banco**, com resultado e duração —
-um restart às 12h05 não repete o digest, e tarefa que falha toda noite deixa de
-falhar invisível. Janela de recuperação de 2h: horário perdido fica perdido.
-Vale **uma instância**, como o barramento de `chat-eventos.ts`.
+dev` viraria um agendador). Cinco tarefas em `lib/tarefas.ts`: digest do
+meio-dia (12h), fechamento (18h), **backup (22h)**, fotografia diária (23h40) e
+purga (03h). O que já rodou fica em `TarefaAgendada` **no banco**, com resultado
+e duração — um restart às 12h05 não repete o digest, e tarefa que falha toda
+noite deixa de falhar invisível. Janela de recuperação de 2h: horário perdido
+fica perdido. Vale **uma instância**, como o barramento de `chat-eventos.ts`.
+
+O **backup** (decisão 37.1) é a quinta tarefa e fecha o exemplo que a própria
+decisão 37 usou para nomear o problema: `scripts/backup-db.sh` existia desde a
+decisão 11 e **nunca foi agendado**, porque agendar dependia de escolher a
+máquina. `lib/backup.ts` faz o mesmo `VACUUM INTO` de dentro do app (o container
+não tem CLI do Prisma nem cron), grava em `BACKUP_DIR` — padrão `data/backups`,
+**dentro do volume**, senão a cópia sumiria no próximo `--build` — e roda a
+rotação por `BACKUP_DIAS` (piso de 1) apagando **só** o que ela mesma gerou. Só
+avisa quando **falha**, e aí como `grave`: "backup ok" diário é a mensagem que
+se aprende a ignorar. O script continua valendo para cópia na hora ou com o app
+parado. Junto saiu um defeito do relógio: `executar()` relia `agoraNoBrasil()`
+em vez de usar o instante que mandou rodar, e na virada da meia-noite gravava o
+dia seguinte — o que faria a tarefa do dia seguinte se dar por feita.
 
 Os avisos (`lib/avisos.ts`, model `Aviso`, tela `/avisos` + contador na
 navegação) são **gravados antes de enviados** — o inverso do `/chat`, e de
