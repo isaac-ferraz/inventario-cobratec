@@ -5,7 +5,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { apiGet, mensagem } from "@/lib/fetcher";
 import { formatarMoeda } from "@/lib/ativos";
 import { PERIODOS, hojeNoBrasil } from "@/lib/relatorios";
-import { useFiltroUrl } from "@/hooks/use-filtro-url";
+import { useFiltroLista, useFiltroUrl } from "@/hooks/use-filtro-url";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,10 +17,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  FiltrosComuns,
+  descreverRecorte,
+  type ListasDeFiltro,
+} from "@/components/relatorios/filtros-comuns";
+import { ExportarDialog } from "@/components/relatorios/exportar-dialog";
+import type { AbaChave, Papel } from "@/lib/relatorios-abas";
+import {
   BarrasRanking,
   ColunasPorFaixa,
   Numero,
   TabelaFatias,
+  TabelaMatriz,
+  type Celula,
   type Ponto,
 } from "@/components/relatorios/graficos";
 import { cn } from "@/lib/utils";
@@ -40,6 +49,8 @@ type Resposta = {
     porOperadora: Fatias;
     porCarteira: Fatias;
     porHora: Fatias;
+    porMes: Fatias;
+    matriz: { celulas: Celula[]; truncada: boolean };
   };
   acionamentos: {
     qtd: number;
@@ -47,15 +58,12 @@ type Resposta = {
     porOperadora: Fatias;
     porSituacao: Fatias;
     porHora: Fatias;
+    porMes: Fatias;
   };
 };
 
-type Filtros = {
-  equipes: { cod: number; nome: string; membros: number }[];
-  carteiras: { cod: number; nome: string }[];
-};
+type Filtros = ListasDeFiltro;
 
-const TODAS = "todas";
 const numero = (n: number) => n.toLocaleString("pt-BR");
 
 // Cada gráfico diz o que é a SEGUNDA métrica dele: no acordo é dinheiro, no
@@ -64,12 +72,25 @@ const dinheiro = (p: Ponto) => formatarMoeda(p.valor);
 const devedores = (p: Ponto) =>
   `${numero(p.valor)} ${p.valor === 1 ? "devedor" : "devedores"}`;
 
-export function PainelCobranca() {
+// As abas que ESTA tela sugere no diálogo. A carteira sugere as dela — quem
+// abre o Excel a partir do painel de produção quer produção, não agenda.
+const ABAS_SUGERIDAS: AbaChave[] = [
+  "resumo",
+  "acordos-operadora",
+  "acordos-carteira",
+  "acordos-matriz",
+  "acionamentos-operadora",
+];
+
+export function PainelCobranca({ papel }: { papel: Papel }) {
   const [periodo, setPeriodo] = useFiltroUrl("periodo", "hoje");
   const [inicio, setInicio] = useFiltroUrl("inicio", "");
   const [fim, setFim] = useFiltroUrl("fim", "");
-  const [equipe, setEquipe] = useFiltroUrl("equipe", TODAS);
-  const [carteira, setCarteira] = useFiltroUrl("carteira", TODAS);
+  // Listas, não valores únicos (decisão 39). A URL segue no singular:
+  // `?carteira=12,45` — os links antigos com um código só continuam valendo.
+  const [equipe, setEquipe] = useFiltroLista("equipe");
+  const [carteira, setCarteira] = useFiltroLista("carteira");
+  const [operadora, setOperadora] = useFiltroLista("operadora");
   const [visao, setVisao] = useFiltroUrl("visao", "resumo");
   const detalhado = visao === "detalhado";
 
@@ -85,10 +106,11 @@ export function PainelCobranca() {
       if (inicio) p.set("inicio", inicio);
       if (fim) p.set("fim", fim);
     }
-    if (equipe !== TODAS) p.set("equipe", equipe);
-    if (carteira !== TODAS) p.set("carteira", carteira);
+    if (equipe.length) p.set("equipe", equipe.join(","));
+    if (carteira.length) p.set("carteira", carteira.join(","));
+    if (operadora.length) p.set("operadora", operadora.join(","));
     return p.toString();
-  }, [periodo, inicio, fim, equipe, carteira]);
+  }, [periodo, inicio, fim, equipe, carteira, operadora]);
 
   // Datas pela metade não viram consulta: pedir com uma ponta só devolveria um
   // erro que a pessoa ainda não cometeu — ela está no meio de escolher.
@@ -128,15 +150,15 @@ export function PainelCobranca() {
     };
   }, []);
 
-  // Nome de equipe se repete no Siscobra ("COOPERATIVAS" é o grupo 15 E o 21).
-  // Quem escolhe é o código; a tela mostra o número só quando precisa desempatar.
-  const nomeRepetido = React.useMemo(() => {
-    const contagem = new Map<string, number>();
-    for (const e of filtros?.equipes ?? []) {
-      contagem.set(e.nome, (contagem.get(e.nome) ?? 0) + 1);
-    }
-    return contagem;
-  }, [filtros]);
+  const recorte = React.useMemo(
+    () =>
+      descreverRecorte(filtros, {
+        equipes: equipe,
+        carteiras: carteira,
+        operadoras: operadora,
+      }),
+    [filtros, equipe, carteira, operadora],
+  );
 
   const acordos = dados?.acordos;
   const acionamentos = dados?.acionamentos;
@@ -189,42 +211,26 @@ export function PainelCobranca() {
           </>
         )}
 
-        <label className="min-w-[11rem] flex-1 space-y-1">
-          <span className="eyebrow">equipe</span>
-          <Select value={equipe} onValueChange={setEquipe}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={TODAS}>Todas as equipes</SelectItem>
-              {(filtros?.equipes ?? []).map((e) => (
-                <SelectItem key={e.cod} value={String(e.cod)}>
-                  {(nomeRepetido.get(e.nome) ?? 0) > 1
-                    ? `${e.nome} (grupo ${e.cod})`
-                    : e.nome}{" "}
-                  · {e.membros}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
+        <FiltrosComuns
+          listas={filtros}
+          equipes={equipe}
+          aoMudarEquipes={setEquipe}
+          carteiras={carteira}
+          aoMudarCarteiras={setCarteira}
+          operadoras={operadora}
+          aoMudarOperadoras={setOperadora}
+        />
 
-        <label className="min-w-[12rem] flex-1 space-y-1">
-          <span className="eyebrow">carteira</span>
-          <Select value={carteira} onValueChange={setCarteira}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={TODAS}>Todas as carteiras</SelectItem>
-              {(filtros?.carteiras ?? []).map((c) => (
-                <SelectItem key={c.cod} value={String(c.cod)}>
-                  {c.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
+        <div className="space-y-1">
+          <span className="eyebrow block">planilha</span>
+          <ExportarDialog
+            papel={papel}
+            consulta={consulta}
+            recorte={recorte}
+            periodo={dados?.periodo.rotulo ?? "o período escolhido"}
+            sugeridas={ABAS_SUGERIDAS}
+          />
+        </div>
 
         <div className="space-y-1">
           {/* `block` não é enfeite: o eyebrow é um <span>, e ao lado de um
@@ -289,7 +295,7 @@ export function PainelCobranca() {
         >
           <p className="text-sm text-muted-foreground">
             {dados.periodo.rotulo}
-            {equipe !== TODAS || carteira !== TODAS ? " · recorte aplicado" : ""}
+            {recorte ? ` · ${recorte}` : ""}
           </p>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -469,6 +475,52 @@ export function PainelCobranca() {
                 />
               </CardContent>
             </Card>
+          )}
+
+          {/* ─── O cruzamento, e o mês ───
+              Os dois só no detalhado: respondem a segunda pergunta ("onde a
+              Ana fez isso", "como está contra o mês passado"), e ocupariam a
+              tela de abertura, que é a primeira. */}
+          {detalhado && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="font-display text-base">
+                    Acordos por operadora e carteira
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Onde cada pessoa fez o que fez.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <TabelaMatriz
+                    celulas={acordos!.matriz.celulas}
+                    truncada={acordos!.matriz.truncada}
+                    segunda="Valor"
+                    formato={dinheiro}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="font-display text-base">
+                    Acordos mês a mês
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Dentro do período escolhido — o teto é de 92 dias.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <ColunasPorFaixa
+                    dados={acordos!.porMes}
+                    serie="acordo"
+                    formato={dinheiro}
+                    vazio="Nenhum acordo neste período."
+                  />
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           <p className="text-xs leading-relaxed text-muted-foreground">
