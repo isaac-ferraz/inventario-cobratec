@@ -627,9 +627,30 @@ devolve zero. O filtro **viaja nos links** dos indicadores via `detalhe()`, sen�
 o card e a lista que ele abre discordariam. Regras puras e testadas em
 `lib/filtros-multi.ts` e `lib/dashboard-filtros.ts`.
 
+**A carteira conferida contra o relatório impresso (decisão 40):** o
+`RELATÓRIO ANALÍTICO DA CARTEIRA` do Siscobra (147 páginas, 143 carteiras) foi
+reproduzido no banco e bate em **142 de 143 carteiras**, nas fichas e no valor —
+a única divergência é uma ficha alterada 14 minutos depois de o PDF ser impresso.
+A regra não é a óbvia: o universo é **`contrato.convalsal > 0`** em carteira com
+`carati = 1` (que separa as 143 das 19 fora do relatório com 100% de limpeza);
+valor é `sum(convalsal)`, ficha é `count(DISTINCT devcod)`. `devedor.devsal` é
+cache e erra por centavos — **quarta vez** que a coluna de nome óbvio é a errada,
+depois de `acovalatu`, `retusucod` e `comissao_operadores.usucod`. Achado que
+sobrevive: **o relatório oficial rotula a situação errado** — `carteira_situacao`
+é por carteira (o código 25 tem 7 nomes em 85 carteiras) e o PDF usa o nome do
+menor `carcod`, 17/17 conferidos. O `cs.carcod = r.carcod` do join em
+`lib/relatorios-cobranca.ts` **não é redundante**. O PDF **não** confere comissão
+(`CONFERIDA` segue `false` — falta o relatório de comissão) nem acordos por
+operadora.
+
 **Infra:**
-- **Excel:** o dashboard usa *data bars* (formatação condicional), porque o
-  `exceljs` não cria gráficos nativos na escrita (decisão 6).
+- **Excel:** o dashboard tem **gráficos nativos** (coluna, barra, pizza, rosca,
+  linha, área) por `lib/excel-graficos.ts`, que reabre o zip do .xlsx e
+  acrescenta o XML do gráfico depois que o `exceljs` terminou — a decisão 6
+  continua certa quanto à API (não existe `addChart`), e errada quanto ao
+  formato. As *data bars* continuam ao lado, porque é delas que se copia o valor
+  exato. Cartões de KPI, escala de cor na matriz e paisagem na impressão
+  (decisão 40).
 - **Docker:** imagem enxuta com Next `output: "standalone"`, multi-stage Alpine,
   usuário não-root; `docker-compose` com volume persistente (`/app/data`) e
   **healthcheck** (`/api/health`); migrations + WAL aplicados no boot pelo

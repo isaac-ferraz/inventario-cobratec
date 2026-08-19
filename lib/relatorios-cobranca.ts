@@ -255,6 +255,17 @@ WITH base AS (
     LEFT JOIN usuario u ON u.usucod = r.usucod
     -- (carcod, sitcod) é único em carteira_situacao (conferido): o LEFT JOIN
     -- não multiplica linha e a contagem continua sendo de ações, não de pares.
+    --
+    -- O cs.carcod = r.carcod NÃO é redundante, e não pode ser removido para
+    -- "bater com o relatório impresso": o nome da situação é POR CARTEIRA. O
+    -- código 3 é "LIGAÇÃO - DESEMPREGADO" na FESTCARD e "RECADO" na COOP
+    -- SESC/SENAC; o código 25 tem SETE nomes diferentes em 85 carteiras.
+    --
+    -- O "Relatório Analítico da Carteira" do próprio Siscobra resolve o nome
+    -- sem essa amarração e acaba usando o do MENOR carcod que define o código —
+    -- conferido em 19/08/2026 sobre as 143 carteiras ativas, 17/17 dos códigos
+    -- testados. Ou seja: o relatório oficial rotula errado, com as contagens
+    -- certas. Aqui está certo, e é para continuar assim (decisão 40).
     LEFT JOIN carteira_situacao cs
            ON cs.carcod = r.carcod AND cs.sitcod = r.sitcod
    WHERE r.rettip = 0

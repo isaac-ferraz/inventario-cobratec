@@ -367,6 +367,25 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     `?sala=` na barra de endereços seria escalada de privilégio). Testes:
     780 → **866**.
 
+33. **A carteira conferida, e gráfico de verdade no Excel** (decisão 40): o
+    `RELATÓRIO ANALÍTICO DA CARTEIRA` que o Siscobra imprime (147 páginas) foi
+    reproduzido no banco e bate em **142 de 143 carteiras**, nas fichas e no
+    valor — a única divergência é uma ficha alterada 14 minutos depois da
+    impressão. A regra não era a óbvia: o universo é `contrato.convalsal > 0`
+    em carteira com `carati = 1`, e não o `devsal` da ficha, que é cache e erra
+    por centavos. Quarta vez que a coluna de nome óbvio é a errada neste CRM.
+    Achado que fica: **o relatório oficial rotula a situação errado** (usa o nome
+    do menor `carcod`; o código 25 tem 7 nomes em 85 carteiras), então quem
+    comparar rótulos vai achar diferença — e ela é a favor daqui. O PDF **não**
+    confere comissão: `CONFERIDA` segue `false`.
+
+    Do outro lado, os dashboards do Excel ganharam **gráficos nativos** —
+    `lib/excel-graficos.ts` reabre o zip do .xlsx e acrescenta o XML do gráfico
+    depois que o `exceljs` termina, com `jszip`, que já vinha junto e passou a
+    ser declarado. A decisão 6 estava certa sobre a API e errada sobre o
+    formato. Coluna, barra, pizza, rosca, linha e área, mais cartões de KPI,
+    escala de cor na matriz e impressão em paisagem. Testes: 866 → **875**.
+
 ### O que sobrou para depois
 
 > Fora do chatbot, o que segura o projeto hoje não é código — é **onde ele
@@ -381,12 +400,15 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
   todo aviso ser gravado e nenhum ser entregue; `PURGA_MODO` continua em `seco`
   (de propósito) esperando alguém conferir a primeira lista; e `OLLAMA_URL` ainda
   aponta para um túnel sorteado, não para o endereço fixo da emenda de 13/08.
-- **Conferir a comissão contra o relatório impresso** (decisão 39). É a única
-  coisa que script nenhum faz: `db:validar-comissao` mediu a fonte e corrigiu a
-  atribuição por operadora, mas ninguém comparou um mês com o documento que o
-  Siscobra imprime — como foi feito com acordos e acionamentos (104/104, 100%).
-  Enquanto isso, `CONFERIDA = false` e a comissão sai só na planilha, com a
-  ressalva junto. Feita a conferência, ela ganha a quarta posição do alternador.
+- **Conferir a comissão contra o relatório impresso** (decisões 39 e 40). É a
+  única coisa que script nenhum faz: `db:validar-comissao` mediu a fonte e
+  corrigiu a atribuição por operadora, mas ninguém comparou um mês com o
+  documento que o Siscobra imprime — como foi feito com acordos e acionamentos
+  (104/104, 100%) e agora com a carteira (142/143). O relatório analítico da
+  carteira **não serve** para isso: não tem uma linha sobre comissão. Falta
+  puxar o **relatório de comissão** do Siscobra. Enquanto isso,
+  `CONFERIDA = false` e a comissão sai só na planilha, com a ressalva junto.
+  Feita a conferência, ela ganha a quarta posição do alternador.
 - **Confirmação visual em 390px**: a estrutura mobile foi auditada e não tem
   impedimento (layout empilha em `md:`, tabelas rolam no próprio container), mas
   falta olhar numa tela de celular de verdade — fonte, diálogos e alvo de toque

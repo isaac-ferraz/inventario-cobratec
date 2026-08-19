@@ -2802,3 +2802,172 @@ Testes: 807 → **866** (`lib/relatorios-filtros.test.ts` 20,
 `lib/filtros-multi.test.ts` 19, `lib/dashboard-filtros.test.ts` 16,
 `tests/api/relatorios-exportar.test.ts` 20, mais os de recorte em
 `lib/relatorios-carteira.test.ts` e nas duas rotas de relatório).
+
+---
+
+## 40. O relatório impresso conferiu a carteira — e o Excel ganhou gráfico de verdade
+
+Duas frentes no mesmo dia, e a primeira é a que a decisão 39 vinha pedindo: um
+relatório que o próprio Siscobra imprime, para conferir contra o banco.
+
+### O PDF que chegou
+
+`RELATÓRIO ANALÍTICO DA CARTEIRA`, 147 páginas, gerado pelo GeneXus em
+19/08/2026 às 14:46:08. Uma página por carteira, com a quebra por **situação da
+ficha** (código, nome, nº de fichas, nº de contratos, valor principal) e um
+rodapé de capital (implantado, liquidado, pagamento direto, devoluções, aberto).
+
+Antes de comparar, três coisas do próprio PDF tiveram que ser entendidas:
+
+- **Carteira transborda de página.** COOPEREMB ocupa 30 e 31: as linhas numa, o
+  "Totais" e o rodapé na outra. Tratar página como carteira criaria uma carteira
+  fantasma sem totais e outra sem linhas — e as duas entrariam na conferência
+  como divergência. São **147 páginas para 143 carteiras**.
+- **A soma das linhas bate com o "Totais" em 143/143.** O documento é
+  internamente consistente, o que autoriza usá-lo como referência.
+- **O `Capital aberto` do rodapé é o mesmo número do "Valor principal"** em
+  142/143 (a exceção erra 26 centavos). Os dois blocos falam do mesmo universo.
+
+### A regra, e a quarta armadilha do CRM
+
+A primeira tentativa mirou o óbvio: `devedor`, filtrado por `devsal > 0`, somando
+`devsal`. Deu quase certo — e "quase" é o resultado mais perigoso possível, porque
+o total da FESTCARD fechou com **7 centavos** de diferença. Fechava o dinheiro e
+não fechava a contagem: 22.131 fichas contra 22.137.
+
+O universo não é a ficha, é o **contrato**:
+
+```
+carteira.carati = 1  e  contrato.convalsal > 0
+   Nº contratos     = count(*)
+   Valor principal  = sum(convalsal)
+   Nº fichas        = count(DISTINCT devcod)
+   situação         = devedor.devsitcod
+```
+
+Com isso a FESTCARD bate **exata nas três colunas**: 22.137 fichas, 22.141
+contratos, R$ 16.978.222,03. `devsal` é o saldo em cache da ficha e diverge do
+somatório dos contratos dela por centavos — é a **quarta vez** que a coluna de
+nome óbvio é a errada neste banco, depois de `acovalatu`, `retusucod` e
+`comissao_operadores.usucod`. As seis fichas que faltavam eram as que têm
+contrato aberto e `devsal` zerado.
+
+O filtro de carteira ativa não foi adivinhado: as 19 carteiras que existem no
+banco e não saem no PDF têm **todas** `carati = 0`, e as 143 do PDF têm **todas**
+`carati = 1`. Separação de 100%, sem exceção para explicar.
+
+### O resultado
+
+Sobre as 143 carteiras, comparando os totais:
+
+| | PDF (14:46) | Banco (15:05) |
+|---|---|---|
+| carteiras | 143 | 143 |
+| fichas | 80.847 | 80.845 |
+| capital aberto | R$ 227.213.346,39 | R$ 227.133.968,00 |
+
+**142 de 143 carteiras batem exatamente**, nas fichas e no valor (99,3%). A
+única divergência é a COOPEREMB, e ela tem nome e hora: uma ficha alterada às
+**15:00:48**, depois de o relatório ter sido impresso.
+
+Que o resto é movimento ao vivo ficou provado por uma segunda leitura: entre
+15:05 e 15:08, a situação 5 da FESTCARD foi de 18.924 para 18.925 sozinha. Só na
+FESTCARD, **311 fichas** tinham ação registrada depois das 14:46. Some-se que as
+diferenças por situação, dentro de uma carteira, se cancelam — o total fecha
+porque uma ficha que anda de "RECADO" para "REAGENDADO" não muda o capital.
+
+Aprendido de passagem, e útil: **`devdatatu` não acompanha mudança de
+situação** (uma linha no dia inteiro); quem acompanha é `devretdataca`.
+
+### O relatório oficial rotula errado
+
+Este é o achado que sobrevive ao dia. As contagens do PDF batem, mas os **nomes
+das situações não**: ele imprime "LIGAÇÃO - DESEMPREGADO" para o código 3 da COOP
+SESC/SENAC, onde o cadastro dessa carteira diz "RECADO".
+
+`carteira_situacao` é **por carteira** — o mesmo código tem nome diferente em
+cada uma, e o código 25 tem **sete** nomes distintos entre 85 carteiras. O PDF
+usa um mapa único para as 143 páginas (zero inconsistências em 972 linhas), e
+esse mapa é o do **menor `carcod`** que define cada código: 17 de 17 conferidos.
+O relatório resolve o nome sem amarrar na carteira da linha.
+
+Consequência prática, anotada no SQL de `lib/relatorios-cobranca.ts`: o
+`cs.carcod = r.carcod` do join **não é redundante**, e ninguém deve removê-lo
+para "bater com o impresso". Quem comparar os rótulos vai achar diferença — e a
+diferença é a favor deste sistema.
+
+### O que este PDF NÃO confere
+
+Dito porque a tentação é dar o assunto por encerrado:
+
+- **Comissão continua não conferida.** Este relatório não tem uma linha sobre
+  ela. `CONFERIDA = false` fica de pé, e o que falta é o relatório de comissão
+  que o Siscobra imprime — outro documento.
+- **Acordos e acionamentos por operadora** também não estão aqui. Já haviam sido
+  conferidos contra os PDFs próprios (104/104 e 100%), na decisão 35.
+- O que este documento confere é uma dimensão que o sistema **ainda não usa**:
+  situação da ficha e capital por carteira. Fica medido e disponível; virar tela
+  é outra conversa.
+
+### Gráfico nativo no Excel, revendo a decisão 6
+
+A decisão 6 registrou que o `exceljs` não cria gráfico, e isso continua
+verdadeiro: não existe `addChart` em 4.4.0. O que ela não disse — porque na
+época não foi procurado — é que **a limitação é da API, não do formato**. Um
+.xlsx é um zip de XML; o `jszip` já vinha junto com o próprio exceljs; e um
+gráfico é um `xl/charts/chartN.xml` mais quatro costuras (o drawing, dois
+`.rels` e a declaração no `[Content_Types]`).
+
+`lib/excel-graficos.ts` deixa o exceljs escrever o arquivo inteiro e **acrescenta**
+os gráficos depois, sem reescrever nada do que já estava lá. Seis tipos: coluna,
+barra, pizza, rosca, linha e área.
+
+O preço, por inteiro:
+
+- **É OOXML na mão.** XML errado não faz o Excel ignorar o gráfico: faz ele abrir
+  a caixa "conteúdo ilegível, deseja recuperar?" — e aí a planilha inteira fica
+  sob suspeita por causa de um retângulo. Pior que não ter gráfico.
+- **`jszip` era dependência transitiva.** Usá-la sem declarar é apostar que o
+  exceljs nunca troque de zipper. Entrou no `package.json`.
+- **Os gráficos apontam para células por endereço.** Mexer nas linhas de um bloco
+  sem mexer no gráfico o faz apontar para o lugar errado, e gráfico errado tem a
+  mesma cara de gráfico certo. Por isso `adicionarBlocoIndicador` passou a
+  devolver **o intervalo que ocupou**, em vez de quem chama refazer a conta — é o
+  mesmo remédio que o `proxima` já tinha sido.
+
+Três detalhes que só apareceram olhando o arquivo renderizado, e nenhum deles
+daria erro:
+
+1. **A ordem dos elementos da aba.** O schema manda `<drawing>` **antes** de
+   `<tableParts>`. Enfiar sempre antes de `</worksheet>` funciona até a aba ganhar
+   uma tabela — e aí o arquivo abre pedindo reparo, sem nenhuma outra pista.
+2. **Linha não se pinta por dentro.** Barra e fatia usam `a:solidFill` com a borda
+   desligada; aplicar isso a um gráfico de linha deixa a linha **invisível**,
+   sobrando os marcadores soltos. A cor da linha é o traço (`a:ln`).
+3. **Barra horizontal desenha de baixo para cima**, então um ranking já ordenado
+   sai de cabeça para baixo, com o maior no rodapé. O eixo de categoria vai em
+   `maxMin`.
+
+### O painel
+
+Os dois dashboards (inventário e relatórios) viraram painel de verdade: faixa de
+título, **cartões de KPI** com filete colorido no topo — e não fundo colorido,
+que faz dez cartões brigarem entre si e o número sumir —, gráficos à direita e a
+coluna de números à esquerda, que **continua sendo a fonte**: é dela que se copia
+o valor exato para um e-mail, e é para as células dela que os gráficos apontam.
+O mesmo dado, desenhado duas vezes, sem chance de discordarem.
+
+Na matriz operadora × carteira entrou **escala de cor** no lugar da barra de
+dados: a barra compara dentro da coluna, e numa matriz o que se procura é onde
+está o quente em relação ao quadro inteiro, com até 5.000 células.
+
+Junto saiu um defeito antigo: o bloco de indicador tinha **um formato para o
+quadro todo**, e um quadro de KPI mistura naturezas — "Acordos fechados 486" e
+"Valor acordado R$ 1.284.300,55". O formato passou a ser por linha; antes o
+dinheiro saía cru ("1284300,55") ao lado do cartão que o mostrava certo.
+
+E os painéis ganharam `pageSetup` paisagem com ajuste à largura: painel largo
+impresso em retrato sai fatiado ao meio, e o pedaço da segunda folha são
+justamente os gráficos.
+
+Testes: 866 → **875** (`lib/excel-graficos.test.ts`).
