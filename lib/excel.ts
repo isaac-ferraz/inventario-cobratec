@@ -9,6 +9,19 @@
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import {
+  BORDA_LEVE,
+  COR_BARRA,
+  COR_CABECALHO,
+  COR_TEXTO_CABECALHO,
+  FMT_DATA,
+  FMT_MOEDA,
+  adicionarBlocoIndicador,
+  dataCelula,
+  estilizarCabecalho,
+  formatarColuna,
+  ligarAutoFiltro,
+} from "@/lib/excel-estilo";
+import {
   DIAS_AVISO_GARANTIA,
   ROTULO_SITUACAO,
   ROTULO_TIPO_MANUTENCAO,
@@ -17,34 +30,6 @@ import {
   type Situacao,
   type TipoManutencao,
 } from "@/lib/ativos";
-
-// Data no formato que o Excel do usuário entende (e vazio quando não há).
-function dataBR(d: Date | null | undefined): string {
-  return d ? d.toLocaleDateString("pt-BR") : "";
-}
-
-const COR_CABECALHO = "FF1F2937"; // cinza-azulado escuro
-const COR_TEXTO_CABECALHO = "FFFFFFFF";
-const BORDA_LEVE: Partial<ExcelJS.Borders> = {
-  top: { style: "thin", color: { argb: "FFD1D5DB" } },
-  left: { style: "thin", color: { argb: "FFD1D5DB" } },
-  bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
-  right: { style: "thin", color: { argb: "FFD1D5DB" } },
-};
-
-function estilizarCabecalho(row: ExcelJS.Row) {
-  row.eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: COR_TEXTO_CABECALHO } };
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: COR_CABECALHO },
-    };
-    cell.alignment = { vertical: "middle", horizontal: "left" };
-    cell.border = BORDA_LEVE;
-  });
-  row.height = 20;
-}
 
 export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
   const [computadores, celulares] = await Promise.all([
@@ -124,10 +109,10 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       temTeclado: c.temTeclado ? "Sim" : "Não",
       temHeadset: c.temHeadset ? "Sim" : "Não",
       situacao: ROTULO_SITUACAO[c.situacao as Situacao] ?? c.situacao,
-      dataAquisicao: dataBR(c.dataAquisicao),
-      garantiaAte: dataBR(c.garantiaAte),
+      dataAquisicao: dataCelula(c.dataAquisicao),
+      garantiaAte: dataCelula(c.garantiaAte),
       notaFiscal: c.notaFiscal ?? "",
-      valorCompra: c.valorCompra ?? "",
+      valorCompra: c.valorCompra ?? null,
       qtde: c.componentes.length,
       componentes: componentesTxt,
       observacoes: c.observacoes ?? "",
@@ -135,6 +120,13 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     row.alignment = { vertical: "top", wrapText: true };
     row.eachCell((cell) => (cell.border = BORDA_LEVE));
   }
+
+  // Data ordena como data e dinheiro sai em reais — as duas colunas eram texto
+  // e número cru até a decisão 39, e nenhum dos dois filtrava no Excel.
+  formatarColuna(inv, "dataAquisicao", FMT_DATA);
+  formatarColuna(inv, "garantiaAte", FMT_DATA);
+  formatarColuna(inv, "valorCompra", FMT_MOEDA);
+  ligarAutoFiltro(inv, inv.columns.length);
 
   // ----- Aba "Celulares" -----
   const cel = wb.addWorksheet("Celulares", {
@@ -169,13 +161,17 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       operadora: c.operadora ?? "",
       imei: c.imei ?? "",
       situacao: ROTULO_SITUACAO[c.situacao as Situacao] ?? c.situacao,
-      dataAquisicao: dataBR(c.dataAquisicao),
-      garantiaAte: dataBR(c.garantiaAte),
+      dataAquisicao: dataCelula(c.dataAquisicao),
+      garantiaAte: dataCelula(c.garantiaAte),
       observacoes: c.observacoes ?? "",
     });
     row.alignment = { vertical: "top", wrapText: true };
     row.eachCell((cell) => (cell.border = BORDA_LEVE));
   }
+
+  formatarColuna(cel, "dataAquisicao", FMT_DATA);
+  formatarColuna(cel, "garantiaAte", FMT_DATA);
+  ligarAutoFiltro(cel, cel.columns.length);
 
   // ----- Aba "Manutenções" -----
   const man = wb.addWorksheet("Manutenções", {
@@ -202,16 +198,21 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
       tipo: ROTULO_TIPO_MANUTENCAO[m.tipo as TipoManutencao] ?? m.tipo,
       descricao: m.descricao,
       situacao: m.concluidaEm ? "Concluída" : "No conserto",
-      abertaEm: dataBR(m.abertaEm),
-      concluidaEm: dataBR(m.concluidaEm),
+      abertaEm: dataCelula(m.abertaEm),
+      concluidaEm: dataCelula(m.concluidaEm),
       fornecedor: m.fornecedor ?? "",
-      custo: m.custo ?? "",
+      custo: m.custo ?? null,
       chamado: m.chamado ? `#${m.chamado.numero}` : "",
       observacoes: m.observacoes ?? "",
     });
     row.alignment = { vertical: "top", wrapText: true };
     row.eachCell((cell) => (cell.border = BORDA_LEVE));
   }
+
+  formatarColuna(man, "abertaEm", FMT_DATA);
+  formatarColuna(man, "concluidaEm", FMT_DATA);
+  formatarColuna(man, "custo", FMT_MOEDA);
+  ligarAutoFiltro(man, man.columns.length);
 
   // ----- Cálculo dos indicadores -----
   const total = computadores.length;
@@ -305,7 +306,7 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     ["Celulares sem funcionário / em estoque", celularesSemFunc],
     ["Manutenções registradas", manutencoes.length],
     ["Manutenções em aberto", manutencoes.filter((m) => !m.concluidaEm).length],
-    ["Custo total de manutenção (R$)", somarCustos(manutencoes)],
+    ["Custo total de manutenção", somarCustos(manutencoes)],
   ];
   for (const [label, valor] of kpis) {
     dash.getCell(`A${r}`).value = label;
@@ -314,116 +315,50 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
     cv.value = valor;
     cv.alignment = { horizontal: "center" };
     cv.font = { bold: true, size: 12 };
+    if (label.startsWith("Custo")) cv.numFmt = FMT_MOEDA;
     dash.getCell(`A${r}`).border = BORDA_LEVE;
     cv.border = BORDA_LEVE;
     r++;
   }
 
-  // Bloco: Computadores por cargo (tabela + data bar)
+  // ─── Os blocos, cada um com sua barra de dados ───
+  //
+  // `adicionarBlocoIndicador` devolve a próxima linha livre, e é por isso que a
+  // aritmética `r += 1 + tamanho + 1` sumiu daqui: ela não contava a linha do
+  // "(sem dados)", então um bloco vazio fazia o SEGUINTE escrever por cima dele.
+  // Com o parque cheio isso nunca aparecia; num banco recém-instalado, sim.
   r += 1;
-  const blocoCargoInicio = r;
-  adicionarBlocoIndicador(
+  r = adicionarBlocoIndicador(
     dash,
     r,
     "Computadores por cargo",
     [...porCargo.entries()].sort((a, b) => b[1] - a[1]),
+    { cor: COR_BARRA.azul },
   );
-  r += 1 + porCargo.size + 1;
-
-  // Bloco: Computadores por sala (tabela + data bar)
-  const blocoSalaInicio = r;
-  adicionarBlocoIndicador(
+  r = adicionarBlocoIndicador(
     dash,
     r,
     "Computadores por sala",
     [...porSala.entries()].sort((a, b) => b[1] - a[1]),
+    { cor: COR_BARRA.violeta },
   );
-  r += 1 + porSala.size + 1;
-
-  // Bloco: Distribuição de componentes por tipo (tabela + data bar)
-  const blocoTipoInicio = r;
-  adicionarBlocoIndicador(
+  r = adicionarBlocoIndicador(
     dash,
     r,
     "Componentes por tipo (mais comuns no topo)",
     [...porTipo.entries()].sort((a, b) => b[1] - a[1]),
+    { cor: COR_BARRA.verde },
   );
-  r += 1 + porTipo.size + 1;
-
-  // Bloco: Ciclo de vida
-  const blocoCicloInicio = r;
-  adicionarBlocoIndicador(dash, r, "Ciclo de vida dos equipamentos", cicloVida);
-  r += 1 + cicloVida.length + 1;
-
-  // Bloco: Pendências de licença / conta
-  const blocoPendInicio = r;
+  r = adicionarBlocoIndicador(dash, r, "Ciclo de vida dos equipamentos", cicloVida, {
+    cor: COR_BARRA.vermelho,
+  });
   adicionarBlocoIndicador(
     dash,
     r,
     "Pendências de licença / conta (computadores sem o item)",
     pendencias,
+    { cor: COR_BARRA.ambar },
   );
 
-  // Data bars (gráficos de barra nativos via formatação condicional)
-  aplicarDataBar(dash, blocoCargoInicio + 1, porCargo.size, "FF2563EB");
-  aplicarDataBar(dash, blocoSalaInicio + 1, porSala.size, "FF7C3AED");
-  aplicarDataBar(dash, blocoTipoInicio + 1, porTipo.size, "FF059669");
-  aplicarDataBar(dash, blocoCicloInicio + 1, cicloVida.length, "FFDC2626");
-  aplicarDataBar(dash, blocoPendInicio + 1, pendencias.length, "FFD97706");
-
   return wb.xlsx.writeBuffer();
-}
-
-function adicionarBlocoIndicador(
-  ws: ExcelJS.Worksheet,
-  linhaInicio: number,
-  titulo: string,
-  dados: [string, number][],
-) {
-  ws.mergeCells(`A${linhaInicio}:B${linhaInicio}`);
-  const t = ws.getCell(`A${linhaInicio}`);
-  t.value = titulo;
-  t.font = { bold: true, color: { argb: COR_TEXTO_CABECALHO } };
-  t.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: COR_CABECALHO },
-  };
-  t.alignment = { vertical: "middle" };
-
-  let linha = linhaInicio + 1;
-  for (const [nome, valor] of dados) {
-    ws.getCell(`A${linha}`).value = nome;
-    ws.getCell(`A${linha}`).border = BORDA_LEVE;
-    const cv = ws.getCell(`B${linha}`);
-    cv.value = valor;
-    cv.alignment = { horizontal: "center" };
-    cv.border = BORDA_LEVE;
-    linha++;
-  }
-  if (dados.length === 0) {
-    ws.getCell(`A${linha}`).value = "(sem dados)";
-    linha++;
-  }
-}
-
-// Aplica barra de dados (data bar) nativa do Excel sobre a coluna B.
-function aplicarDataBar(
-  ws: ExcelJS.Worksheet,
-  primeiraLinha: number,
-  qtde: number,
-  corArgb: string,
-) {
-  if (qtde <= 0) return;
-  const ref = `B${primeiraLinha}:B${primeiraLinha + qtde - 1}`;
-  // `color` é suportado pelo exceljs em runtime, mas não está no tipo
-  // DataBarRuleType — por isso o cast via unknown.
-  const regra = {
-    type: "dataBar",
-    cfvo: [{ type: "num", value: 0 }, { type: "max" }],
-    color: { argb: corArgb },
-    priority: 1,
-  } as unknown as ExcelJS.DataBarRuleType;
-
-  ws.addConditionalFormatting({ ref, rules: [regra] });
 }
