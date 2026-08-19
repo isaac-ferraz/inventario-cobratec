@@ -329,7 +329,7 @@ export async function GET(req: Request) {
     };
 
     const buffer = await gerarWorkbookRelatorios(ctx, dados);
-    return new NextResponse(buffer as ArrayBuffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type":

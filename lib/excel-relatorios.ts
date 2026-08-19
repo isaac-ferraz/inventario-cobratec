@@ -32,11 +32,16 @@ import {
   FMT_INTEIRO,
   FMT_MOEDA,
   adicionarBlocoIndicador,
+  aplicarEscalaCor,
+  cartaoKpi,
   estilizarCabecalho,
+  faixaTitulo,
   formatarColuna,
   isoParaBR,
   ligarAutoFiltro,
+  type LinhaIndicador,
 } from "@/lib/excel-estilo";
+import { comGraficos, type PedidoGrafico } from "@/lib/excel-graficos";
 import type { Acionamentos, Acordos, Fatia, Filtro } from "@/lib/relatorios-cobranca";
 import type {
   AVencer,
@@ -254,76 +259,275 @@ function abaParametros(wb: ExcelJS.Workbook, ctx: Contexto, dados: DadosDaPlanil
   }
 }
 
-/** Os indicadores de abertura, com barra de dados — o mesmo desenho do inventário. */
-function abaResumo(wb: ExcelJS.Workbook, ctx: Contexto, d: DadosDaPlanilha) {
-  const ws = wb.addWorksheet("Resumo");
+/** Só o topo da lista — um gráfico com 353 operadoras não é um gráfico. */
+function topN(fatias: Fatia[], n: number): [string, number][] {
+  return [...fatias]
+    .sort((a, b) => b.valor - a.valor)
+    .slice(0, n)
+    .map((f) => [f.rotulo, f.valor] as [string, number]);
+}
+
+function porChave(fatias: Fatia[]): [string, number][] {
+  return fatias.map((f) => [f.rotulo, f.qtd] as [string, number]);
+}
+
+/**
+ * O "Resumo" é o painel da planilha: cartões em cima, gráficos ao lado, e a
+ * coluna de números à esquerda continuando a ser a fonte.
+ *
+ * Todos os blocos que viram gráfico ficam NESTA aba, e não numa referência às
+ * abas de detalhe — as 17 abas são opcionais, e um gráfico apontando para uma
+ * aba que o usuário não pediu abre o arquivo pedindo reparo. O painel tem que
+ * funcionar sozinho, qualquer que seja o conjunto escolhido.
+ */
+function abaResumo(
+  wb: ExcelJS.Workbook,
+  ctx: Contexto,
+  d: DadosDaPlanilha,
+): PedidoGrafico[] {
+  const ws = wb.addWorksheet("Resumo", {
+    views: [{ state: "frozen", ySplit: 1, xSplit: 2 }],
+    // Ver a nota igual em `lib/excel.ts`: painel largo em retrato sai fatiado, e
+    // o pedaço perdido são os gráficos.
+    pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
   ws.getColumn(1).width = 42;
   ws.getColumn(2).width = 18;
+  ws.getColumn(3).width = 2;
+  for (let c = 4; c <= 19; c++) ws.getColumn(c).width = 9.5;
 
-  ws.mergeCells("A1:B1");
-  const t = ws.getCell("A1");
-  t.value = `Resumo — ${ctx.periodo.rotulo}`;
-  t.font = { bold: true, size: 14, color: { argb: COR_TEXTO_CABECALHO } };
-  t.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COR_CABECALHO } };
-  t.alignment = { vertical: "middle", horizontal: "center" };
-  ws.getRow(1).height = 26;
+  faixaTitulo(
+    ws,
+    1,
+    1,
+    19,
+    `Relatórios de cobrança — ${ctx.periodo.rotulo}`,
+    `Janela de vencimento: ${ctx.janela.rotulo}`,
+  );
 
+  // ─── cartões ───
+  const cartoes: [string, number, string, string?][] = [];
+  if (d.acordos) {
+    cartoes.push(["Acordos fechados", d.acordos.qtd, COR_BARRA.azul]);
+    cartoes.push(["Valor acordado", d.acordos.valor, COR_BARRA.azul, FMT_MOEDA]);
+    if (d.acordos.qtd > 0) {
+      cartoes.push([
+        "Ticket médio",
+        d.acordos.valor / d.acordos.qtd,
+        COR_BARRA.ciano,
+        FMT_MOEDA,
+      ]);
+    }
+  }
+  if (d.acionamentos) {
+    cartoes.push(["Acionamentos", d.acionamentos.qtd, COR_BARRA.violeta]);
+  }
+  if (d.aVencer) {
+    cartoes.push(["A vencer (valor)", d.aVencer.valor, COR_BARRA.verde, FMT_MOEDA]);
+    cartoes.push(["Vence hoje", d.aVencer.hoje.valor, COR_BARRA.ambar, FMT_MOEDA]);
+  }
+  if (d.atraso) {
+    cartoes.push(["Em atraso (valor)", d.atraso.valor, COR_BARRA.vermelho, FMT_MOEDA]);
+  }
+  if (d.quebras) {
+    cartoes.push(["Quebras (30 dias)", d.quebras.qtd, COR_BARRA.vermelho]);
+  }
+  if (d.primeira && d.primeira.avaliados > 0) {
+    cartoes.push([
+      "1ª parcela honrada",
+      d.primeira.pagos / d.primeira.avaliados,
+      COR_BARRA.verde,
+      "0.0%",
+    ]);
+  }
+  if (d.comissao) {
+    cartoes.push(["Comissão apurada", d.comissao.valor, COR_BARRA.verde, FMT_MOEDA]);
+  }
+  cartoes.slice(0, 8).forEach(([rotulo, valor, cor, fmt], i) => {
+    const linha = 3 + Math.floor(i / 4) * 4;
+    const col = 4 + (i % 4) * 4;
+    cartaoKpi(ws, linha, col, rotulo, valor, { cor, numFmt: fmt, largura: 4 });
+  });
+
+  // ─── blocos à esquerda (também são a fonte dos gráficos) ───
+  const graficos: PedidoGrafico[] = [];
   let r = 3;
+  const bloco = (
+    titulo: string,
+    dados: readonly LinhaIndicador[],
+    cor: string,
+    numFmt?: string,
+  ) => {
+    const b = adicionarBlocoIndicador(ws, r, titulo, dados, { cor, numFmt });
+    r = b.proxima;
+    return b;
+  };
+  const pedir = (
+    b: { linhaIni: number; linhaFim: number; vazio: boolean },
+    p: Omit<PedidoGrafico, "aba" | "categorias">,
+  ) => {
+    if (b.vazio) return;
+    graficos.push({
+      aba: "Resumo",
+      categorias: { col: 1, linhaIni: b.linhaIni, linhaFim: b.linhaFim },
+      ...p,
+    });
+  };
 
+  // O terceiro elemento é o formato DAQUELA linha: o bloco mistura contagem e
+  // dinheiro, e um formato único para o quadro faria o valor sair cru.
   if (d.acordos || d.acionamentos) {
-    const kpis: [string, number][] = [];
+    const kpis: LinhaIndicador[] = [];
     if (d.acordos) {
-      kpis.push(["Acordos fechados", d.acordos.qtd]);
-      kpis.push(["Valor acordado", d.acordos.valor]);
+      kpis.push(["Acordos fechados", d.acordos.qtd, FMT_INTEIRO]);
+      kpis.push(["Valor acordado", d.acordos.valor, FMT_MOEDA]);
       if (d.acordos.qtd > 0) {
-        kpis.push(["Ticket médio", d.acordos.valor / d.acordos.qtd]);
+        kpis.push(["Ticket médio", d.acordos.valor / d.acordos.qtd, FMT_MOEDA]);
       }
     }
     if (d.acionamentos) {
-      kpis.push(["Acionamentos (ações manuais)", d.acionamentos.qtd]);
-      kpis.push(["Devedores distintos acionados", d.acionamentos.devedores]);
+      kpis.push(["Acionamentos (ações manuais)", d.acionamentos.qtd, FMT_INTEIRO]);
+      kpis.push(["Devedores distintos acionados", d.acionamentos.devedores, FMT_INTEIRO]);
     }
-    r = adicionarBlocoIndicador(ws, r, "Produção no período", kpis, {
-      cor: COR_BARRA.azul,
-    });
+    bloco("Produção no período", kpis, COR_BARRA.azul);
   }
 
   if (d.aVencer || d.atraso || d.quebras || d.primeira) {
-    const kpis: [string, number][] = [];
+    const kpis: LinhaIndicador[] = [];
     if (d.aVencer) {
-      kpis.push(["Parcelas a vencer na janela", d.aVencer.qtd]);
-      kpis.push(["Valor a vencer", d.aVencer.valor]);
-      kpis.push(["Vence hoje (valor)", d.aVencer.hoje.valor]);
+      kpis.push(["Parcelas a vencer na janela", d.aVencer.qtd, FMT_INTEIRO]);
+      kpis.push(["Valor a vencer", d.aVencer.valor, FMT_MOEDA]);
+      kpis.push(["Vence hoje (valor)", d.aVencer.hoje.valor, FMT_MOEDA]);
     }
     if (d.atraso) {
-      kpis.push(["Parcelas em atraso", d.atraso.qtd]);
-      kpis.push(["Valor em atraso", d.atraso.valor]);
+      kpis.push(["Parcelas em atraso", d.atraso.qtd, FMT_INTEIRO]);
+      kpis.push(["Valor em atraso", d.atraso.valor, FMT_MOEDA]);
     }
     if (d.quebras) {
-      kpis.push(["Acordos quebrados (30 dias)", d.quebras.qtd]);
-      kpis.push(["Valor quebrado", d.quebras.valor]);
+      kpis.push(["Acordos quebrados (30 dias)", d.quebras.qtd, FMT_INTEIRO]);
+      kpis.push(["Valor quebrado", d.quebras.valor, FMT_MOEDA]);
     }
     if (d.primeira) {
-      kpis.push(["1ª parcela avaliada", d.primeira.avaliados]);
-      kpis.push(["1ª parcela honrada", d.primeira.pagos]);
+      kpis.push(["1ª parcela avaliada", d.primeira.avaliados, FMT_INTEIRO]);
+      kpis.push(["1ª parcela honrada", d.primeira.pagos, FMT_INTEIRO]);
     }
-    r = adicionarBlocoIndicador(ws, r, "Carteira de acordos", kpis, {
-      cor: COR_BARRA.ciano,
-    });
+    bloco("Carteira de acordos", kpis, COR_BARRA.ciano);
   }
 
   if (d.comissao) {
-    r = adicionarBlocoIndicador(
-      ws,
-      r,
+    bloco(
       "Comissão apurada (não conferida — ver Parâmetros)",
       [
-        ["Itens de comissão", d.comissao.qtd],
-        ["Comissão total", d.comissao.valor],
-        ["Recebido nas parcelas correspondentes", d.comissao.recebido],
+        ["Itens de comissão", d.comissao.qtd, FMT_INTEIRO],
+        ["Comissão total", d.comissao.valor, FMT_MOEDA],
+        ["Recebido nas parcelas correspondentes", d.comissao.recebido, FMT_MOEDA],
       ],
-      { cor: COR_BARRA.verde },
+      COR_BARRA.verde,
     );
+  }
+
+  // ─── os blocos que existem PARA virar gráfico ───
+  //
+  // A hora do dia é a pergunta que a decisão 35 nomeou ("quantos acordos hoje,
+  // hora a hora") e é a que menos se lê numa lista: 24 linhas de número contra
+  // uma curva com um pico visível.
+  let linhaGrafico = 12;
+  const proximaAncora = () => {
+    const pos = linhaGrafico;
+    linhaGrafico += 17;
+    return pos;
+  };
+
+  if (d.acordos?.porHora.length) {
+    const b = bloco("Acordos por hora do dia", porChave(d.acordos.porHora), COR_BARRA.azul);
+    pedir(b, {
+      tipo: "coluna",
+      titulo: "Acordos por hora do dia",
+      series: [{ nome: "Acordos", col: 2, cor: "2563EB" }],
+      ancora: { col: 4, linha: proximaAncora(), largura: 16, altura: 16 },
+      legenda: "none",
+      rotulos: true,
+    });
+  }
+  if (d.acordos?.porOperadora.length) {
+    const b = bloco(
+      "Valor acordado — 12 maiores operadoras",
+      topN(d.acordos.porOperadora, 12),
+      COR_BARRA.azul,
+      FMT_MOEDA,
+    );
+    const pos = proximaAncora();
+    pedir(b, {
+      tipo: "barra",
+      titulo: "Valor acordado por operadora (top 12)",
+      series: [{ nome: "Valor", col: 2, cor: "0EA5E9" }],
+      ancora: { col: 4, linha: pos, largura: 8, altura: 16 },
+      legenda: "none",
+      formato: "R$ #,##0",
+    });
+    if (d.acordos.porCarteira.length) {
+      const bc = bloco(
+        "Valor acordado — 10 maiores carteiras",
+        topN(d.acordos.porCarteira, 10),
+        COR_BARRA.violeta,
+        FMT_MOEDA,
+      );
+      pedir(bc, {
+        tipo: "rosca",
+        titulo: "Participação por carteira (top 10)",
+        series: [{ nome: "Valor", col: 2 }],
+        ancora: { col: 12, linha: pos, largura: 8, altura: 16 },
+        legenda: "r",
+      });
+    }
+  }
+  if (d.atraso?.porFaixa.length) {
+    const b = bloco(
+      "Em atraso por faixa (aging)",
+      d.atraso.porFaixa.map((f) => [f.rotulo, f.valor] as [string, number]),
+      COR_BARRA.vermelho,
+      FMT_MOEDA,
+    );
+    pedir(b, {
+      tipo: "coluna",
+      titulo: "Valor em atraso por faixa de dias",
+      series: [{ nome: "Em atraso", col: 2, cor: "DC2626" }],
+      ancora: { col: 4, linha: proximaAncora(), largura: 8, altura: 16 },
+      legenda: "none",
+      formato: "R$ #,##0",
+    });
+  }
+  if (d.aVencer?.porDia.length) {
+    const b = bloco(
+      "A vencer por dia",
+      d.aVencer.porDia.map((f) => [f.rotulo, f.valor] as [string, number]),
+      COR_BARRA.verde,
+      FMT_MOEDA,
+    );
+    pedir(b, {
+      tipo: "linha",
+      titulo: "Agenda de vencimento (valor por dia)",
+      series: [{ nome: "A vencer", col: 2, cor: "059669" }],
+      ancora: { col: 12, linha: linhaGrafico - 17, largura: 8, altura: 16 },
+      legenda: "none",
+      formato: "R$ #,##0",
+    });
+  }
+  if (d.comissao?.porOperadora.length) {
+    const b = bloco(
+      "Comissão — 12 maiores operadoras",
+      topN(d.comissao.porOperadora, 12),
+      COR_BARRA.verde,
+      FMT_MOEDA,
+    );
+    pedir(b, {
+      tipo: "barra",
+      titulo: "Comissão por operadora (top 12) — não conferida",
+      series: [{ nome: "Comissão", col: 2, cor: "10B981" }],
+      ancora: { col: 4, linha: proximaAncora(), largura: 8, altura: 16 },
+      legenda: "none",
+      formato: "R$ #,##0",
+    });
   }
 
   // O rótulo do recorte, por extenso, também aqui: quem abre a planilha no
@@ -338,6 +542,8 @@ function abaResumo(wb: ExcelJS.Workbook, ctx: Contexto, d: DadosDaPlanilha) {
       : null,
   ].filter(Boolean);
   ws.getCell(`B${r}`).value = partes.length ? partes.join(" · ") : "sem filtro (tudo)";
+
+  return graficos;
 }
 
 function abaMatriz(
@@ -363,6 +569,13 @@ function abaMatriz(
     })),
     { qtd: FMT_INTEIRO, valor: FMT_MOEDA },
   );
+  // Mapa de calor na coluna de valor. Numa matriz a barra de dados engana: ela
+  // compara cada linha com o máximo da coluna inteira, e o que se procura aqui é
+  // onde está o quente em relação ao quadro todo — que é o que a escala de cor
+  // mostra de relance, com 5.000 células.
+  if (matriz.celulas.length) {
+    aplicarEscalaCor(ws, `D2:D${matriz.celulas.length + 1}`);
+  }
   if (matriz.truncada) {
     const r = ws.addRow({
       operadora: "⚠ O cruzamento passou do teto e foi cortado nas maiores células.",
@@ -373,10 +586,10 @@ function abaMatriz(
 
 // ────────────────────────────── a montagem ──────────────────────────────
 
-export function gerarWorkbookRelatorios(
+export async function gerarWorkbookRelatorios(
   ctx: Contexto,
   d: DadosDaPlanilha,
-): Promise<ExcelJS.Buffer> {
+): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Cobratec — Relatórios de cobrança";
   wb.created = ctx.exportadoEm;
@@ -386,7 +599,7 @@ export function gerarWorkbookRelatorios(
 
   // Parâmetros primeiro: é a capa, e é a aba que abre quando o arquivo abre.
   abaParametros(wb, ctx, d);
-  if (quer("resumo")) abaResumo(wb, ctx, d);
+  const graficos = quer("resumo") ? abaResumo(wb, ctx, d) : [];
 
   if (quer("acordos-operadora") && d.acordos) {
     abaFatias(wb, "Acordos · operadora", "Operadora", d.acordos.porOperadora, dinheiro);
@@ -511,7 +724,7 @@ export function gerarWorkbookRelatorios(
     );
   }
 
-  return wb.xlsx.writeBuffer();
+  return comGraficos(await wb.xlsx.writeBuffer(), graficos);
 }
 
 /**

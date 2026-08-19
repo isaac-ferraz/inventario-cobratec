@@ -1,26 +1,28 @@
 // Geração do relatório Excel (.xlsx) a partir dos dados atuais do banco.
 // Duas abas: "Inventário" (dados) e "Dashboard" (indicadores).
 //
-// NOTA TÉCNICA: a biblioteca `exceljs` NÃO suporta criar gráficos nativos do
-// Excel na escrita (apenas leitura). Por isso o Dashboard usa tabelas de
-// indicadores com BARRAS DE DADOS (data bars) via formatação condicional —
-// que são nativas do Excel e atualizam com a célula, sem virar imagem estática.
-// Decisão registrada em /docs/decisoes.md.
+// NOTA TÉCNICA: o `exceljs` continua sem saber ESCREVER gráfico — não existe
+// `worksheet.addChart` em 4.4.0. O que mudou é que a limitação é da API e não do
+// formato: `lib/excel-graficos.ts` acrescenta os gráficos nativos direto no zip
+// do .xlsx, depois que o exceljs terminou. As barras de dados continuam, e não
+// por herança: elas dizem o valor exato ao lado do nome, que é o que se copia
+// para um e-mail. O gráfico é a leitura rápida; a barra é a fonte.
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import {
   BORDA_LEVE,
   COR_BARRA,
-  COR_CABECALHO,
-  COR_TEXTO_CABECALHO,
   FMT_DATA,
   FMT_MOEDA,
   adicionarBlocoIndicador,
+  cartaoKpi,
   dataCelula,
   estilizarCabecalho,
+  faixaTitulo,
   formatarColuna,
   ligarAutoFiltro,
 } from "@/lib/excel-estilo";
+import { comGraficos, type PedidoGrafico } from "@/lib/excel-graficos";
 import {
   DIAS_AVISO_GARANTIA,
   ROTULO_SITUACAO,
@@ -31,7 +33,7 @@ import {
   type TipoManutencao,
 } from "@/lib/ativos";
 
-export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
+export async function gerarWorkbook(): Promise<Buffer> {
   const [computadores, celulares] = await Promise.all([
     prisma.computador.findMany({
       include: {
@@ -277,49 +279,50 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
   ];
 
   // ----- Aba "Dashboard" -----
-  const dash = wb.addWorksheet("Dashboard");
+  //
+  // O painel tem duas faixas verticais: à ESQUERDA (A:B) os blocos de número com
+  // barra de dados, que continuam sendo a fonte — dá para ler o valor exato e
+  // copiar. À DIREITA (D em diante) os cartões e os gráficos, que são a leitura
+  // rápida. Os gráficos apontam para as células da esquerda, então os dois lados
+  // nunca podem discordar: é o mesmo dado, desenhado duas vezes.
+  const dash = wb.addWorksheet("Dashboard", {
+    views: [{ state: "frozen", ySplit: 1, xSplit: 2 }],
+    // Painel largo impresso em retrato sai fatiado ao meio, e o pedaço que cai
+    // na segunda folha são justamente os gráficos. Quem exporta para PDF quase
+    // sempre está mandando por e-mail.
+    pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
   dash.getColumn(1).width = 34;
-  dash.getColumn(2).width = 16;
+  dash.getColumn(2).width = 14;
+  dash.getColumn(3).width = 2; // corredor entre os números e o painel
+  for (let c = 4; c <= 19; c++) dash.getColumn(c).width = 9.5;
 
-  // Título
-  dash.mergeCells("A1:B1");
-  const titulo = dash.getCell("A1");
-  titulo.value = "Dashboard de Inventário — Cobratec TI";
-  titulo.font = { bold: true, size: 14, color: { argb: COR_TEXTO_CABECALHO } };
-  titulo.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: COR_CABECALHO },
-  };
-  titulo.alignment = { vertical: "middle", horizontal: "center" };
-  dash.getRow(1).height = 26;
+  faixaTitulo(
+    dash,
+    1,
+    1,
+    19,
+    "Inventário de Hardware — Cobratec TI",
+    `Gerado em ${new Date().toLocaleString("pt-BR")}`,
+  );
 
-  // KPIs principais
-  let r = 3;
-  const kpis: [string, number][] = [
-    ["Total de computadores", total],
-    ["Computadores em uso", total - semFuncionario],
-    ["Computadores sem funcionário / em estoque", semFuncionario],
-    ["Tipos de componente distintos", porTipo.size],
-    ["Total de celulares", totalCelulares],
-    ["Celulares em uso", totalCelulares - celularesSemFunc],
-    ["Celulares sem funcionário / em estoque", celularesSemFunc],
-    ["Manutenções registradas", manutencoes.length],
-    ["Manutenções em aberto", manutencoes.filter((m) => !m.concluidaEm).length],
-    ["Custo total de manutenção", somarCustos(manutencoes)],
+  // ─── Cartões de KPI (duas fileiras de quatro, à direita) ───
+  const emManutencao = manutencoes.filter((m) => !m.concluidaEm).length;
+  const cartoes: [string, number, string, string?][] = [
+    ["Computadores", total, COR_BARRA.azul],
+    ["Em uso", total - semFuncionario, COR_BARRA.verde],
+    ["Em estoque", semFuncionario, COR_BARRA.ambar],
+    ["Tipos de componente", porTipo.size, COR_BARRA.ciano],
+    ["Celulares", totalCelulares, COR_BARRA.violeta],
+    ["Celulares em estoque", celularesSemFunc, COR_BARRA.ambar],
+    ["Manutenções em aberto", emManutencao, COR_BARRA.vermelho],
+    ["Custo de manutenção", somarCustos(manutencoes), COR_BARRA.vermelho, FMT_MOEDA],
   ];
-  for (const [label, valor] of kpis) {
-    dash.getCell(`A${r}`).value = label;
-    dash.getCell(`A${r}`).font = { bold: true };
-    const cv = dash.getCell(`B${r}`);
-    cv.value = valor;
-    cv.alignment = { horizontal: "center" };
-    cv.font = { bold: true, size: 12 };
-    if (label.startsWith("Custo")) cv.numFmt = FMT_MOEDA;
-    dash.getCell(`A${r}`).border = BORDA_LEVE;
-    cv.border = BORDA_LEVE;
-    r++;
-  }
+  cartoes.forEach(([rotulo, valor, cor, fmt], i) => {
+    const linha = 3 + Math.floor(i / 4) * 4;
+    const col = 4 + (i % 4) * 4;
+    cartaoKpi(dash, linha, col, rotulo, valor, { cor, numFmt: fmt, largura: 4 });
+  });
 
   // ─── Os blocos, cada um com sua barra de dados ───
   //
@@ -327,38 +330,93 @@ export async function gerarWorkbook(): Promise<ExcelJS.Buffer> {
   // aritmética `r += 1 + tamanho + 1` sumiu daqui: ela não contava a linha do
   // "(sem dados)", então um bloco vazio fazia o SEGUINTE escrever por cima dele.
   // Com o parque cheio isso nunca aparecia; num banco recém-instalado, sim.
-  r += 1;
-  r = adicionarBlocoIndicador(
+  //
+  // Agora ele devolve também o intervalo, que é o que o gráfico aponta.
+  let r = 3;
+  const bCargo = adicionarBlocoIndicador(
     dash,
     r,
     "Computadores por cargo",
     [...porCargo.entries()].sort((a, b) => b[1] - a[1]),
     { cor: COR_BARRA.azul },
   );
-  r = adicionarBlocoIndicador(
+  const bSala = adicionarBlocoIndicador(
     dash,
-    r,
+    bCargo.proxima,
     "Computadores por sala",
     [...porSala.entries()].sort((a, b) => b[1] - a[1]),
     { cor: COR_BARRA.violeta },
   );
-  r = adicionarBlocoIndicador(
+  const bTipo = adicionarBlocoIndicador(
     dash,
-    r,
+    bSala.proxima,
     "Componentes por tipo (mais comuns no topo)",
     [...porTipo.entries()].sort((a, b) => b[1] - a[1]),
     { cor: COR_BARRA.verde },
   );
-  r = adicionarBlocoIndicador(dash, r, "Ciclo de vida dos equipamentos", cicloVida, {
-    cor: COR_BARRA.vermelho,
-  });
+  const bCiclo = adicionarBlocoIndicador(
+    dash,
+    bTipo.proxima,
+    "Ciclo de vida dos equipamentos",
+    cicloVida,
+    { cor: COR_BARRA.vermelho },
+  );
   adicionarBlocoIndicador(
     dash,
-    r,
+    bCiclo.proxima,
     "Pendências de licença / conta (computadores sem o item)",
     pendencias,
     { cor: COR_BARRA.ambar },
   );
 
-  return wb.xlsx.writeBuffer();
+  // ─── Os gráficos ───
+  //
+  // Bloco vazio não vira gráfico: um gráfico sem série abre no Excel como um
+  // retângulo branco com o título dentro, que parece defeito da planilha.
+  const graficos: PedidoGrafico[] = [];
+  const pedir = (
+    bloco: { linhaIni: number; linhaFim: number; vazio: boolean },
+    p: Omit<PedidoGrafico, "aba" | "categorias">,
+  ) => {
+    if (bloco.vazio) return;
+    graficos.push({
+      aba: "Dashboard",
+      categorias: { col: 1, linhaIni: bloco.linhaIni, linhaFim: bloco.linhaFim },
+      ...p,
+    });
+  };
+
+  pedir(bCargo, {
+    tipo: "coluna",
+    titulo: "Computadores por cargo",
+    series: [{ nome: "Computadores", col: 2, cor: "2563EB" }],
+    ancora: { col: 4, linha: 12, largura: 8, altura: 16 },
+    legenda: "none",
+    rotulos: true,
+  });
+  pedir(bSala, {
+    tipo: "rosca",
+    titulo: "Computadores por sala",
+    series: [{ nome: "Computadores", col: 2 }],
+    ancora: { col: 12, linha: 12, largura: 8, altura: 16 },
+    legenda: "r",
+  });
+  pedir(bTipo, {
+    tipo: "barra",
+    titulo: "Componentes por tipo",
+    series: [{ nome: "Componentes", col: 2, cor: "059669" }],
+    ancora: { col: 4, linha: 29, largura: 8, altura: 16 },
+    legenda: "none",
+    rotulos: true,
+  });
+  pedir(bCiclo, {
+    tipo: "coluna",
+    titulo: "Ciclo de vida dos equipamentos",
+    series: [{ nome: "Equipamentos", col: 2, cor: "DC2626" }],
+    ancora: { col: 12, linha: 29, largura: 8, altura: 16 },
+    legenda: "none",
+    rotulos: true,
+  });
+
+  return comGraficos(await wb.xlsx.writeBuffer(), graficos);
 }

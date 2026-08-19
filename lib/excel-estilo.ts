@@ -152,6 +152,27 @@ export function aplicarDataBar(
 }
 
 /**
+ * Uma linha de bloco: rótulo, valor e — opcionalmente — o formato DELA.
+ *
+ * O formato por linha existe porque um bloco de KPI mistura naturezas: "Acordos
+ * fechados 486" e "Valor acordado R$ 1.284.300,55" moram no mesmo quadro. Um
+ * `numFmt` único para o bloco obriga a escolher qual das duas sai errada, e o
+ * que saía era o dinheiro, cru: "1284300,55".
+ */
+export type LinhaIndicador = [string, number] | [string, number, string];
+
+/** O que um bloco de indicador deixa para trás. */
+export type BlocoIndicador = {
+  /** Próxima linha livre, com a linha em branco de separação já contada. */
+  proxima: number;
+  /** Primeira linha COM DADOS. */
+  linhaIni: number;
+  /** Última linha COM DADOS. Igual a `linhaIni - 1` quando o bloco é vazio. */
+  linhaFim: number;
+  vazio: boolean;
+};
+
+/**
  * Um bloco "título + pares nome/valor" com barra de dados.
  *
  * Devolve a PRÓXIMA linha livre — e é por isso que ele existe: a versão
@@ -159,14 +180,19 @@ export function aplicarDataBar(
  * 1`), e essa conta errava quando o bloco vinha vazio, porque o "(sem dados)"
  * ocupa uma linha que `dados.length` não conta. Blocos seguintes escreviam por
  * cima do anterior.
+ *
+ * Devolve TAMBÉM o intervalo que ocupou, porque o gráfico nativo aponta para
+ * células por endereço (ver `lib/excel-graficos.ts`). Deixar quem chama refazer
+ * a conta do intervalo repõe exatamente o erro que o `proxima` veio corrigir —
+ * e um gráfico apontando para a faixa errada tem a mesma cara de um certo.
  */
 export function adicionarBlocoIndicador(
   ws: ExcelJS.Worksheet,
   linhaInicio: number,
   titulo: string,
-  dados: [string, number][],
+  dados: readonly LinhaIndicador[],
   opcoes: { cor?: string; numFmt?: string } = {},
-): number {
+): BlocoIndicador {
   ws.mergeCells(`A${linhaInicio}:B${linhaInicio}`);
   const t = ws.getCell(`A${linhaInicio}`);
   t.value = titulo;
@@ -177,14 +203,15 @@ export function adicionarBlocoIndicador(
   let linha = linhaInicio + 1;
   const primeiraDeDados = linha;
 
-  for (const [nome, valor] of dados) {
+  for (const [nome, valor, fmt] of dados) {
     ws.getCell(`A${linha}`).value = nome;
     ws.getCell(`A${linha}`).border = BORDA_LEVE;
     const cv = ws.getCell(`B${linha}`);
     cv.value = valor;
     cv.alignment = { horizontal: "center" };
     cv.border = BORDA_LEVE;
-    if (opcoes.numFmt) cv.numFmt = opcoes.numFmt;
+    const numFmt = fmt ?? opcoes.numFmt;
+    if (numFmt) cv.numFmt = numFmt;
     linha++;
   }
 
@@ -196,5 +223,99 @@ export function adicionarBlocoIndicador(
     aplicarDataBar(ws, primeiraDeDados, dados.length, opcoes.cor);
   }
 
-  return linha + 1; // uma linha em branco antes do próximo bloco
+  return {
+    proxima: linha + 1, // uma linha em branco antes do próximo bloco
+    linhaIni: primeiraDeDados,
+    linhaFim: primeiraDeDados + dados.length - 1,
+    vazio: dados.length === 0,
+  };
+}
+
+// ───────────────────────── a camada de painel ─────────────────────────
+//
+// O que segue existe para o Dashboard PARECER um painel, e não uma lista de
+// números com barrinhas. São três peças: a faixa de título, o cartão de KPI e a
+// escala de cor. Nenhuma delas inventa dado — todas só vestem o que já estava
+// escrito na célula.
+
+/** Faixa escura de título, atravessando a largura do painel. */
+export function faixaTitulo(
+  ws: ExcelJS.Worksheet,
+  linha: number,
+  colIni: number,
+  colFim: number,
+  titulo: string,
+  subtitulo?: string,
+): void {
+  ws.mergeCells(linha, colIni, linha, colFim);
+  const c = ws.getCell(linha, colIni);
+  c.value = subtitulo ? `${titulo}          ${subtitulo}` : titulo;
+  c.font = { bold: true, size: 15, color: { argb: COR_TEXTO_CABECALHO } };
+  c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COR_CABECALHO } };
+  c.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+  ws.getRow(linha).height = 32;
+}
+
+/**
+ * Cartão de KPI: rótulo pequeno em cima, número grande embaixo.
+ *
+ * Ocupa `largura` colunas e 3 linhas (rótulo, número, número). O número é
+ * mesclado em duas linhas porque uma linha de altura padrão corta a fonte 20 —
+ * e aumentar a altura da linha inteira estragaria o bloco ao lado.
+ */
+export function cartaoKpi(
+  ws: ExcelJS.Worksheet,
+  linha: number,
+  col: number,
+  rotulo: string,
+  valor: number | string,
+  opcoes: { cor?: string; numFmt?: string; largura?: number } = {},
+): void {
+  const largura = opcoes.largura ?? 3;
+  const cor = opcoes.cor ?? COR_BARRA.azul;
+  const colFim = col + largura - 1;
+
+  ws.mergeCells(linha, col, linha, colFim);
+  const r = ws.getCell(linha, col);
+  r.value = rotulo.toUpperCase();
+  r.font = { bold: true, size: 8, color: { argb: "FF6B7280" } };
+  r.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+  r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
+  // A cor do assunto entra como um filete no topo, e não como fundo do cartão:
+  // dez cartões de fundo colorido brigam entre si e o número some.
+  r.border = { top: { style: "medium", color: { argb: cor } } };
+
+  ws.mergeCells(linha + 1, col, linha + 2, colFim);
+  const v = ws.getCell(linha + 1, col);
+  v.value = valor;
+  v.font = { bold: true, size: 20, color: { argb: cor } };
+  v.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+  v.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" } };
+  v.border = {
+    bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+    left: { style: "thin", color: { argb: "FFE5E7EB" } },
+    right: { style: "thin", color: { argb: "FFE5E7EB" } },
+  };
+  if (opcoes.numFmt) v.numFmt = opcoes.numFmt;
+}
+
+/**
+ * Escala de cor (mapa de calor) sobre um intervalo.
+ *
+ * Serve para matriz — operadora × carteira — onde a barra de dados não ajuda:
+ * a barra compara dentro da coluna, e numa matriz o que interessa é onde está o
+ * quente em relação ao resto do quadro inteiro.
+ */
+export function aplicarEscalaCor(
+  ws: ExcelJS.Worksheet,
+  ref: string,
+  cores: [string, string, string] = ["FFFFFFFF", "FFBFDBFE", "FF2563EB"],
+): void {
+  const regra = {
+    type: "colorScale",
+    cfvo: [{ type: "min" }, { type: "percentile", value: 50 }, { type: "max" }],
+    color: cores.map((argb) => ({ argb })),
+    priority: 1,
+  } as unknown as ExcelJS.ColorScaleRuleType;
+  ws.addConditionalFormatting({ ref, rules: [regra] });
 }
