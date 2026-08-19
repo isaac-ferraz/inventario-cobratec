@@ -18,6 +18,7 @@
     "db:wal": "prisma db execute --schema prisma/schema.prisma --file prisma/sqlite-wal.sql",
     "db:backup": "sh scripts/backup-db.sh",
     "db:validar-parcelas": "tsx --env-file=.env scripts/validar-parcelas.ts",
+    "db:validar-comissao": "tsx --env-file=.env scripts/validar-comissao.ts",
     "db:investigar-baixa": "tsx --env-file=.env scripts/investigar-baixa.ts",
     "postinstall": "prisma generate"
   },
