@@ -13,13 +13,14 @@ vi.mock("@/lib/siscobra", () => ({
 }));
 
 import { consultaRelatorio } from "@/lib/siscobra";
+import { SEM_RECORTE } from "@/lib/relatorios-cobranca";
 import {
   aVencerEm,
   emAtrasoAte,
   primeiraParcelaDe,
 } from "@/lib/relatorios-carteira";
 
-const TODAS = { carteira: null, equipe: null };
+const TODAS = { ...SEM_RECORTE };
 
 function responde(linhas: unknown[]) {
   vi.mocked(consultaRelatorio).mockResolvedValue(linhas as never);
@@ -164,7 +165,46 @@ describe("primeiraParcelaDe", () => {
     const params = vi.mocked(consultaRelatorio).mock.calls[0][1];
     expect(params[0]).toBe("2026-05-16");
     expect(params[1]).toBe("2026-08-14");
-    // O quinto parâmetro é "hoje", que corta a parcela que ainda não venceu.
-    expect(params[4]).toBe("2026-08-14");
+    // O SEXTO parâmetro é "hoje", que corta a parcela que ainda não venceu.
+    // Era o quinto até a decisão 39: a operadora entrou como $5 e empurrou os
+    // de trás. Trocar dois parâmetros posicionais de lugar não dá erro nenhum —
+    // dá um relatório filtrado pela coluna errada.
+    expect(params[5]).toBe("2026-08-14");
+  });
+});
+
+describe("o recorte ocupa sempre $3, $4 e $5", () => {
+  // A ordem posicional é a mesma nas sete consultas do relatório, e é a única
+  // coisa que amarra `recorte()` ao SQL. Um teste por consulta, porque o preço
+  // de errar é silencioso: filtrar carteira pela lista de equipes devolve zero
+  // linhas, e zero linhas parece um dia fraco.
+  const RECORTE = { carteiras: [7, 12], equipes: [30], operadoras: [260] };
+
+  beforeEach(() =>
+    responde([{ eixo: "total", chave: null, rotulo: null, qtd: 0, pagos: 0, valor: 0 }]),
+  );
+
+  it("a vencer", async () => {
+    await aVencerEm({ inicio: "2026-08-14", fim: "2026-08-20", ...RECORTE }, "2026-08-14");
+    const p = vi.mocked(consultaRelatorio).mock.calls[0][1];
+    expect([p[2], p[3], p[4]]).toEqual([[7, 12], [30], [260]]);
+  });
+
+  it("em atraso", async () => {
+    await emAtrasoAte(RECORTE, "2026-08-14");
+    const p = vi.mocked(consultaRelatorio).mock.calls[0][1];
+    expect([p[2], p[3], p[4]]).toEqual([[7, 12], [30], [260]]);
+  });
+
+  it("primeira parcela", async () => {
+    await primeiraParcelaDe(RECORTE, "2026-08-14");
+    const p = vi.mocked(consultaRelatorio).mock.calls[0][1];
+    expect([p[2], p[3], p[4]]).toEqual([[7, 12], [30], [260]]);
+  });
+
+  it("sem recorte, os três são nulos — e a cláusula some da consulta", async () => {
+    await emAtrasoAte(TODAS, "2026-08-14");
+    const p = vi.mocked(consultaRelatorio).mock.calls[0][1];
+    expect([p[2], p[3], p[4]]).toEqual([null, null, null]);
   });
 });

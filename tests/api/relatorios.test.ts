@@ -16,6 +16,7 @@ vi.mock("@/lib/relatorios-cobranca", () => ({
   acionamentosDe: vi.fn(),
   equipes: vi.fn(),
   carteiras: vi.fn(),
+  operadoras: vi.fn(),
 }));
 
 import { configSiscobra } from "@/lib/siscobra";
@@ -24,6 +25,7 @@ import {
   acordosDo,
   carteiras,
   equipes,
+  operadoras,
 } from "@/lib/relatorios-cobranca";
 import { GET } from "@/app/api/relatorios/cobranca/route";
 import { GET as GET_FILTROS } from "@/app/api/relatorios/cobranca/filtros/route";
@@ -34,6 +36,20 @@ const ACORDOS = {
   porOperadora: [{ chave: 260, rotulo: "YASMIN", qtd: 18, valor: 3285.21 }],
   porCarteira: [{ chave: 7, rotulo: "FESTCARD", qtd: 9, valor: 8004.56 }],
   porHora: [{ chave: 9, rotulo: "09h", qtd: 19, valor: 40000 }],
+  porMes: [{ chave: 202608, rotulo: "08/2026", qtd: 97, valor: 340979.54 }],
+  matriz: {
+    celulas: [
+      {
+        operadora: 260,
+        operadoraNome: "YASMIN",
+        carteira: 7,
+        carteiraNome: "FESTCARD",
+        qtd: 4,
+        valor: 1200,
+      },
+    ],
+    truncada: false,
+  },
 };
 const ACIONAMENTOS = {
   qtd: 3052,
@@ -41,6 +57,7 @@ const ACIONAMENTOS = {
   porOperadora: [{ chave: 267, rotulo: "ANA JULIA", qtd: 340, valor: 334 }],
   porSituacao: [{ chave: null, rotulo: "RECADO", qtd: 774, valor: 700 }],
   porHora: [{ chave: 9, rotulo: "09h", qtd: 500, valor: 480 }],
+  porMes: [{ chave: 202608, rotulo: "08/2026", qtd: 3052, valor: 2470 }],
 };
 
 beforeEach(async () => {
@@ -52,6 +69,9 @@ beforeEach(async () => {
     { cod: 30, nome: "EQUIPE AZUL", membros: 7 },
   ]);
   vi.mocked(carteiras).mockResolvedValue([{ cod: 7, nome: "FESTCARD" }]);
+  vi.mocked(operadoras).mockResolvedValue([
+    { cod: 260, nome: "YASMIN", equipe: "EQUIPE AZUL" },
+  ]);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -102,22 +122,61 @@ describe("o período que chega na consulta", () => {
     await pedir("/api/relatorios/cobranca", "ADMIN");
     const f = vi.mocked(acordosDo).mock.calls[0][0];
     expect(f.inicio).toBe(f.fim);
-    expect(f.carteira).toBeNull();
-    expect(f.equipe).toBeNull();
+    expect(f.carteiras).toBeNull();
+    expect(f.equipes).toBeNull();
+    expect(f.operadoras).toBeNull();
   });
 
-  it("carteira e equipe viram número", async () => {
+  it("um código só vira lista de um", async () => {
     await pedir("/api/relatorios/cobranca?carteira=7&equipe=30", "ADMIN");
     const f = vi.mocked(acordosDo).mock.calls[0][0];
-    expect(f.carteira).toBe(7);
-    expect(f.equipe).toBe(30);
+    expect(f.carteiras).toEqual([7]);
+    expect(f.equipes).toEqual([30]);
+  });
+
+  // O pedido central da decisão 39: o link de um recorte com três carteiras.
+  it("a lista separada por vírgula chega inteira na consulta", async () => {
+    await pedir(
+      "/api/relatorios/cobranca?carteira=7,12,45&equipe=30,32&operadora=260",
+      "ADMIN",
+    );
+    const f = vi.mocked(acordosDo).mock.calls[0][0];
+    expect(f.carteiras).toEqual([7, 12, 45]);
+    expect(f.equipes).toEqual([30, 32]);
+    expect(f.operadoras).toEqual([260]);
+  });
+
+  it("ordena e desduplica, para o mesmo recorte virar a mesma consulta", async () => {
+    await pedir("/api/relatorios/cobranca?carteira=45,7,45", "ADMIN");
+    expect(vi.mocked(acordosDo).mock.calls[0][0].carteiras).toEqual([7, 45]);
   });
 
   it("“todas” é o mesmo que não filtrar", async () => {
     await pedir("/api/relatorios/cobranca?carteira=todas&equipe=todas", "ADMIN");
     const f = vi.mocked(acordosDo).mock.calls[0][0];
-    expect(f.carteira).toBeNull();
-    expect(f.equipe).toBeNull();
+    expect(f.carteiras).toBeNull();
+    expect(f.equipes).toBeNull();
+  });
+
+  it("recusa lista maior que o teto, sem consultar o CRM", async () => {
+    const cinquentaEUm = Array.from({ length: 51 }, (_, i) => i + 1).join(",");
+    const { status } = await pedir(
+      `/api/relatorios/cobranca?carteira=${cinquentaEUm}`,
+      "ADMIN",
+    );
+    expect(status).toBe(400);
+    expect(acordosDo).not.toHaveBeenCalled();
+  });
+
+  it("um item torto na lista derruba a lista inteira", async () => {
+    // Aproveitar os dois códigos bons devolveria uma tela que parece filtrada
+    // pelos três e não está.
+    const { status } = await pedir(
+      "/api/relatorios/cobranca?carteira=7,abc,45",
+      "ADMIN",
+    );
+    expect(status).toBe(400);
+    expect(acordosDo).not.toHaveBeenCalled();
   });
 
   it("acordos e acionamentos recebem EXATAMENTE o mesmo recorte", async () => {

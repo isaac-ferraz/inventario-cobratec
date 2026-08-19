@@ -74,6 +74,7 @@
 import { consultaRelatorio } from "@/lib/siscobra";
 import { diasDoIntervalo, somarDias } from "@/lib/relatorios";
 import type { Periodo } from "@/lib/relatorios";
+import { TIMEOUT_TELA, recorte } from "@/lib/relatorios-cobranca";
 import type { Fatia, Filtro } from "@/lib/relatorios-cobranca";
 
 export type { Fatia, Filtro };
@@ -145,7 +146,7 @@ export type PrimeiraParcela = {
 //
 // Três trechos aparecem em mais de uma consulta e são escritos uma vez só. São
 // constantes de módulo, interpoladas em template — texto fixo do código, nunca
-// entrada de usuário; todo valor variável continua entrando por $1..$5.
+// entrada de usuário; todo valor variável continua entrando por $1..$7.
 
 /**
  * A atribuição do acordo, idêntica à do `SQL_ACORDOS` em relatorios-cobranca.ts:
@@ -185,14 +186,29 @@ pago AS (
    GROUP BY 1, 2
 )`;
 
-/** O recorte por equipe, sempre sobre o dono já resolvido. */
-const FILTRO_EQUIPE = `($4::int IS NULL OR EXISTS (
+/**
+ * O recorte por PESSOA — equipe ($4) e operadora ($5) —, sempre sobre o dono já
+ * resolvido pelo `CTE_DONO`. Depende do alias `d` existir no escopo.
+ *
+ * ─────────── a armadilha do `= ANY` com nulo, dita antes de morder ───────────
+ *
+ * `d.usucod` pode ser NULL: é o acordo cujo operador sumiu do cadastro, que os
+ * `LEFT JOIN` daqui preservam de propósito para o TOTAL não encolher em
+ * silêncio. Mas `NULL = ANY(...)` devolve NULL, não `false` — então, ao filtrar
+ * por operadora, esse acordo SAI.
+ *
+ * É o comportamento certo (quem pede "os acordos da Ana" não quer o órfão), e a
+ * consequência precisa estar escrita: com filtro de operadora ligado, a soma das
+ * partes pode não fechar com o total sem filtro. A diferença são os órfãos.
+ */
+const FILTRO_PESSOA = `($4::int[] IS NULL OR EXISTS (
         SELECT 1 FROM grupo_usuario gu
-         WHERE gu.usucod = d.usucod AND gu.usugrucod = $4::int))`;
+         WHERE gu.usucod = d.usucod AND gu.usugrucod = ANY($4::int[])))
+      AND ($5::int[] IS NULL OR d.usucod = ANY($5::int[]))`;
 
 // ────────────────────────────── a vencer ──────────────────────────────
 //
-// $1 início da janela · $2 fim · $3 carteira · $4 equipe
+// $1 início da janela · $2 fim · $3 carteiras · $4 equipes · $5 operadoras
 //
 // A chave do eixo "dia" é o DESLOCAMENTO em dias desde o início da janela, e
 // não a data: chave precisa ser inteira (como a hora no relatório de acordos), e
@@ -208,7 +224,7 @@ WITH par AS (
      AND ap.acoparvallan > 0
      AND ap.acopardatven >= $1::date
      AND ap.acopardatven <= $2::date
-     AND ($3::int IS NULL OR a.carcod = $3::int)
+     AND ($3::int[] IS NULL OR a.carcod = ANY($3::int[]))
 ), alvo AS (
   SELECT DISTINCT acocod, devcod, carcod, acodatinc, acousuinc FROM par
 ),${CTE_DONO}, base AS (
@@ -223,7 +239,7 @@ WITH par AS (
     -- que sumiu do cadastro não pode levar a parcela embora do TOTAL.
     LEFT JOIN usuario u   ON u.usucod = d.usucod
     LEFT JOIN carteira ca ON ca.carcod = p.carcod
-   WHERE ${FILTRO_EQUIPE}
+   WHERE ${FILTRO_PESSOA}
 )
 SELECT CASE WHEN grouping(usucod) = 0 THEN 'operadora'
             WHEN grouping(carcod) = 0 THEN 'carteira'
@@ -242,7 +258,8 @@ SELECT CASE WHEN grouping(usucod) = 0 THEN 'operadora'
 
 // ────────────────────────────── em atraso ──────────────────────────────
 //
-// $1 primeiro dia da varredura · $2 hoje (exclusivo) · $3 carteira · $4 equipe
+// $1 primeiro dia da varredura · $2 hoje (exclusivo) · $3 carteiras · $4 equipes ·
+// $5 operadoras
 const SQL_EM_ATRASO = `
 WITH par AS (
   SELECT ap.acocod, ap.acoparnum, ap.acoparvallan, ap.acopardatven,
@@ -253,7 +270,7 @@ WITH par AS (
      AND ap.acoparvallan > 0
      AND ap.acopardatven >= $1::date
      AND ap.acopardatven <  $2::date
-     AND ($3::int IS NULL OR a.carcod = $3::int)
+     AND ($3::int[] IS NULL OR a.carcod = ANY($3::int[]))
 ), alvo AS (
   SELECT DISTINCT acocod, devcod, carcod, acodatinc, acousuinc FROM par
 ),${CTE_DONO},${CTE_PAGO}, aberto AS (
@@ -279,7 +296,7 @@ WITH par AS (
     JOIN dono d ON d.acocod = p.acocod
     LEFT JOIN usuario u   ON u.usucod = d.usucod
     LEFT JOIN carteira ca ON ca.carcod = p.carcod
-   WHERE ${FILTRO_EQUIPE}
+   WHERE ${FILTRO_PESSOA}
 )
 SELECT CASE WHEN grouping(usucod) = 0 THEN 'operadora'
             WHEN grouping(carcod) = 0 THEN 'carteira'
@@ -298,7 +315,7 @@ SELECT CASE WHEN grouping(usucod) = 0 THEN 'operadora'
 
 // ─────────────────────────── acordos quebrados ───────────────────────────
 //
-// $1 início · $2 fim (por `acodatqueaco`) · $3 carteira · $4 equipe
+// $1 início · $2 fim (por `acodatqueaco`) · $3 carteiras · $4 equipes · $5 operadoras
 //
 // `acoati = 1` é o acordo QUEBRADO — o mesmo flag que o relatório de produção
 // EXCLUI. Aqui ele é o assunto: acordo que fecha e quebra não é produção, é
@@ -310,7 +327,7 @@ WITH alvo AS (
    WHERE a.acoati = 1
      AND a.acodatqueaco >= $1::date
      AND a.acodatqueaco <= $2::date
-     AND ($3::int IS NULL OR a.carcod = $3::int)
+     AND ($3::int[] IS NULL OR a.carcod = ANY($3::int[]))
 ),${CTE_DONO}, base AS (
   SELECT t.acovalatu AS valor,
          d.usucod, u.usunom,
@@ -319,7 +336,7 @@ WITH alvo AS (
     JOIN dono d ON d.acocod = t.acocod
     LEFT JOIN usuario u   ON u.usucod = d.usucod
     LEFT JOIN carteira ca ON ca.carcod = t.carcod
-   WHERE ${FILTRO_EQUIPE}
+   WHERE ${FILTRO_PESSOA}
 )
 SELECT CASE WHEN grouping(usucod) = 0 THEN 'operadora'
             WHEN grouping(carcod) = 0 THEN 'carteira'
@@ -335,8 +352,8 @@ SELECT CASE WHEN grouping(usucod) = 0 THEN 'operadora'
 
 // ───────────────────────── a primeira parcela ─────────────────────────
 //
-// $1 início · $2 fim (por `acodatinc`, a gravação do acordo) · $3 carteira ·
-// $4 equipe · $5 hoje
+// $1 início · $2 fim (por `acodatinc`, a gravação do acordo) · $3 carteiras ·
+// $4 equipes · $5 operadoras · $6 hoje
 //
 // Por que este painel existe: a primeira parcela é o divisor entre acordo que
 // vinga e acordo que só ocupou a agenda. Quem fecha muito e vê a primeira
@@ -352,7 +369,7 @@ WITH alvo AS (
    WHERE a.acoati = 0
      AND a.acodatinc::date >= $1::date
      AND a.acodatinc::date <= $2::date
-     AND ($3::int IS NULL OR a.carcod = $3::int)
+     AND ($3::int[] IS NULL OR a.carcod = ANY($3::int[]))
 ),${CTE_DONO},${CTE_PAGO}, pri AS (
   SELECT DISTINCT ON (ap.acocod)
          ap.acocod, ap.acoparnum, ap.acoparvallan, ap.acopardatven
@@ -370,8 +387,8 @@ WITH alvo AS (
     LEFT JOIN pago g ON g.acocod = p.acocod AND g.acoparnum = p.acoparnum
     LEFT JOIN carteira ca ON ca.carcod = t.carcod
    -- Só o que já venceu: parcela que vence semana que vem não é sinal de nada.
-   WHERE p.acopardatven < $5::date
-     AND ${FILTRO_EQUIPE}
+   WHERE p.acopardatven < $6::date
+     AND ${FILTRO_PESSOA}
 )
 SELECT CASE WHEN grouping(carcod) = 0 THEN 'carteira' ELSE 'total' END AS eixo,
        CASE WHEN grouping(carcod) = 0 THEN carcod END::int AS chave,
@@ -454,13 +471,16 @@ function totalDe(linhas: LinhaEixo[]): { qtd: number; valor: number } {
 }
 
 /** O que vence na janela pedida. */
-export async function aVencerEm(f: Filtro, hoje: string): Promise<AVencer> {
-  const linhas = await consultaRelatorio<LinhaEixo>(SQL_A_VENCER, [
-    f.inicio,
-    f.fim,
-    f.carteira,
-    f.equipe,
-  ]);
+export async function aVencerEm(
+  f: Filtro,
+  hoje: string,
+  timeoutMs = TIMEOUT_TELA,
+): Promise<AVencer> {
+  const linhas = await consultaRelatorio<LinhaEixo>(
+    SQL_A_VENCER,
+    [f.inicio, f.fim, ...recorte(f)],
+    timeoutMs,
+  );
   const total = totalDe(linhas);
   const porDia = agenda(linhas, f.inicio, f.fim);
   // Hoje e amanhã são posições DENTRO da janela, não linhas separadas do banco:
@@ -487,14 +507,14 @@ export async function aVencerEm(f: Filtro, hoje: string): Promise<AVencer> {
 export async function emAtrasoAte(
   f: Omit<Filtro, "inicio" | "fim">,
   hoje: string,
+  timeoutMs = TIMEOUT_TELA,
 ): Promise<EmAtraso> {
   const desde = somarDias(hoje, -ATRASO_DIAS);
-  const linhas = await consultaRelatorio<LinhaEixo>(SQL_EM_ATRASO, [
-    desde,
-    hoje,
-    f.carteira,
-    f.equipe,
-  ]);
+  const linhas = await consultaRelatorio<LinhaEixo>(
+    SQL_EM_ATRASO,
+    [desde, hoje, ...recorte(f)],
+    timeoutMs,
+  );
   const total = totalDe(linhas);
   return {
     qtd: total.qtd,
@@ -517,13 +537,13 @@ export async function emAtrasoAte(
 export async function quebrasDe(
   f: Omit<Filtro, "inicio" | "fim">,
   hoje: string,
+  timeoutMs = TIMEOUT_TELA,
 ): Promise<Quebras> {
-  const linhas = await consultaRelatorio<LinhaEixo>(SQL_QUEBRAS, [
-    somarDias(hoje, -QUEBRAS_DIAS),
-    hoje,
-    f.carteira,
-    f.equipe,
-  ]);
+  const linhas = await consultaRelatorio<LinhaEixo>(
+    SQL_QUEBRAS,
+    [somarDias(hoje, -QUEBRAS_DIAS), hoje, ...recorte(f)],
+    timeoutMs,
+  );
   const total = totalDe(linhas);
   return {
     qtd: total.qtd,
@@ -537,15 +557,14 @@ export async function quebrasDe(
 export async function primeiraParcelaDe(
   f: Omit<Filtro, "inicio" | "fim">,
   hoje: string,
+  timeoutMs = TIMEOUT_TELA,
 ): Promise<PrimeiraParcela> {
   const inicio = somarDias(hoje, -PRIMEIRA_PARCELA_DIAS);
-  const linhas = await consultaRelatorio<LinhaPrimeira>(SQL_PRIMEIRA_PARCELA, [
-    inicio,
-    hoje,
-    f.carteira,
-    f.equipe,
-    hoje,
-  ]);
+  const linhas = await consultaRelatorio<LinhaPrimeira>(
+    SQL_PRIMEIRA_PARCELA,
+    [inicio, hoje, ...recorte(f), hoje],
+    timeoutMs,
+  );
   const total = linhas.find((l) => l.eixo === "total");
   return {
     avaliados: total?.qtd ?? 0,
@@ -584,7 +603,8 @@ export type ParcelaNominal = {
   dias: number;
 };
 
-// $1 início · $2 fim · $3 carteira · $4 equipe · $5 hoje
+// $1 início · $2 fim · $3 carteiras · $4 equipes · $5 operadoras · $6 hoje ·
+// $7 teto de linhas
 //
 // O CPF sai MASCARADO da consulta, e não da tela — mesmo desenho do `dossieDe`
 // em lib/siscobra.ts. O que não trafega não vaza depois por descuido, e para
@@ -599,7 +619,7 @@ WITH par AS (
      AND ap.acoparvallan > 0
      AND ap.acopardatven >= $1::date
      AND ap.acopardatven <= $2::date
-     AND ($3::int IS NULL OR a.carcod = $3::int)
+     AND ($3::int[] IS NULL OR a.carcod = ANY($3::int[]))
 ), alvo AS (
   SELECT DISTINCT acocod, devcod, carcod, acodatinc, acousuinc FROM par
 ),${CTE_DONO},${CTE_PAGO}
@@ -611,7 +631,7 @@ SELECT p.acocod::int, p.acoparnum::int AS parcela, p.devcod::int,
        u.usunom AS operadora,
        p.acoparvallan::float8 AS valor,
        to_char(p.acopardatven, 'YYYY-MM-DD') AS vencimento,
-       (p.acopardatven::date - $5::date)::int AS dias
+       (p.acopardatven::date - $6::date)::int AS dias
   FROM par p
   JOIN dono d ON d.acocod = p.acocod
   LEFT JOIN pago g ON g.acocod = p.acocod AND g.acoparnum = p.acoparnum
@@ -619,9 +639,9 @@ SELECT p.acocod::int, p.acoparnum::int AS parcela, p.devcod::int,
   LEFT JOIN carteira ca ON ca.carcod = p.carcod
   LEFT JOIN usuario u   ON u.usucod = d.usucod
  WHERE g.acocod IS NULL
-   AND ${FILTRO_EQUIPE}
+   AND ${FILTRO_PESSOA}
  ORDER BY p.acopardatven, p.acoparvallan DESC
- LIMIT $6::int`;
+ LIMIT $7::int`;
 
 /**
  * A lista de quem ligar — nome, CPF mascarado, valor e vencimento.
@@ -637,6 +657,7 @@ export async function listarParcelas(
   f: Filtro,
   hoje: string,
   limite = 300,
+  timeoutMs = TIMEOUT_TELA,
 ): Promise<ParcelaNominal[]> {
   const linhas = await consultaRelatorio<{
     acocod: number;
@@ -649,7 +670,7 @@ export async function listarParcelas(
     valor: number;
     vencimento: string;
     dias: number;
-  }>(SQL_LISTA, [f.inicio, f.fim, f.carteira, f.equipe, hoje, limite]);
+  }>(SQL_LISTA, [f.inicio, f.fim, ...recorte(f), hoje, limite], timeoutMs);
 
   return linhas.map((l) => ({
     acocod: l.acocod,

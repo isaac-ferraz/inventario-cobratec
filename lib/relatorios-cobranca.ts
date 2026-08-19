@@ -43,12 +43,35 @@
 import { consultaRelatorio } from "@/lib/siscobra";
 import type { Periodo } from "@/lib/relatorios";
 
+// ───────────────────────── o filtro aceita mais de um ─────────────────────────
+//
+// Decisão 39: cada recorte é uma LISTA, não uma escolha. `null` continua
+// significando "todas" — e é o que faz a cláusula sumir da consulta em vez de
+// virar um `IN` com as 191 carteiras dentro.
+//
+// A armadilha do `= ANY` está anotada onde ela morde, em `FILTRO_PESSOA`.
 export type Filtro = Periodo & {
-  /** Carteira (`carcod`); null = todas. */
-  carteira: number | null;
-  /** Equipe (`grupo.usugrucod`); null = todas. */
-  equipe: number | null;
+  /** Carteiras (`carcod`); null = todas. */
+  carteiras: number[] | null;
+  /** Equipes (`grupo.usugrucod`); null = todas. */
+  equipes: number[] | null;
+  /** Operadoras (`usuario.usucod`); null = todas. */
+  operadoras: number[] | null;
 };
+
+/**
+ * "A operação inteira, sem recorte."
+ *
+ * Existe como constante para os chamadores que nunca filtram — o digest e o
+ * fechamento do relógio (decisão 37), que medem a empresa toda. Escrever os três
+ * nulos à mão em cada um deles é o tipo de repetição que sobrevive à próxima
+ * mudança de forma do filtro pela metade.
+ */
+export const SEM_RECORTE = {
+  carteiras: null,
+  equipes: null,
+  operadoras: null,
+} as const;
 
 export type Fatia = {
   chave: number | null;
@@ -57,12 +80,53 @@ export type Fatia = {
   valor: number;
 };
 
+/**
+ * Uma célula do cruzamento operadora × carteira.
+ *
+ * O painel sempre soube dizer quanto cada operadora fez e quanto cada carteira
+ * rendeu, nunca quanto a Ana fez NA carteira X — que é a pergunta que a gestão
+ * faz para remanejar gente entre carteiras. É o mesmo `GROUPING SETS`, com um
+ * conjunto a mais: uma varredura, não duas.
+ */
+export type Celula = {
+  operadora: number | null;
+  operadoraNome: string;
+  carteira: number | null;
+  carteiraNome: string;
+  qtd: number;
+  valor: number;
+};
+
+/**
+ * Teto de células da matriz.
+ *
+ * 353 operadoras × 191 carteiras é um teto teórico de 67 mil linhas; o real é a
+ * interseção que trabalhou no período, mas "período grande sem filtro" chega
+ * perto o bastante para travar a tela. Truncar é aceitável; truncar em SILÊNCIO
+ * não é — a resposta carrega `truncada`, como a lista nominal já faz.
+ */
+export const MAX_CELULAS = 5_000;
+
+/**
+ * Timeout padrão das consultas de relatório — o mesmo que as telas usam.
+ *
+ * A exportação (decisão 39) passa um valor maior: uma planilha de oito abas roda
+ * sem ninguém olhando, e derrubá-la em 30s obrigaria a pessoa a repetir o pedido
+ * inteiro por causa da aba mais lenta.
+ */
+export const TIMEOUT_TELA = 30_000;
+
+
+export type Matriz = { celulas: Celula[]; truncada: boolean };
+
 export type Acordos = {
   qtd: number;
   valor: number;
   porOperadora: Fatia[];
   porCarteira: Fatia[];
   porHora: Fatia[];
+  porMes: Fatia[];
+  matriz: Matriz;
 };
 
 export type Acionamentos = {
@@ -71,10 +135,12 @@ export type Acionamentos = {
   porOperadora: Fatia[];
   porSituacao: Fatia[];
   porHora: Fatia[];
+  porMes: Fatia[];
 };
 
 export type Equipe = { cod: number; nome: string; membros: number };
 export type Carteira = { cod: number; nome: string };
+export type Operadora = { cod: number; nome: string; equipe: string | null };
 
 const SEM_OPERADORA = "(sem operadora)";
 const SEM_CARTEIRA = "(sem carteira)";
@@ -91,6 +157,19 @@ const SEM_SITUACAO = "(sem situação)";
 // O `CASE ... grouping(x)` é explícito em vez de um `coalesce` esperto porque
 // hora ZERO é um valor legítimo e chave nula também: coalesce escolheria a
 // coluna errada em silêncio, e o gráfico ganharia uma barra fantasma.
+//
+// ─────────────── a ordem dos ramos do CASE não é decorativa ───────────────
+//
+// O conjunto (usucod, carcod) — a matriz — tem `grouping` ZERO nas DUAS colunas.
+// Se o ramo dele não vier primeiro, ele cai no ramo de 'operadora' e a matriz
+// inteira é lida como um ranking de operadoras com os valores repartidos por
+// carteira: os números somam certo e o rótulo mente. O ramo composto é o
+// primeiro de propósito.
+//
+// ───────────────── o mês é chave inteira, como a hora ─────────────────
+//
+// `202608` e não `'2026-08'`: `chave` é `int` no contrato de `Fatia`, e um
+// inteiro assim ordena sozinho sem parsear texto. O rótulo legível vai à parte.
 
 const SQL_ACORDOS = `
 WITH aco AS (
@@ -99,7 +178,7 @@ WITH aco AS (
    WHERE a.acoati = 0
      AND a.acodatinc::date >= $1::date
      AND a.acodatinc::date <= $2::date
-     AND ($3::int IS NULL OR a.carcod = $3::int)
+     AND ($3::int[] IS NULL OR a.carcod = ANY($3::int[]))
 ), dono AS (
   SELECT a.acocod, a.carcod, a.acodatinc, a.acovalatu,
          COALESCE(m.retusucod, a.acousuinc) AS usucod
@@ -118,35 +197,60 @@ WITH aco AS (
 ), base AS (
   SELECT d.acovalatu, d.usucod, u.usunom,
          d.carcod, COALESCE(ca.carnom, ca.carnomabr) AS carnom,
-         extract(hour from d.acodatinc)::int AS hora
+         extract(hour from d.acodatinc)::int AS hora,
+         (extract(year from d.acodatinc) * 100
+          + extract(month from d.acodatinc))::int AS mes,
+         to_char(d.acodatinc, 'MM/YYYY') AS mes_rotulo
     FROM dono d
     -- LEFT e não JOIN: com o inner, um acordo cujo operador sumiu do cadastro
     -- desapareceria da CONTAGEM TOTAL também, e o número grande da tela
     -- encolheria sem que ninguém percebesse. Aqui ele vira "(sem operadora)".
     LEFT JOIN usuario u  ON u.usucod = d.usucod
     LEFT JOIN carteira ca ON ca.carcod = d.carcod
-   WHERE ($4::int IS NULL OR EXISTS (
+   WHERE ($4::int[] IS NULL OR EXISTS (
            SELECT 1 FROM grupo_usuario gu
-            WHERE gu.usucod = d.usucod AND gu.usugrucod = $4::int))
+            WHERE gu.usucod = d.usucod AND gu.usugrucod = ANY($4::int[])))
+     AND ($5::int[] IS NULL OR d.usucod = ANY($5::int[]))
 )
-SELECT CASE WHEN grouping(usucod) = 0 THEN 'operadora'
+SELECT CASE WHEN grouping(usucod) = 0 AND grouping(carcod) = 0
+                                      THEN 'operadora_carteira'
+            WHEN grouping(usucod) = 0 THEN 'operadora'
             WHEN grouping(carcod) = 0 THEN 'carteira'
+            WHEN grouping(mes)    = 0 THEN 'mes'
             WHEN grouping(hora)   = 0 THEN 'hora'
             ELSE 'total' END AS eixo,
        CASE WHEN grouping(usucod) = 0 THEN usucod
             WHEN grouping(carcod) = 0 THEN carcod
+            WHEN grouping(mes)    = 0 THEN mes
             WHEN grouping(hora)   = 0 THEN hora END::int AS chave,
        CASE WHEN grouping(usucod) = 0 THEN usunom
-            WHEN grouping(carcod) = 0 THEN carnom END AS rotulo,
+            WHEN grouping(carcod) = 0 THEN carnom
+            WHEN grouping(mes)    = 0 THEN mes_rotulo END AS rotulo,
+       -- A segunda chave só existe na matriz: nos outros eixos ela é nula e o
+       -- leitor a ignora. É mais barato que uma consulta separada só para o
+       -- cruzamento, que repetiria o LATERAL de atribuição inteiro.
+       CASE WHEN grouping(usucod) = 0 AND grouping(carcod) = 0
+            THEN carcod END::int AS chave2,
+       CASE WHEN grouping(usucod) = 0 AND grouping(carcod) = 0
+            THEN carnom END AS rotulo2,
        count(*)::int AS qtd,
        COALESCE(sum(acovalatu), 0)::float8 AS valor
   FROM base
- GROUP BY GROUPING SETS ((usucod, usunom), (carcod, carnom), (hora), ())`;
+ GROUP BY GROUPING SETS (
+   (usucod, usunom),
+   (carcod, carnom),
+   (usucod, usunom, carcod, carnom),
+   (mes, mes_rotulo),
+   (hora),
+   ())`;
 
 const SQL_ACIONAMENTOS = `
 WITH base AS (
   SELECT r.usucod, u.usunom, r.devcod, cs.sitnom,
-         extract(hour from r.retdatinc)::int AS hora
+         extract(hour from r.retdatinc)::int AS hora,
+         (extract(year from r.retdatinc) * 100
+          + extract(month from r.retdatinc))::int AS mes,
+         to_char(r.retdatinc, 'MM/YYYY') AS mes_rotulo
     FROM retorno r
     LEFT JOIN usuario u ON u.usucod = r.usucod
     -- (carcod, sitcod) é único em carteira_situacao (conferido): o LEFT JOIN
@@ -157,28 +261,40 @@ WITH base AS (
      -- retdatinc é timestamp: "< dia seguinte" inclui o dia final inteiro.
      AND r.retdatinc >= $1::date
      AND r.retdatinc <  $2::date + 1
-     AND ($3::int IS NULL OR r.carcod = $3::int)
-     AND ($4::int IS NULL OR EXISTS (
+     AND ($3::int[] IS NULL OR r.carcod = ANY($3::int[]))
+     AND ($4::int[] IS NULL OR EXISTS (
            SELECT 1 FROM grupo_usuario gu
-            WHERE gu.usucod = r.usucod AND gu.usugrucod = $4::int))
+            WHERE gu.usucod = r.usucod AND gu.usugrucod = ANY($4::int[])))
+     -- No acionamento o dono é \`usucod\` (autor da ação) e não \`retusucod\`
+     -- (quem digitou) — as duas colunas seguem trocadas entre acordo e
+     -- acionamento, como o cabeçalho deste arquivo explica.
+     AND ($5::int[] IS NULL OR r.usucod = ANY($5::int[]))
 )
 SELECT CASE WHEN grouping(usucod) = 0 THEN 'operadora'
             WHEN grouping(sitnom) = 0 THEN 'situacao'
+            WHEN grouping(mes)    = 0 THEN 'mes'
             WHEN grouping(hora)   = 0 THEN 'hora'
             ELSE 'total' END AS eixo,
        CASE WHEN grouping(usucod) = 0 THEN usucod
+            WHEN grouping(mes)    = 0 THEN mes
             WHEN grouping(hora)   = 0 THEN hora END::int AS chave,
        CASE WHEN grouping(usucod) = 0 THEN usunom
-            WHEN grouping(sitnom) = 0 THEN sitnom END AS rotulo,
+            WHEN grouping(sitnom) = 0 THEN sitnom
+            WHEN grouping(mes)    = 0 THEN mes_rotulo END AS rotulo,
+       NULL::int AS chave2,
+       NULL::text AS rotulo2,
        count(*)::int AS qtd,
        count(DISTINCT devcod)::int AS valor
   FROM base
- GROUP BY GROUPING SETS ((usucod, usunom), (sitnom), (hora), ())`;
+ GROUP BY GROUPING SETS (
+   (usucod, usunom), (sitnom), (mes, mes_rotulo), (hora), ())`;
 
 type LinhaEixo = {
   eixo: string;
   chave: number | null;
   rotulo: string | null;
+  chave2: number | null;
+  rotulo2: string | null;
   qtd: number;
   valor: number;
 };
@@ -231,18 +347,80 @@ function linhaDoTempo(linhas: LinhaEixo[]): Fatia[] {
   return faixa;
 }
 
+/**
+ * A série mensal, em ordem de calendário.
+ *
+ * Sem preencher buraco, ao contrário da linha do tempo por hora: o rótulo aqui é
+ * "08/2026", que diz de qual mês é cada barra sem depender da posição. O que
+ * engana em hora ("9h" ao lado de "14h" parecem seguidos) não engana em mês.
+ *
+ * Dentro do teto de 92 dias isto rende até quatro baldes. É pouco para "o ano" —
+ * e é o que o teto do CRM de produção permite (decisão 39).
+ */
+function serieMensal(linhas: LinhaEixo[]): Fatia[] {
+  return linhas
+    .filter((l) => l.eixo === "mes")
+    .map((l) => ({
+      chave: l.chave,
+      rotulo: l.rotulo?.trim() || "(sem mês)",
+      qtd: l.qtd,
+      valor: l.valor,
+    }))
+    .sort((a, b) => (a.chave ?? 0) - (b.chave ?? 0));
+}
+
+/**
+ * O cruzamento operadora × carteira, com teto.
+ *
+ * Ordena por valor porque a pergunta é "onde está o dinheiro desta pessoa"; o
+ * corte cai na cauda, que é onde ele dói menos. `truncada` sobe até a tela: uma
+ * matriz cortada em silêncio lê como "é tudo isso".
+ */
+function matrizDe(linhas: LinhaEixo[]): Matriz {
+  const todas = linhas
+    .filter((l) => l.eixo === "operadora_carteira")
+    .map((l) => ({
+      operadora: l.chave,
+      operadoraNome: l.rotulo?.trim() || SEM_OPERADORA,
+      carteira: l.chave2,
+      carteiraNome: l.rotulo2?.trim() || SEM_CARTEIRA,
+      qtd: l.qtd,
+      valor: l.valor,
+    }))
+    .sort((a, b) => b.valor - a.valor || b.qtd - a.qtd);
+  return {
+    celulas: todas.slice(0, MAX_CELULAS),
+    truncada: todas.length > MAX_CELULAS,
+  };
+}
+
 function totalDe(linhas: LinhaEixo[]): { qtd: number; valor: number } {
   const t = linhas.find((l) => l.eixo === "total");
   return { qtd: t?.qtd ?? 0, valor: t?.valor ?? 0 };
 }
 
-export async function acordosDo(f: Filtro): Promise<Acordos> {
-  const linhas = await consultaRelatorio<LinhaEixo>(SQL_ACORDOS, [
-    f.inicio,
-    f.fim,
-    f.carteira,
-    f.equipe,
-  ]);
+/**
+ * Os parâmetros do recorte, na ordem que todas as consultas usam.
+ *
+ * Uma função e não quatro literais espalhados: a ordem posicional de `$3`, `$4`
+ * e `$5` é a mesma em sete consultas, e trocar duas de lugar não dá erro
+ * nenhum — dá um relatório filtrado pela coluna errada.
+ */
+export function recorte(
+  f: Omit<Filtro, "inicio" | "fim">,
+): [number[] | null, number[] | null, number[] | null] {
+  return [f.carteiras, f.equipes, f.operadoras];
+}
+
+export async function acordosDo(
+  f: Filtro,
+  timeoutMs = TIMEOUT_TELA,
+): Promise<Acordos> {
+  const linhas = await consultaRelatorio<LinhaEixo>(
+    SQL_ACORDOS,
+    [f.inicio, f.fim, ...recorte(f)],
+    timeoutMs,
+  );
   const total = totalDe(linhas);
   return {
     qtd: total.qtd,
@@ -250,16 +428,20 @@ export async function acordosDo(f: Filtro): Promise<Acordos> {
     porOperadora: fatias(linhas, "operadora", SEM_OPERADORA),
     porCarteira: fatias(linhas, "carteira", SEM_CARTEIRA),
     porHora: linhaDoTempo(linhas),
+    porMes: serieMensal(linhas),
+    matriz: matrizDe(linhas),
   };
 }
 
-export async function acionamentosDe(f: Filtro): Promise<Acionamentos> {
-  const linhas = await consultaRelatorio<LinhaEixo>(SQL_ACIONAMENTOS, [
-    f.inicio,
-    f.fim,
-    f.carteira,
-    f.equipe,
-  ]);
+export async function acionamentosDe(
+  f: Filtro,
+  timeoutMs = TIMEOUT_TELA,
+): Promise<Acionamentos> {
+  const linhas = await consultaRelatorio<LinhaEixo>(
+    SQL_ACIONAMENTOS,
+    [f.inicio, f.fim, ...recorte(f)],
+    timeoutMs,
+  );
   const total = totalDe(linhas);
   return {
     qtd: total.qtd,
@@ -269,6 +451,7 @@ export async function acionamentosDe(f: Filtro): Promise<Acionamentos> {
     porOperadora: fatias(linhas, "operadora", SEM_OPERADORA),
     porSituacao: fatias(linhas, "situacao", SEM_SITUACAO),
     porHora: linhaDoTempo(linhas),
+    porMes: serieMensal(linhas),
   };
 }
 
@@ -357,6 +540,51 @@ export async function carteiras(): Promise<Carteira[]> {
     return linhas.map((l) => ({
       cod: l.cod,
       nome: l.nome?.trim() || `Carteira ${l.cod}`,
+    }));
+  });
+}
+
+/**
+ * As operadoras, com a equipe ao lado.
+ *
+ * ─────────────── por que a lista NÃO é filtrada por atividade ───────────────
+ *
+ * As duas listas vizinhas cortam pelo que produziu: carteira precisa ter acordo
+ * no ano, equipe precisa ter membro. Aqui o corte equivalente seria "quem
+ * acionou nos últimos meses", e ele custa uma varredura em `retorno` — 55
+ * milhões de linhas para desenhar um seletor. Também não dá para usar
+ * `usuario.usuatiina` sem saber de que lado o flag liga, e adivinhar a polaridade
+ * de uma coluna do CRM é exatamente o que este projeto não faz.
+ *
+ * Então vêm as 353, ordenadas por nome, e quem separa é a busca do seletor. A
+ * equipe vai junto como nota justamente para isso: "EQUIPE AZUL" ao lado do nome
+ * é o que distingue a operadora atual da homônima que saiu em 2019.
+ *
+ * `string_agg` e não `JOIN` porque um operador pode estar em mais de um grupo —
+ * é a mesma razão de o filtro de equipe ser `EXISTS` e não join.
+ */
+export async function operadoras(): Promise<Operadora[]> {
+  return lembrando("operadoras", async () => {
+    const linhas = await consultaRelatorio<{
+      cod: number;
+      nome: string | null;
+      equipe: string | null;
+    }>(
+      `SELECT u.usucod::int AS cod,
+              u.usunom       AS nome,
+              string_agg(DISTINCT g.usugrunom, ', ' ORDER BY g.usugrunom) AS equipe
+         FROM usuario u
+         LEFT JOIN grupo_usuario gu ON gu.usucod = u.usucod
+         LEFT JOIN grupo g          ON g.usugrucod = gu.usugrucod
+        GROUP BY 1, 2
+        ORDER BY 2`,
+      [],
+      10_000,
+    );
+    return linhas.map((l) => ({
+      cod: l.cod,
+      nome: l.nome?.trim() || `Operadora ${l.cod}`,
+      equipe: l.equipe?.trim() || null,
     }));
   });
 }
