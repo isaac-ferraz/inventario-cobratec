@@ -17,6 +17,8 @@ import {
   filtroCelular,
   filtroChamado,
   filtroComputador,
+  filtroFuncionario,
+  filtroSala,
 } from "@/lib/supervisao";
 import { ROTULO_STATUS, STATUS_ABERTOS, type Status } from "@/lib/chamados";
 import {
@@ -25,10 +27,20 @@ import {
   type Situacao,
 } from "@/lib/ativos";
 import { PENDENCIAS } from "@/lib/pendencias";
+import {
+  comFiltro,
+  lerFiltroDashboard,
+  ondeCelularFiltrado,
+  ondeChamadoFiltrado,
+  ondeComputadorFiltrado,
+  temFiltro,
+  type ParamsBrutos,
+} from "@/lib/dashboard-filtros";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButton } from "@/components/export-button";
 import { AlternadorRelatorio } from "@/components/relatorios/alternador";
 import { BarList, CardPendencia, Kpi } from "@/components/dashboard/cards";
+import { FiltrosDashboard } from "@/components/dashboard/filtros";
 import {
   LIMITE_DETALHE,
   type Barra,
@@ -88,7 +100,7 @@ function itemCel(c: CelComRelacoes): ItemDetalhe {
 }
 
 /** Monta o detalhe de um indicador a partir da lista completa dele. */
-function detalhe(
+function montarDetalhe(
   todos: ItemDetalhe[],
   href: string,
   descricao?: string,
@@ -101,7 +113,11 @@ function detalhe(
   };
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: ParamsBrutos;
+}) {
   // O painel do supervisor mostra o parque DELE. Sem este recorte, o número
   // grande na tela seria o da empresa inteira — e ele clicaria para abrir uma
   // lista com menos itens do que o card prometeu.
@@ -110,9 +126,21 @@ export default async function DashboardPage() {
   const escopo = escopoDe(usuario);
   const soDaSala = ehSupervisor(escopo);
 
-  const ondeComputador = filtroComputador(escopo) ?? {};
-  const ondeCelular = filtroCelular(escopo) ?? {};
-  const ondeChamado = filtroChamado(escopo) ?? {};
+  // ─── o filtro da pessoa COMPÕE com o escopo, nunca o substitui ───
+  //
+  // `ondeComputadorFiltrado` faz `{ AND: [escopo, escolha] }`. Com OR — ou
+  // trocando um pelo outro —, o supervisor da Sala 1 digitaria o id da Sala 9
+  // na barra de endereços e o painel obedeceria. Ver lib/dashboard-filtros.ts.
+  const filtro = lerFiltroDashboard(searchParams ?? {});
+  const ondeComputador = ondeComputadorFiltrado(filtroComputador(escopo), filtro);
+  const ondeCelular = ondeCelularFiltrado(filtroCelular(escopo), filtro);
+  const ondeChamado = ondeChamadoFiltrado(filtroChamado(escopo), filtro);
+
+  // Todo link do painel leva o recorte adiante: sem isso, clicar em "Sem
+  // licença Windows: 7" com uma sala filtrada abriria a lista com os sete da
+  // EMPRESA, e o card discordaria da lista que ele mesmo abriu.
+  const detalhe = (todos: ItemDetalhe[], href: string, descricao?: string) =>
+    montarDetalhe(todos, comFiltro(href, filtro), descricao);
 
   const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
@@ -166,6 +194,28 @@ export default async function DashboardPage() {
     etiqueta: ROTULO_STATUS[c.status as Status] ?? c.status,
     href: `/chamados/${c.id}`,
   });
+
+  // As opções do filtro. A de SALAS sai recortada pelo escopo — o supervisor não
+  // deve nem ver o nome de uma sala que não é dele. (O portão de verdade
+  // continua no `where`: esconder a opção não impede digitar o id na URL.)
+  const [salasDoFiltro, funcsDoFiltro] = await Promise.all([
+    prisma.sala.findMany({
+      where: filtroSala(escopo) ?? {},
+      orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+      select: { id: true, nome: true },
+    }),
+    // Os cargos saem de uma consulta PRÓPRIA, e não dos computadores já
+    // filtrados: derivá-los do resultado faria o seletor encolher a cada
+    // escolha — marcado "Operadora", só "Operadora" sobraria na lista, e não
+    // haveria como acrescentar "Gestor" sem limpar o filtro antes.
+    prisma.funcionario.findMany({
+      where: filtroFuncionario(escopo) ?? {},
+      select: { cargo: true },
+      distinct: ["cargo"],
+      orderBy: { cargo: "asc" },
+    }),
+  ]);
+  const cargosDoFiltro = funcsDoFiltro.map((f) => f.cargo);
 
   const [computadores, celulares] = await Promise.all([
     prisma.computador.findMany({
@@ -382,6 +432,8 @@ export default async function DashboardPage() {
           {!soDaSala && <ExportButton />}
         </div>
       </div>
+
+      <FiltrosDashboard salas={salasDoFiltro} cargos={cargosDoFiltro} />
 
       {/* Suporte vem primeiro: é o que pede ação hoje. */}
       <section className="space-y-3">
