@@ -7,7 +7,8 @@ import { ImportarCsv } from "@/components/importar-csv";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirmar } from "@/components/ui/confirmar-dialog";
-import { useFiltroUrl } from "@/hooks/use-filtro-url";
+import { useFiltroLista, useFiltroUrl } from "@/hooks/use-filtro-url";
+import { combina, combinaValor, lerSelecao } from "@/lib/filtros-multi";
 import { Filtros } from "@/components/celulares/filtros";
 import { CelularCard } from "@/components/celulares/celular-card";
 import { CelularDialog } from "@/components/celulares/celular-dialog";
@@ -25,8 +26,8 @@ export default function CelularesPage() {
   // Filtros na URL: é o que permite o Dashboard e o perfil do funcionário
   // mandarem a pessoa para esta tela já filtrada.
   const [busca, setBusca] = useFiltroUrl("busca", "");
-  const [filtroFunc, setFiltroFunc] = useFiltroUrl("funcionario", "todos");
-  const [filtroCargo, setFiltroCargo] = useFiltroUrl("cargo", "todos");
+  const [filtroFunc, setFiltroFunc] = useFiltroLista("funcionario");
+  const [filtroCargo, setFiltroCargo] = useFiltroLista("cargo");
 
   // diálogo (a tela só guarda "o que está aberto e com qual registro";
   // o estado do formulário vive dentro do diálogo)
@@ -62,15 +63,11 @@ export default function CelularesPage() {
   );
 
   const termo = busca.trim().toLowerCase();
+  const selFunc = lerSelecao(filtroFunc, "todos");
+  const selCargo = lerSelecao(filtroCargo, "todos");
   const filtrados = celulares.filter((c) => {
-    if (filtroFunc === "sem" && c.funcionarioId) return false;
-    if (filtroFunc === "com" && !c.funcionarioId) return false;
-    if (filtroFunc !== "todos" && filtroFunc !== "sem" && filtroFunc !== "com") {
-      if (c.funcionarioId !== filtroFunc) return false;
-    }
-    if (filtroCargo !== "todos") {
-      if (c.funcionario?.cargo !== filtroCargo) return false;
-    }
+    if (!combina(selFunc, c.funcionarioId)) return false;
+    if (!combinaValor(selCargo, c.funcionario?.cargo)) return false;
     if (termo) {
       const alvo = [
         c.identificador,
