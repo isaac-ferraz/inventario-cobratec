@@ -157,7 +157,8 @@ docker compose up -d --build
 # acesso: http://localhost:3000  (ou http://<IP-da-máquina>:3000 na LAN)
 ```
 Scripts úteis: `db:migrate`, `db:studio`, `db:seed`, `db:catalogo`, `db:salas`,
-`db:admin`.
+`db:admin`, `db:backup`. Medidores do CRM (só leitura, antes de o número virar
+tela): `db:validar-parcelas` e `db:validar-comissao`.
 
 ## Decisões técnicas
 Registradas em [`docs/decisoes.md`](./decisoes.md): SQLite como fonte de verdade;
@@ -338,6 +339,34 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     é chamado pelos dois caminhos — a que roda de madrugada, sem ninguém olhando,
     é a que ficaria para trás. Testes: 568 → **780**.
 
+32. **Filtro múltiplo e Excel sob medida** (decisão 39): todo filtro de recorte
+    passa a aceitar **mais de um valor** (`?carteira=12,45,88` — os links que o
+    Dashboard já espalhou continuam valendo, porque um código só é uma lista de
+    um), e entrou o filtro que faltava, **operadora**. O parse vive em
+    `lib/relatorios-filtros.ts`, com teto de 50 códigos e entrada torta virando
+    **400** — filtro que falha para o lado permissivo mostra mais do que a pessoa
+    pediu, e ela não percebe. A UI é um diálogo com busca e checkbox
+    (`seletor-multiplo.tsx`), **sem dependência nova**, no padrão que
+    `salas/trazer-dialog.tsx` já tinha. Os `GROUPING SETS` ganharam a matriz
+    **operadora × carteira** e o eixo **mês** na mesma varredura. `COBRANCA`
+    recebe **403** ao filtrar por operadora: sem isso ela reconstruiria, um
+    pedido por vez, o ranking de colegas que a decisão 36 lhe nega.
+
+    Junto vieram a **exportação Excel dos relatórios** — 17 abas ligáveis, com
+    "Parâmetros" **obrigatória**, porque planilha de número sem o recorte que o
+    produziu vira número sem dono ao ser encaminhada; consultas em **fila de 3**
+    (o pool do Siscobra é `max: 4`) e uma exportação por usuário — e a
+    **comissão** (`lib/relatorios-comissao.ts`), que veio depois do medidor:
+    `scripts/validar-comissao.ts` derrubou a primeira versão da consulta ao
+    mostrar que `comissao.comopecod` **não é a operadora** (100% órfã em
+    `usuario`; ela está em `comissao_operadores.usucod`). Terceira vez que a
+    coluna de nome óbvio é a errada neste CRM. Como falta comparar um mês com o
+    relatório impresso, `CONFERIDA = false` e a comissão sai **só como aba da
+    planilha**, sem posição no alternador. O **Dashboard de Informática** ganhou
+    filtro próprio, composto com o escopo do supervisor por **AND** (com OR,
+    `?sala=` na barra de endereços seria escalada de privilégio). Testes:
+    780 → **866**.
+
 ### O que sobrou para depois
 
 > Fora do chatbot, o que segura o projeto hoje não é código — é **onde ele
@@ -352,6 +381,12 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
   todo aviso ser gravado e nenhum ser entregue; `PURGA_MODO` continua em `seco`
   (de propósito) esperando alguém conferir a primeira lista; e `OLLAMA_URL` ainda
   aponta para um túnel sorteado, não para o endereço fixo da emenda de 13/08.
+- **Conferir a comissão contra o relatório impresso** (decisão 39). É a única
+  coisa que script nenhum faz: `db:validar-comissao` mediu a fonte e corrigiu a
+  atribuição por operadora, mas ninguém comparou um mês com o documento que o
+  Siscobra imprime — como foi feito com acordos e acionamentos (104/104, 100%).
+  Enquanto isso, `CONFERIDA = false` e a comissão sai só na planilha, com a
+  ressalva junto. Feita a conferência, ela ganha a quarta posição do alternador.
 - **Confirmação visual em 390px**: a estrutura mobile foi auditada e não tem
   impedimento (layout empilha em `md:`, tabelas rolam no próprio container), mas
   falta olhar numa tela de celular de verdade — fonte, diálogos e alvo de toque

@@ -156,6 +156,7 @@ npm run db:catalogo         # garante só o catálogo de tipos (idempotente)
 npm run db:salas            # garante as salas iniciais (idempotente)
 npm run db:admin            # garante um administrador inicial (idempotente)
 npm run db:validar-parcelas # confere a baixa de parcela no Siscobra (leitura)
+npm run db:validar-comissao # mede as tabelas de comissão antes de virar planilha
 docker compose up -d --build # subir via Docker (porta 3000, banco em volume)
 ```
 
@@ -549,6 +550,82 @@ até alguém conferir. O corpo do `DELETE` manual saiu da rota para
 arquivos no disco precisam de dono único, e a implementação que roda de
 madrugada é a que ficaria para trás. Decisões puras e testadas em
 `lib/retencao.ts`; o texto do aviso nunca carrega telefone.
+
+**Filtro múltiplo e Excel sob medida (decisão 39):** todo filtro de recorte
+passa a aceitar **mais de um valor**, e entrou o filtro que faltava —
+**operadora**. A URL segue no singular (`?carteira=12,45,88`), então os links que
+o Dashboard já espalhou continuam valendo: um código só é uma lista de um. No SQL
+a troca é `= ANY($3::int[])`, com `null` ainda significando "todas" (e a cláusula
+sumindo da consulta). O parse vive em **`lib/relatorios-filtros.ts`**, que matou
+a `codigo()` copiada byte a byte em três rotas; teto de 50 códigos, porque a
+query string é a superfície pública de um banco de **produção**. Entrada torta é
+400, nunca "todas" — filtro que falha para o lado permissivo mostra mais do que a
+pessoa pediu e ela não percebe.
+
+A UI é `components/relatorios/seletor-multiplo.tsx`, **sem dependência nova**: o
+Radix `Select` não faz multi e o projeto não tem Popover/Checkbox, mas
+`components/salas/trazer-dialog.tsx` já era o padrão (diálogo com busca, checkbox
+e ação em lote) — e é o certo para listas de 191 carteiras e 353 operadoras. O
+mesmo componente serve relatórios, listas do inventário e Dashboard.
+
+Os `GROUPING SETS` ganharam dois eixos na **mesma varredura**: `operadora ×
+carteira` (a matriz que faltava, com teto de 5.000 células e aviso quando trunca)
+e `mês`. **Armadilha anotada:** o ramo composto do `CASE` precisa vir primeiro,
+senão a matriz é lida como ranking de operadoras e o rótulo mente com os números
+certos. Outra: `NULL = ANY(...)` é NULL, então acordo sem dono resolvido **sai**
+ao filtrar por operadora — certo, mas faz a soma das partes não fechar com o
+total.
+
+O **filtro de operadora é um recorte nominal**, então `COBRANCA` recebe 403 ao
+usá-lo: sem essa trava ela reconstruiria, um pedido por vez, o ranking de colegas
+que a decisão 36 lhe nega.
+
+**Comissão ("honorários"):** `scripts/validar-comissao.ts`
+(`npm run db:validar-comissao`) veio antes da consulta, no molde do
+`validar-parcelas.ts` — e **derrubou a primeira versão dela**. Medido em
+18/08/2026: `comissao.comopecod` **não é a operadora** (139.842 valores distintos
+em 139.842 linhas, 100% órfãos em `usuario` — é um id sequencial), e `comusuinc`
+é o back-office (19 valores). A operadora está em
+**`comissao_operadores.usucod`** (146 pessoas, nomes reais). Terceira vez que a
+coluna de nome óbvio é a errada neste CRM, depois de `acovalatu` e `retusucod`.
+Também medido: `comopeval`/`comopeper` **todos zerados** (não há repartição por
+tipo — o valor é `comvalcom`, a comissão inteira, e por isso a aba se chama
+comissão e não honorário); 3 linhas por comissão com **96,2%** de pessoa única
+(daí o `DISTINCT ON`, senão o dinheiro triplicava); **14%** sem operadora
+reconhecida; `carteira_comissoes` e `carteira_repasse` **vazias**. Falta só o que
+script nenhum faz — comparar um mês com o relatório impresso —, e até lá
+`CONFERIDA = false` em `lib/relatorios-comissao.ts` mantém a ressalva (com os
+números medidos) colada ao número. Por isso a comissão **sai só como aba da
+planilha**, sem posição no alternador: número que ainda não bate com o documento
+oficial não senta ao lado de acordos e carteira, conferidos 104/104. Portão
+`exigirRelatorio`.
+
+**A planilha dos relatórios** (`lib/excel-relatorios.ts` +
+`GET /api/relatorios/exportar` + `components/relatorios/exportar-dialog.tsx`):
+17 abas ligáveis, com **"Parâmetros" obrigatória** — planilha de números sem o
+recorte que os produziu vira número sem dono ao ser encaminhada, desfazendo o que
+a decisão 23 resolveu. Ela carrega o recorte **por nome**, quem exportou e as
+ressalvas de método. Duas janelas convivem (período olha para trás, janela olha
+para frente) porque uma só forçaria uma das metades a mentir. O corte por papel
+**recusa nomeando a aba** em vez de entregá-la vazia, e a matriz da 36 sai
+intacta. As consultas vão em **fila de 3** (o pool do Siscobra é `max: 4`, e
+`Promise.all` estouraria o `connectionTimeoutMillis` deixando as telas sem
+conexão), com timeout de 60s e trava de uma exportação por usuário.
+
+Junto saíram dois defeitos antigos do gerador do inventário, expostos pela
+extração de `lib/excel-estilo.ts`: **não havia um único `numFmt`** (valor cru,
+data como texto — a coluna não ordenava como data no Excel), e
+`adicionarBlocoIndicador` não contava a linha do "(sem dados)", fazendo um bloco
+vazio ser sobrescrito pelo seguinte. Entrou também `autoFilter` no cabeçalho.
+
+**O Dashboard de Informática ganhou filtro próprio** (`sala`, `cargo`,
+`situacao`), aplicado no `where` do Prisma. A escolha compõe com o escopo do
+supervisor por **AND** (`{ AND: [escopo, escolha] }`, nunca mesclando chaves —
+`filtroComputador` devolve um `OR` que seria sobrescrito): com OR, `?sala=` na
+barra de endereços seria escalada de privilégio. Pedir sala fora do escopo
+devolve zero. O filtro **viaja nos links** dos indicadores via `detalhe()`, senão
+o card e a lista que ele abre discordariam. Regras puras e testadas em
+`lib/filtros-multi.ts` e `lib/dashboard-filtros.ts`.
 
 **Infra:**
 - **Excel:** o dashboard usa *data bars* (formatação condicional), porque o

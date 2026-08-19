@@ -2559,3 +2559,246 @@ acrescentar telefone "para facilitar".
 Testes: 685 → **767** (`lib/relatorios-carteira.test.ts` 10, `lib/agendador.test.ts`
 10, `lib/retencao.test.ts` 11, `tests/api/relatorios-carteira.test.ts` 22,
 `tests/api/agendador.test.ts` 17, mais 12 de janela em `lib/relatorios.test.ts`).
+
+---
+
+## 39. O filtro aceita mais de um, e a planilha sai do recorte
+
+Os relatórios de cobrança (35) e carteira (36) nasceram com dois filtros, e os
+dois de escolha única: **uma** carteira ou todas, **uma** equipe ou todas. Na
+operação isso não fecha — quem cuida das três carteiras do mesmo cedente somava
+três telas na mão. E o número que a gestão persegue o mês inteiro, o que cada
+operadora rendeu **carteira por carteira**, não tinha tela nenhuma: os
+`GROUPING SETS` davam operadora *ou* carteira, nunca o cruzamento.
+
+O segundo pedido é a saída: um **Excel que obedeça ao filtro montado na tela**,
+com abas escolhidas na hora. A decisão 35 registrou a exportação como "cabe, e
+não foi feita agora". É agora.
+
+### O SQL era a parte barata
+
+`($3::int IS NULL OR a.carcod = $3::int)` vira
+`($3::int[] IS NULL OR a.carcod = ANY($3::int[]))`, e o `pg` serializa um array
+JS direto. Oito consultas, uma troca mecânica. `null` continua significando
+"todas" — e é o que faz a cláusula **sumir** em vez de virar um `IN` com as 191
+carteiras dentro.
+
+O que custou foi a UI, e por um motivo que não estava no plano: o projeto **não
+tem Popover, Checkbox nem Command** em `components/ui/`, e o `Select` do Radix
+não faz multi-seleção. O caminho canônico entraria com duas dependências para
+desenhar uma caixa com checkbox. O padrão já existia pronto em
+**`components/salas/trazer-dialog.tsx`** — diálogo com busca, checkbox e ação em
+lote —, que é exatamente esta interação e é também o certo pelo tamanho da
+lista: 191 carteiras e 353 operadoras não cabem num menu suspenso.
+
+**Zero dependência nova.** `components/relatorios/seletor-multiplo.tsx` serve os
+três lugares: relatórios, listas do inventário e Dashboard.
+
+### O tri-estado, e o plural que força a visita
+
+`lib/relatorios-filtros.ts` mata a `codigo()` que estava **copiada byte a byte em
+três rotas** — duas cópias da mesma regra já divergiram uma vez neste projeto
+(a lista de papéis, 25.1), e o preço foi um papel inalcançável na prática.
+
+Três valores, três significados: `null` = todas · `number[]` = o recorte ·
+`undefined` = entrada torta, que vira **400**. Filtro que falha para o lado
+permissivo mostra mais do que a pessoa pediu, e ela não tem como perceber.
+
+**Teto de 50 códigos.** Escolher as 191 carteiras já tem nome, e é `null`. O teto
+existe para o outro caso: a query string é a superfície pública do relatório, e
+sem limite ela é um jeito de mandar um `IN` de dez mil itens contra um banco de
+produção a partir da barra de endereços.
+
+Renomear `carteira` → `carteiras` foi de propósito: o compilador apontou os dez
+pontos de uso, inclusive os do relógio da decisão 37, em vez de deixar um
+sobrevivente comparando número com array.
+
+### Duas armadilhas anotadas onde mordem
+
+**`NULL = ANY(...)` devolve NULL, não `false`.** `d.usucod` pode ser nulo — é o
+acordo cujo operador sumiu do cadastro, que os `LEFT JOIN` preservam de propósito
+para o TOTAL não encolher em silêncio. Ao filtrar por operadora, esse acordo
+**sai**. É o comportamento certo (quem pede "os acordos da Ana" não quer o
+órfão), e a consequência está escrita em `FILTRO_PESSOA`: com filtro de operadora
+ligado, a soma das partes pode não fechar com o total. A diferença são os órfãos.
+
+**A ordem dos ramos do `CASE` não é decorativa.** O conjunto `(usucod, carcod)`
+— a matriz — tem `grouping` zero nas duas colunas. Se o ramo dele não vier
+primeiro, ele cai no ramo de `'operadora'` e a matriz inteira é lida como um
+ranking com os valores repartidos por carteira: os números somam certo e **o
+rótulo mente**.
+
+### O buraco que o pedido não previa
+
+O filtro de operadora é, ele mesmo, um recorte nominal. A decisão 36 nega à
+operadora de `COBRANCA` o ranking por operadora — deixar que ela **filtre** por
+operadora devolveria o mesmo dado pela porta dos fundos, um pedido por vez, e
+ela reconstruiria o ranking inteiro.
+
+O portão é no servidor (403), e não em esconder o seletor: a query string é
+editável. A lista de operadoras também não é servida a quem não pode filtrar por
+ela — mas isso é cortesia; o portão é o outro.
+
+### Honorário: o nome bonito e o número certo
+
+O pedido dizia "honorários por mês de cada operadora por carteira", e honorário
+**não existe como dado validado** em nenhum dos dois projetos:
+
+- `carteira_comissoes` — a tabela que guardaria o % por carteira, com
+  `compercomis`/`comperacor`/`comperacio` — está **VAZIA**. `carteira_repasse`
+  também. O percentual não é recalculável.
+- `usuario.usuperhon` existe e **nunca foi lido** por nada neste sistema.
+- `comissao` (133.264 linhas: `comopecod`, `comcarcod`, `comacocod`,
+  `comdatpag`, `comvalcom`) tem exatamente a granularidade pedida, e
+  `comissao_operadores` (399.792) reparte por tipo — a razão ≈ 3,0 sugere tipo
+  fixo. **Nenhum ADR do projeto irmão as tocou.**
+
+Acordos e acionamentos foram conferidos contra os PDFs que o Siscobra imprime
+(104/104, 100%). Comissão não foi, por ninguém. Então a medição veio antes:
+**`scripts/validar-comissao.ts`** (`npm run db:validar-comissao`), no molde do
+`validar-parcelas.ts`.
+
+### E ela derrubou a primeira versão da consulta
+
+Rodado contra o CRM em **18/08/2026**, o script achou o erro que ninguém teria
+achado lendo o código:
+
+> **`comissao.comopecod` não é o código da operadora.** São **139.842 valores
+> distintos em 139.842 linhas** (faixa 106–2.636.812) e **100% órfãos** em
+> `usuario`. É um id sequencial da própria tabela.
+
+`comusuinc` também não serve — 19 valores distintos, todos válidos: é o
+back-office que lançou o registro, não quem trabalhou o caso. A operadora está em
+**`comissao_operadores.usucod`**: 146 pessoas, nomes reais, 86% casando com o
+cadastro.
+
+É a **terceira vez** que este projeto tropeça na mesma armadilha — `acovalatu` e
+não `acoval`, `retusucod` e não `acousuinc`, e agora esta. No Siscobra, a coluna
+de nome óbvio é a errada, e isso já deixou de ser coincidência: é o padrão.
+
+Mais três medidas que mandaram no desenho:
+
+- **`comopeval` e `comopeper` estão TODOS zerados.** A repartição por
+  `comopetipo` que a tabela promete não existe neste banco. O único valor é
+  `comvalcom`, da comissão inteira — e é por isso que a aba se chama
+  **comissão**, não honorário.
+- **São exatamente 3 linhas por comissão** (419.526 / 139.842 = 3,00), e em
+  **96,2%** delas é a mesma pessoa (máximo observado: 2). Somar pelo join cru
+  triplicaria o dinheiro; daí o `DISTINCT ON (comcod)`. Nos 3,8% restantes o
+  valor inteiro é creditado a uma das duas, e isso está na ressalva.
+- **14% das comissões** têm `usucod` fora do cadastro e caem em
+  "(sem operadora)" — mais em janelas recentes (21,8% no último trimestre).
+
+Conferido depois da correção: `comissaoDe` devolve **8.810 itens e R$ 463.365,28**
+num trimestre, exatamente o que `SELECT count(*), sum(comvalcom) FROM comissao`
+diz sozinho. Nenhuma multiplicação.
+
+O que o script **não** faz, e continua faltando: comparar um mês com o relatório
+que o Siscobra imprime. Até lá, `CONFERIDA = false` em
+`lib/relatorios-comissao.ts` mantém a ressalva **colada ao número** — e ela
+carrega os números medidos, não uma precaução genérica: ressalva vaga é ruído e a
+pessoa aprende a pular.
+
+Colada ao número quer dizer, hoje, **na planilha**: a comissão saiu só como aba,
+sem painel próprio. Não é esquecimento — é o selo mandando. Um número que ainda
+não bate com o documento oficial não merece uma posição no alternador ao lado de
+acordos e carteira, que foram conferidos 104/104. A consulta e a `RESSALVA` já
+estão prontas para a tela no dia em que a conferência acontecer.
+
+Foi assim que "em atraso" nasceu na 36 — dizendo "venceu e não achamos a baixa",
+e não "não pagou". **Um número com o nome certo vale mais que um número com o
+nome bonito.**
+
+Portão: `exigirRelatorio` (admin e supervisor). Comissão é remuneração nominal de
+colega, com mais força ainda que o ranking da 35.
+
+### A planilha, e a aba que não é opcional
+
+`lib/excel-relatorios.ts`, 17 abas ligáveis. **"Parâmetros" entra sempre**, mesmo
+sem ser pedida: uma planilha de números sem o recorte que os produziu circula por
+e-mail e vira um número sem dono. Foi para não ter esse problema que a 23 pôs o
+filtro na URL; a planilha não pode desfazê-lo. Ela carrega o recorte **por nome**
+("FESTCARD", não "7"), quem exportou, quando, e as ressalvas de método — que são
+lidas longe da tela que as explica.
+
+**Duas janelas, e precisam ser duas.** Acordo e comissão olham para TRÁS ("o que
+fechou"); a carteira olha para FRENTE ("o que vence"). Uma janela só forçaria uma
+das metades a mentir. A capa diz qual vale para quê, e o painel da carteira
+remapeia `inicio`/`fim` para `janelaInicio`/`janelaFim` ao montar o link — mandar
+cru gravaria data de vencimento como se fosse data de fechamento: nenhum erro, e
+um número errado.
+
+**O recorte por papel recusa NOMEANDO a aba** (403: *"Seu perfil não alcança a
+aba 'Acordos · operadora'"*), em vez de entregá-la vazia. Vazio silencioso é a
+doença que a 30 pagou para aprender. A matriz da 36 sai intacta: supervisor nunca
+vê nome de devedor, cobrança nunca vê ranking de colega.
+
+**Fila de três, não `Promise.all`.** O pool do Siscobra é `max: 4`. Oito
+consultas em paralelo enfileiram no pool e as últimas estouram o
+`connectionTimeoutMillis` de 5s — o erro sairia como "não foi possível consultar
+o Siscobra", que manda o TI procurar defeito na rede. Três de cada vez deixa
+conexão livre para as **telas**, que continuam sendo usadas enquanto a planilha
+é gerada. E `timeout` de 60s, porque ninguém está olhando.
+
+**Uma exportação por usuário.** Duplo clique num botão que demora 40s é o
+comportamento normal de quem acha que não funcionou; sem trava, ele dobra a carga
+no CRM.
+
+### Dois defeitos antigos que saíram junto
+
+Extrair `lib/excel-estilo.ts` (compartilhado com a planilha do inventário)
+deixou dois à vista, e nenhum é opinião:
+
+1. **`lib/excel.ts` não tinha um único `numFmt`.** Valor saía cru ("3450.9") e
+   data saía como **texto** — a coluna não ordenava nem filtrava como data no
+   Excel (13/08 antes de 02/09, por ordem alfabética). Agora `Date` + `numFmt`,
+   mais `autoFilter` no cabeçalho.
+2. **`adicionarBlocoIndicador` não contava a linha do "(sem dados)".** A
+   aritmética `r += 1 + dados.length + 1` errava quando o bloco vinha vazio, e o
+   bloco seguinte escrevia por cima dele. Com o parque cheio isso nunca
+   apareceu; num banco recém-instalado, sim. O helper agora devolve a próxima
+   linha livre e a conta sumiu de quem chama.
+
+### O Dashboard ganhou filtro, e o escopo continua sendo teto
+
+O painel de Informática nunca teve filtro: os números eram do parque inteiro e o
+recorte acontecia depois, no link para a lista. Isso resolve "quais são os sete
+sem licença" e não resolve "como está a Sala 93".
+
+A regra que não pode escorregar: o supervisor (24) chega com um recorte imposto
+pelo servidor, e a escolha compõe com ele por **AND**, montando
+`{ AND: [escopo, escolha] }` — nunca mesclando as chaves num objeto só, porque
+`filtroComputador` devolve um `OR` de duas condições e espalhá-lo junto com outro
+`OR` faria uma sobrescrever a outra em silêncio. Com OR, o supervisor da Sala 1
+digitaria o id da Sala 9 na barra de endereços e o painel obedeceria. Pedir sala
+fora do escopo devolve **zero**, que é a resposta certa.
+
+E o filtro **viaja nos links**: `detalhe()` é o funil único dos catorze
+indicadores, então aplicar `comFiltro` nele bastou. Sem isso, "Sem licença
+Windows: 7" com uma sala filtrada abriria a lista com os sete da empresa — card e
+lista discordando, que é o defeito que a 23 resolveu.
+
+Detalhe pequeno com consequência: a lista de **cargos** do seletor sai de uma
+consulta própria, e não dos computadores já filtrados. Derivá-la do resultado
+faria o seletor encolher a cada escolha — marcado "Operadora", só "Operadora"
+sobraria, e não haveria como acrescentar "Gestor" sem limpar o filtro antes.
+
+### O que fica de fora, de propósito
+
+- **Janela maior que 92 dias**, inclusive na exportação. O CRM é produção.
+  Consequência aceita e dita na tela: "comissão mês a mês" rende até quatro
+  meses por arquivo.
+- **Gráficos nativos no Excel.** A decisão 6 continua valendo — `exceljs` não
+  escreve chart object.
+- **Recuperação e percentuais de conversão.** D-003 e D-005 do projeto irmão
+  seguem em pé.
+- **Agendar a exportação pelo relógio da 37.** Cabe, e é outra conversa.
+- **Tela de comissão** (quarta posição do alternador). Espera a conferência
+  contra o relatório impresso — ver acima. Enquanto `CONFERIDA` for `false`, o
+  número sai pela planilha, onde a ressalva viaja junto e é lida por quem pediu
+  o arquivo, não por quem passou pela tela.
+
+Testes: 807 → **866** (`lib/relatorios-filtros.test.ts` 20,
+`lib/filtros-multi.test.ts` 19, `lib/dashboard-filtros.test.ts` 16,
+`tests/api/relatorios-exportar.test.ts` 20, mais os de recorte em
+`lib/relatorios-carteira.test.ts` e nas duas rotas de relatório).
