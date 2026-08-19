@@ -42,6 +42,7 @@ import {
   type LinhaIndicador,
 } from "@/lib/excel-estilo";
 import { comGraficos, type PedidoGrafico } from "@/lib/excel-graficos";
+import { comSlicers, type PedidoSlicer } from "@/lib/excel-slicers";
 import type { Acionamentos, Acordos, Fatia, Filtro } from "@/lib/relatorios-cobranca";
 import type {
   AVencer,
@@ -546,6 +547,210 @@ function abaResumo(
   return graficos;
 }
 
+/**
+ * O par de abas interativas: "Dados" (a tabela) e "Painel interativo".
+ *
+ * ─────────────────────────── por que existe ───────────────────────────
+ *
+ * As outras dezesseis abas são fotografias: o recorte foi decidido na tela, e a
+ * planilha registra o resultado. Esta é a resposta para "e se eu quisesse ver só
+ * a FESTCARD?" sem voltar ao site e exportar de novo — o recorte passa a ser
+ * feito DENTRO do arquivo, por quem o recebeu.
+ *
+ * ───────────────────── o que faz os números responderem ─────────────────────
+ *
+ * Não é o slicer. O slicer só ESCONDE linhas da tabela; quem reage a linha
+ * escondida é a fórmula:
+ *
+ *   • `SUBTOTAL(109; ...)` soma ignorando o que o filtro escondeu. É o que faz
+ *     os cartões de KPI andarem sozinhos. (`109` é "soma, pulando oculto".)
+ *   • O resumo por operadora precisa de mais: somar por CRITÉRIO **e** respeitar
+ *     o filtro ao mesmo tempo. `SOMASE` ignora o filtro; `SUBTOTAL` não aceita
+ *     critério. A combinação que resolve é o `SUBTOTAL` aplicado linha a linha
+ *     via `OFFSET`, multiplicado pelo critério dentro de um `SUMPRODUCT`.
+ *     É feio e é o idioma padrão da planilha para este problema.
+ *
+ * O par é cruzado de propósito: o slicer de CARTEIRA reordena o resumo por
+ * OPERADORA, e vice-versa. Slicer e resumo no mesmo eixo deixariam uma barra só
+ * na tela — nenhuma informação.
+ *
+ * ─────────────────────────── e se o slicer falhar ───────────────────────────
+ *
+ * A tabela sai com `filterButton: true`, então os menus de filtro do cabeçalho
+ * continuam lá. Perdendo os botões, perde-se a beleza: as fórmulas, os cartões e
+ * os gráficos continuam respondendo pelo filtro comum. Ver o cabeçalho de
+ * `lib/excel-slicers.ts` — a parte do slicer é a única que não pôde ser
+ * conferida nesta máquina, e por isso não pode ser a que sustenta a interação.
+ */
+function abasInterativas(
+  wb: ExcelJS.Workbook,
+  d: DadosDaPlanilha,
+): { graficos: PedidoGrafico[]; slicers: PedidoSlicer[] } {
+  const celulas = d.acordos?.matriz.celulas ?? [];
+  if (!celulas.length) return { graficos: [], slicers: [] };
+
+  // ─── aba "Dados": a tabela que os filtros mordem ───
+  const dados = wb.addWorksheet("Dados", { views: [{ state: "frozen", ySplit: 1 }] });
+  dados.getColumn(1).width = 30;
+  dados.getColumn(2).width = 34;
+  dados.getColumn(3).width = 12;
+  dados.getColumn(4).width = 18;
+  dados.addTable({
+    name: "Acordos",
+    ref: "A1",
+    headerRow: true,
+    style: { theme: "TableStyleMedium2", showRowStripes: true },
+    // `filterButton: true` NÃO é enfeite: sem ele o exceljs escreve
+    // `hiddenButton="1"` em toda coluna e a tabela fica sem menu de filtro —
+    // aí, se o slicer não pegar, não sobra interatividade nenhuma.
+    columns: [
+      { name: "Operadora", filterButton: true },
+      { name: "Carteira", filterButton: true },
+      { name: "Acordos", filterButton: true },
+      { name: "Valor", filterButton: true },
+    ],
+    rows: celulas.map((c) => [c.operadoraNome, c.carteiraNome, c.qtd, c.valor]),
+  });
+  const ultima = celulas.length + 1; // +1 do cabeçalho
+  for (let r = 2; r <= ultima; r++) {
+    dados.getCell(r, 3).numFmt = FMT_INTEIRO;
+    dados.getCell(r, 4).numFmt = FMT_MOEDA;
+  }
+
+  // ─── aba "Painel interativo" ───
+  const ws = wb.addWorksheet("Painel interativo", {
+    pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
+  ws.getColumn(1).width = 17;
+  ws.getColumn(2).width = 17; // A:B ficam sob os slicers — e por isso vazias
+  ws.getColumn(3).width = 2;
+  ws.getColumn(4).width = 30;
+  ws.getColumn(5).width = 16;
+  ws.getColumn(6).width = 2;
+  for (let c = 7; c <= 22; c++) ws.getColumn(c).width = 9.5;
+
+  faixaTitulo(
+    ws,
+    1,
+    1,
+    22,
+    "Painel interativo",
+    "Use os filtros à esquerda — os números e os gráficos acompanham",
+  );
+
+  const T = (col: string) => `Acordos[${col}]`;
+  const cartoesFormula: [string, string, string, string?][] = [
+    ["Acordos no recorte", `SUBTOTAL(109,${T("Acordos")})`, COR_BARRA.azul, FMT_INTEIRO],
+    ["Valor no recorte", `SUBTOTAL(109,${T("Valor")})`, COR_BARRA.verde, FMT_MOEDA],
+    [
+      "Ticket médio",
+      `IFERROR(SUBTOTAL(109,${T("Valor")})/SUBTOTAL(109,${T("Acordos")}),0)`,
+      COR_BARRA.ciano,
+      FMT_MOEDA,
+    ],
+  ];
+  cartoesFormula.forEach(([rotulo, formula, cor, fmt], i) => {
+    const col = 7 + i * 4;
+    cartaoKpi(ws, 3, col, rotulo, 0, { cor, numFmt: fmt, largura: 4 });
+    // O cartão grava um número; aqui ele vira fórmula, que é o que anda sozinho.
+    ws.getCell(4, col).value = { formula, date1904: false };
+  });
+
+  // ─── os dois resumos, cruzados com os slicers ───
+  const soma = (campo: "operadora" | "carteira", linhaRotulo: number) => {
+    const colCriterio = campo === "operadora" ? "A" : "B";
+    return (
+      `SUMPRODUCT(SUBTOTAL(109,OFFSET(Dados!$D$2,ROW(Dados!$D$2:$D$${ultima})` +
+      `-ROW(Dados!$D$2),0)),--(Dados!$${colCriterio}$2:$${colCriterio}$${ultima}` +
+      `=$D$${linhaRotulo}))`
+    );
+  };
+
+  const totalPor = (chave: "operadoraNome" | "carteiraNome") => {
+    const m = new Map<string, number>();
+    for (const c of celulas) m.set(c[chave], (m.get(c[chave]) ?? 0) + c.valor);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  };
+
+  const bloco = (
+    linhaInicio: number,
+    titulo: string,
+    itens: [string, number][],
+    campo: "operadora" | "carteira",
+    cor: string,
+  ) => {
+    ws.mergeCells(linhaInicio, 4, linhaInicio, 5);
+    const t = ws.getCell(linhaInicio, 4);
+    t.value = titulo;
+    t.font = { bold: true, color: { argb: COR_TEXTO_CABECALHO } };
+    t.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COR_CABECALHO } };
+    t.alignment = { vertical: "middle" };
+
+    itens.forEach(([nome], i) => {
+      const r = linhaInicio + 1 + i;
+      const a = ws.getCell(r, 4);
+      a.value = nome;
+      a.border = BORDA_LEVE;
+      const b = ws.getCell(r, 5);
+      b.value = { formula: soma(campo, r), date1904: false };
+      b.numFmt = FMT_MOEDA;
+      b.border = BORDA_LEVE;
+      b.alignment = { horizontal: "right" };
+    });
+    return { linhaIni: linhaInicio + 1, linhaFim: linhaInicio + itens.length };
+  };
+
+  const porOper = totalPor("operadoraNome");
+  const porCart = totalPor("carteiraNome");
+  const bOper = bloco(8, "Valor por operadora (segue os filtros)", porOper, "operadora", COR_BARRA.azul);
+  const bCart = bloco(
+    8 + porOper.length + 3,
+    "Valor por carteira (segue os filtros)",
+    porCart,
+    "carteira",
+    COR_BARRA.violeta,
+  );
+
+  const graficos: PedidoGrafico[] = [
+    {
+      aba: "Painel interativo",
+      tipo: "barra",
+      titulo: "Valor por operadora",
+      categorias: { col: 4, linhaIni: bOper.linhaIni, linhaFim: bOper.linhaFim },
+      series: [{ nome: "Valor", col: 5, cor: "2563EB" }],
+      ancora: { col: 7, linha: 8, largura: 8, altura: 17 },
+      legenda: "none",
+      formato: "R$ #,##0",
+    },
+    {
+      aba: "Painel interativo",
+      tipo: "rosca",
+      titulo: "Participação por carteira",
+      categorias: { col: 4, linhaIni: bCart.linhaIni, linhaFim: bCart.linhaFim },
+      series: [{ nome: "Valor", col: 5 }],
+      ancora: { col: 15, linha: 8, largura: 8, altura: 17 },
+      legenda: "r",
+    },
+  ];
+
+  const slicers: PedidoSlicer[] = [
+    {
+      aba: "Painel interativo",
+      tabela: "Acordos",
+      coluna: "Operadora",
+      ancora: { col: 1, linha: 3, largura: 2, altura: 18 },
+    },
+    {
+      aba: "Painel interativo",
+      tabela: "Acordos",
+      coluna: "Carteira",
+      ancora: { col: 1, linha: 22, largura: 2, altura: 18 },
+    },
+  ];
+
+  return { graficos, slicers };
+}
+
 function abaMatriz(
   wb: ExcelJS.Workbook,
   nome: string,
@@ -610,6 +815,9 @@ export async function gerarWorkbookRelatorios(
   if (quer("acordos-matriz") && d.acordos) {
     abaMatriz(wb, "Acordos · oper x carteira", d.acordos.matriz, "Valor (R$)");
   }
+  const interativo = quer("painel-interativo") && d.acordos
+    ? abasInterativas(wb, d)
+    : { graficos: [], slicers: [] };
   if (quer("acordos-mes") && d.acordos) {
     abaFatias(wb, "Acordos · mês", "Mês", d.acordos.porMes, dinheiro);
   }
@@ -724,7 +932,13 @@ export async function gerarWorkbookRelatorios(
     );
   }
 
-  return comGraficos(await wb.xlsx.writeBuffer(), graficos);
+  // Slicer DEPOIS do gráfico: os dois escrevem no mesmo desenho da aba, e só o
+  // injetor de slicer sabe acrescentar a um desenho que já existe.
+  const comOsGraficos = await comGraficos(await wb.xlsx.writeBuffer(), [
+    ...graficos,
+    ...interativo.graficos,
+  ]);
+  return comSlicers(comOsGraficos, interativo.slicers);
 }
 
 /**

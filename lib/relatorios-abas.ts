@@ -38,6 +38,7 @@ export type AbaChave =
   | "acordos-operadora"
   | "acordos-carteira"
   | "acordos-matriz"
+  | "painel-interativo"
   | "acordos-mes"
   | "acordos-hora"
   | "acionamentos-operadora"
@@ -107,6 +108,20 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acordos"],
     padrao: true,
+  },
+  {
+    chave: "painel-interativo",
+    nome: "Painel interativo",
+    descricao:
+      "Duas abas: a tabela operadora × carteira e um painel com filtros de " +
+      "clique (slicers). Os cartões e os gráficos acompanham o filtro dentro " +
+      "do próprio arquivo, sem voltar ao site.",
+    // O mesmo portão da matriz: o painel mostra nome de operadora, e a decisão
+    // 36 nega esse ranking à cobrança. Aba nova com papel mais frouxo que o do
+    // dado que ela carrega seria a porta dos fundos da 39.
+    papeis: TODOS_DO_RELATORIO,
+    fontes: ["acordos"],
+    padrao: false,
   },
   {
     chave: "acordos-mes",
