@@ -651,6 +651,14 @@ operadora.
   formato. As *data bars* continuam ao lado, porque é delas que se copia o valor
   exato. Cartões de KPI, escala de cor na matriz e paisagem na impressão
   (decisão 40).
+- **Painel interativo (decisão 41):** aba opcional com **slicers** de tabela
+  (`lib/excel-slicers.ts`), onde o recorte passa a ser feito dentro do arquivo.
+  Quem faz os números andarem **não é o slicer** — é `SUBTOTAL(109)` nos cartões
+  e `SUMPRODUCT + SUBTOTAL + OFFSET` nos resumos (`SOMASE` ignora filtro;
+  `SUBTOTAL` não aceita critério). Slicer é extensão da Microsoft e **não dá para
+  conferir sem Excel**: o LibreOffice o ignora. Daí o `mc:AlternateContent`
+  (degrada em vez de corromper) e o autofiltro mantido na tabela (plano B que
+  mantém tudo respondendo). **Pendência: abrir uma vez no Excel de verdade.**
 - **Docker:** imagem enxuta com Next `output: "standalone"`, multi-stage Alpine,
   usuário não-root; `docker-compose` com volume persistente (`/app/data`) e
   **healthcheck** (`/api/health`); migrations + WAL aplicados no boot pelo

@@ -386,6 +386,25 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     formato. Coluna, barra, pizza, rosca, linha e área, mais cartões de KPI,
     escala de cor na matriz e impressão em paisagem. Testes: 866 → **875**.
 
+34. **Painel interativo, e um teste que falhava 1 vez em mil** (decisão 41): aba
+    opcional da planilha em que o recorte é feito **dentro do arquivo** —
+    **slicers** de clique sobre uma tabela operadora × carteira. O que faz os
+    números andarem não é o slicer (ele só esconde linha): é `SUBTOTAL(109)` nos
+    cartões e `SUMPRODUCT + SUBTOTAL + OFFSET` nos resumos, porque `SOMASE`
+    ignora o filtro e `SUBTOTAL` não aceita critério. Slicer é extensão da
+    Microsoft e o LibreOffice não a implementa — **não dá para conferir sem
+    Excel**, e está anotado como pendência. Por isso a âncora vai em
+    `mc:AlternateContent` (quem não entende pula, em vez de acusar arquivo
+    corrompido) e a tabela mantém o autofiltro: perdendo os botões, ainda se
+    filtra pelo cabeçalho e tudo continua respondendo.
+
+    Junto caiu um defeito antigo: `lib/sessao.test.ts` falhava sozinho. A
+    assinatura HMAC dá 43 caracteres em base64url e o **último carrega 2 bits que
+    não significam nada** — o teste "adulterava" a assinatura trocando o fim, e
+    `…V9BA` e `…V9BB` decodificam para os mesmos 32 bytes. Medido: 179 colisões
+    em 200.000, 1 em ~1.117. O código estava certo; o teste, não. Testes:
+    875 → **890**.
+
 ### O que sobrou para depois
 
 > Fora do chatbot, o que segura o projeto hoje não é código — é **onde ele
@@ -400,6 +419,10 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
   todo aviso ser gravado e nenhum ser entregue; `PURGA_MODO` continua em `seco`
   (de propósito) esperando alguém conferir a primeira lista; e `OLLAMA_URL` ainda
   aponta para um túnel sorteado, não para o endereço fixo da emenda de 13/08.
+- **Abrir a aba "Painel interativo" no Excel, uma vez** (decisão 41). Slicer é
+  extensão da Microsoft e o LibreOffice a ignora — dá para provar que o arquivo
+  não está corrompido, não que os botões funcionam. Se falharem, a tabela mantém
+  o autofiltro e o painel continua respondendo; o que se perde é a aparência.
 - **Conferir a comissão contra o relatório impresso** (decisões 39 e 40). É a
   única coisa que script nenhum faz: `db:validar-comissao` mediu a fonte e
   corrigiu a atribuição por operadora, mas ninguém comparou um mês com o

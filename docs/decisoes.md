@@ -2971,3 +2971,89 @@ impresso em retrato sai fatiado ao meio, e o pedaço da segunda folha são
 justamente os gráficos.
 
 Testes: 866 → **875** (`lib/excel-graficos.test.ts`).
+
+---
+
+## 41. O painel que filtra sozinho, e o teste que falhava 1 vez em mil
+
+A decisão 40 deu gráfico à planilha. Ela continuava sendo uma fotografia: o
+recorte era decidido na tela e o arquivo registrava o resultado. "E se eu
+quisesse ver só a FESTCARD?" só tinha uma resposta — voltar ao site e exportar de
+novo. A aba **"Painel interativo"** (opcional, desmarcada por padrão) move o
+recorte para dentro do arquivo.
+
+### O slicer não é o que faz os números andarem
+
+Vale dizer primeiro, porque é o contrário do que parece. O slicer só **esconde
+linhas** da tabela. Quem reage a linha escondida é a fórmula:
+
+- **`SUBTOTAL(109; …)`** soma pulando o que o filtro escondeu — é o que faz os
+  cartões de KPI se moverem sozinhos. (`109` = "soma, ignorando oculto".)
+- O resumo por operadora precisa de mais: somar **por critério** *e* respeitar o
+  filtro. `SOMASE` ignora o filtro; `SUBTOTAL` não aceita critério. A combinação
+  que resolve é o `SUBTOTAL` aplicado linha a linha via `OFFSET`, multiplicado
+  pelo critério dentro de um `SUMPRODUCT`. É feio, e é o idioma padrão da
+  planilha para este problema exato.
+
+Os dois resumos são **cruzados** com os slicers de propósito: o filtro de
+CARTEIRA reordena o resumo por OPERADORA, e vice-versa. Slicer e resumo no mesmo
+eixo deixariam uma barra só na tela — que não é informação nenhuma.
+
+### O preço, e ele é maior que o do gráfico
+
+Slicer não é do formato base do `.xlsx`: é extensão da Microsoft (`x14`/`x15`),
+declarada em `extLst`. São cinco partes amarradas — cache, slicer, `extLst` da
+aba, `extLst` do workbook e a âncora no desenho — e o cache aponta para a tabela
+**por id e por número de coluna**, não por nome: apontar para a coluna errada dá
+um slicer que filtra outra coisa, sem erro nenhum.
+
+E o pior: **não dá para conferir nesta máquina.** O LibreOffice não implementa
+slicer. Ele abre o arquivo e ignora os botões — o que é ótima prova de que o
+arquivo não está corrompido, e prova nenhuma de que o slicer funciona. Quem
+valida isso é o Excel. **Fica registrado como pendência: abrir uma vez no Excel
+de verdade.**
+
+Duas decisões saem desse limite, e as duas são sobre não apostar:
+
+1. **`mc:AlternateContent` em volta da âncora.** É o que diz "se você não entende
+   slicer, pule este bloco". Sem ele, o LibreOffice não degradaria — acusaria
+   arquivo corrompido, e a planilha inteira cairia junto com o enfeite.
+2. **A tabela mantém o autofiltro** (`filterButton: true`). Não é decoração: sem
+   isso o exceljs escreve `hiddenButton="1"` em toda coluna e some com os menus
+   de filtro. Perdendo os botões bonitos, ainda se filtra pelo cabeçalho, e os
+   cartões e gráficos continuam respondendo. Uma interatividade que dependesse
+   inteiramente da parte não verificável seria aposta, não entrega.
+
+Conferido no que dá para conferir: o arquivo abre no LibreOffice sem reparo, e as
+fórmulas **calculam** — 708 acordos e R$ 2.018.520,00 num conjunto sintético,
+exatamente a soma esperada dos 120 cruzamentos.
+
+O portão da aba é o mesmo da matriz (`ADMIN` e `SUPERVISOR`): ela mostra nome de
+operadora, e a decisão 36 nega esse ranking à cobrança. Aba nova com papel mais
+frouxo que o dado que ela carrega seria a porta dos fundos da decisão 39.
+
+### O teste que falhava sozinho
+
+No meio disso, um teste que ninguém tinha tocado quebrou:
+`lib/sessao.test.ts > recusa token adulterado`. Passava 5 de 5 isolado. Era
+intermitente de verdade, e a causa é bonita:
+
+A assinatura HMAC tem 32 bytes, que em base64url dão **43 caracteres** — e o
+último carrega **2 bits que não significam nada**. O teste "mexia" na assinatura
+trocando os dois últimos caracteres por `AA`/`BB`, e o verificador compara
+**bytes**, não texto. Quando a assinatura terminava em `…BA`, a mutação virava
+`…BB` — e as duas decodificam para os **mesmos 32 bytes**. A assinatura "mexida"
+era a mesma assinatura, o token passava, e o teste falhava.
+
+Medido antes de mexer: **179 colisões em 200.000** assinaturas, 1 em ~1.117.
+Exemplo: `…V9BA` → `…V9BB`.
+
+O defeito é do teste — `lerSessao` está correto, e é justamente por comparar
+bytes em vez de texto que ele está correto. A mutação passou para o **primeiro**
+caractere, que é inteiramente significativo: 0 colisões em 200.000.
+
+Um teste que falha 1 vez em mil é pior que um teste que falha sempre. Ele ensina
+a rodar de novo.
+
+Testes: 875 → **890** (`lib/excel-slicers.test.ts` 9,
+`lib/excel-relatorios.test.ts` 6).
