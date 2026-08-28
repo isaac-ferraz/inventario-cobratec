@@ -157,6 +157,7 @@ npm run db:salas            # garante as salas iniciais (idempotente)
 npm run db:admin            # garante um administrador inicial (idempotente)
 npm run db:validar-parcelas # confere a baixa de parcela no Siscobra (leitura)
 npm run db:validar-comissao # mede as tabelas de comissão antes de virar planilha
+npm run relatorio:diario -- --carteira 1163  # relatório do dia anterior + JSON
 docker compose up -d --build # subir via Docker (porta 3000, banco em volume)
 ```
 
@@ -642,6 +643,43 @@ menor `carcod`, 17/17 conferidos. O `cs.carcod = r.carcod` do join em
 `lib/relatorios-cobranca.ts` **não é redundante**. O PDF **não** confere comissão
 (`CONFERIDA` segue `false` — falta o relatório de comissão) nem acordos por
 operadora.
+
+**Relatório diário por agente (decisão 42):** a carteira **1163 (Rede Drogal)**
+pede todo dia o mesmo relatório do dia anterior, por e-mail, para o cliente —
+ninguém escolhendo recorte, e quem dispara é um **agente**
+(`.claude/agents/relatorio-diario-drogal.md`). Daí um **comando** e não a rota
+HTTP: `npm run relatorio:diario -- --carteira 1163`
+(`scripts/relatorio-diario.ts`), sem sessão e sem navegador, repetindo da rota a
+fila de 3 consultas e o timeout de 60s. A saída é **um JSON no stdout** (log e
+erro no stderr): sem ele o agente reabriria o `.xlsx` para saber o que escrever —
+ou escreveria de memória —, e os números do texto e os do anexo saem da **mesma
+leitura do banco**. O e-mail vem pronto de `lib/relatorio-email.ts`: o agente
+**entrega o envelope, não escreve a carta** — a decisão 32 aplicada ao outro lado
+da casa, agora com um cliente do outro lado. As ressalvas de método vão no
+**corpo**, não só na aba Parâmetros, porque quem lê e-mail muitas vezes não abre
+o anexo. `vazio: true` faz a frase "não houve movimento… e não por falha na
+apuração" sair por extenso: a 1163 entrou em 21/08/2026 e dia zerado é o
+esperado — mas indistinguível de cano quebrado se o programa só imprimir zeros.
+
+A planilha ganhou o modo **`publico: "cliente"`** — a que **sai da empresa**, sem
+nome de operadora e sem devedor. A marca `nominal` mora no catálogo
+(`lib/relatorios-abas.ts`), ao lado de `papeis`, e o gerador **recusa nomeando a
+aba** em vez de entregá-la vazia. Armadilha achada: escolher as abas certas não
+bastava — o Resumo desenhava sozinho o bloco das 12 maiores operadoras a partir
+de `d.acordos`, e o teste que prova a ausência procura o nome no **zip inteiro**
+(o Excel guarda texto repetido em `sharedStrings.xml`). Entrou também
+`lib/relatorios-base.ts`, a regra conferida da decisão 40 virando consulta —
+ficha (`count(DISTINCT devcod)`) e devedor cadastrado são **dois números**, 5 e
+103 nesta carteira. As regras da linha de comando ficam em
+**`lib/relatorio-diario.ts`** e não no script, porque o vitest só varre `lib/**` —
+e elas não são formalidades: `--dia` nasce **ontem**, e `parseInt("1163abc")`
+daria 1163, uma planilha impecável da carteira errada. `--publico` nasce
+**"cliente"**, ao contrário do resto do sistema: anexo já encaminhado não se
+desfaz. `explicarErro` traduz o erro do `pg` separando **rede** de **credencial**
+— mandar para a VPN quem já chegou no servidor é mandar para o lugar errado — e o
+que não reconhece sai como veio. **Pendências:** o conector do Gmail não está
+autorizado (o agente para no passo 0), e o **caminho feliz nunca rodou** — o
+Siscobra só atende na LAN, e só o caminho do erro foi exercitado de ponta a ponta.
 
 **Infra:**
 - **Excel:** o dashboard tem **gráficos nativos** (coluna, barra, pizza, rosca,

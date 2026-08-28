@@ -3057,3 +3057,168 @@ a rodar de novo.
 
 Testes: 875 → **890** (`lib/excel-slicers.test.ts` 9,
 `lib/excel-relatorios.test.ts` 6).
+
+---
+
+## 42. O relatório que sai da empresa, e o agente que não escreve o e-mail
+
+Até aqui todo relatório era puxado por alguém: monta o recorte na tela, clica em
+exportar, baixa. A Rede Drogal (carteira **1163**, entrada em 21/08/2026) pede o
+contrário — todo dia, a mesma carteira, o dia anterior, um e-mail para o cliente.
+Ninguém escolhe nada, e quem dispara não é uma pessoa com um navegador aberto: é
+um **agente**.
+
+Isso quebra duas coisas que a decisão 39 tinha resolvido, e cada uma pede uma
+resposta própria.
+
+### Um comando, e não a rota HTTP
+
+`npm run relatorio:diario -- --carteira 1163` (`scripts/relatorio-diario.ts`). A
+rota `/api/relatorios/exportar` continua sendo a da tela; ela precisa de sessão,
+de cookie e de um recorte montado por gente. O comando não tem nada disso para
+oferecer e não deveria fingir que tem.
+
+O que ele repete da rota, de propósito: **fila de 3** consultas (o pool do
+Siscobra é `max: 4`; um `Promise.all` das nove estouraria o
+`connectionTimeoutMillis` e deixaria as telas sem conexão) e o timeout de 60s.
+
+### A saída é JSON, e é isso que faz o agente honesto
+
+O comando imprime **um** objeto JSON no stdout, com os números que ele acabou de
+gerar; progresso, aviso e erro vão para o **stderr**. Sem isso o agente teria de
+reabrir o `.xlsx` para descobrir o que escrever — ou, pior, escrever de memória.
+
+Os números do texto e os números do anexo saem da **mesma leitura do banco**. É a
+razão inteira de o JSON existir.
+
+### O agente entrega o envelope; ele não escreve a carta
+
+Assunto, texto e HTML saem prontos de `lib/relatorio-email.ts`. O agente copia os
+campos e cria o rascunho — não redige, não resume, não recalcula.
+
+É a **decisão 32 outra vez**, aplicada ao outro lado da casa: lá, o modelo
+classifica e o código responde, e nenhum número que chega ao devedor passou pelo
+modelo. Aqui o destinatário é um cliente, e um número datilografado a partir de
+um JSON lido três passos atrás é um número que pode sair diferente do anexo — o
+e-mail dizendo uma coisa e a planilha, outra.
+
+E as três ressalvas de método vão **no corpo**, não só na aba "Parâmetros": quem
+recebe um e-mail muitas vezes não abre o anexo, e é aí que o número perde o nome
+certo. "Em atraso" não é "não pagou" (decisão 36); honorário ainda não confere
+com o relatório oficial; acionamento conta só ação manual.
+
+### Zero é uma resposta, e o programa é obrigado a dizê-la por extenso
+
+A 1163 é nova: em 27/08/2026 tinha **103 devedores cadastrados**, **5 fichas** com
+saldo (R$ 3.461,46), nenhum acordo ativo e um quebrado. Um dia sem movimento é
+legítimo — e **indistinguível de um cano quebrado** se o programa apenas imprimir
+zeros.
+
+Daí o campo `vazio` no JSON e a frase no e-mail: "não houve movimento registrado
+nesta carteira… os números abaixo estão zerados por isso, e não por falha na
+apuração". O que a frase **não** faz é explicar o motivo ("a carteira é nova",
+"foi feriado") — isso o programa não sabe, e motivo inventado é pior que nenhum.
+
+### A planilha que sai da empresa
+
+`publico: "cliente"` em `lib/excel-relatorios.ts`. A diferença não é de gosto:
+produção de funcionário — quem fechou quanto — é dado da Cobratec, e é a mesma
+linha que as decisões 27, 35 e 36 já traçam entre os papéis. Onze abas; ficam de
+fora as por operadora, a matriz e "Parcelas (nominal)".
+
+Três detalhes que custaram mais do que parecem:
+
+1. **A regra mora no catálogo.** `DefinicaoAba.nominal`, em
+   `lib/relatorios-abas.ts`, ao lado do `papeis`. Uma lista paralela no gerador
+   divergiria na primeira aba nova — foi exatamente o defeito da decisão 25.1.
+2. **Recusa nomeando a aba**, em vez de entregá-la vazia. Planilha sem a aba,
+   calada, parece completa e não é; e aqui o erro tem o outro lado, o de mandar
+   nome de funcionário para fora da empresa porque alguém marcou uma caixinha a
+   mais. Nomear a aba é o que evita a pessoa adivinhar qual das onze desmarcar.
+3. **Escolher as abas certas não bastava.** O Resumo desenhava sozinho o bloco
+   das 12 maiores operadoras, a partir de `d.acordos.porOperadora`, mesmo sem a
+   aba nominal marcada. O teste que prova isso procura o nome no **zip inteiro**,
+   e não na aba: o Excel guarda texto repetido em `sharedStrings.xml`, e um nome
+   que "não está" na aba pode estar ali. E o par de casos usa os **mesmos dados**
+   trocando só o público — ausência só vale como prova quando o mesmo teste sabe
+   detectar a presença.
+
+A rosca "participação por carteira" também sai quando há uma carteira só: um anel
+inteiro dizendo "100%" ocupa um quarto do painel para não informar nada.
+
+### A base da carteira virou código (decisão 40, enfim)
+
+`lib/relatorios-base.ts`. A conferência contra o `RELATÓRIO ANALÍTICO DA
+CARTEIRA` ficou registrada na decisão 40 e nunca tinha virado consulta aqui;
+numa carteira nova ela é **o único número que existe**.
+
+A regra é a de lá: universo `contrato.convalsal > 0` em carteira `carati = 1`,
+valor `sum(convalsal)`, ficha `count(DISTINCT devcod)`. Medido em 27/08/2026 para
+escrever isto: `conati` é **redundante** neste universo (0 de 55.720 linhas em dez
+carteiras) e por isso não entra — filtro que não filtra é só uma coisa a mais
+para alguém manter errado depois; e `devcod` **não se repete entre carteiras**, o
+que torna a contagem distinta correta também na linha de total.
+
+"Fichas" e "devedores cadastrados" são **dois números** e viajam separados: 5 e
+103. Um número só faria a carga parecer maior ou menor do que é.
+
+### As regras moram em `lib/`, porque o vitest não enxerga `scripts/`
+
+`vitest.config.ts` varre `lib/**` e `tests/api/**`. Uma regra escrita dentro de
+`scripts/` é, por construção, uma regra sem teste — e as deste comando não são
+formalidades: o padrão do `--dia` é **ontem** (ninguém confere isso à mão de
+manhã) e `parseInt("1163abc")` devolveria **1163**, gerando uma planilha
+impecável da carteira errada, sem deixar rastro.
+
+Por isso `lib/relatorio-diario.ts` tem a linha de comando e o script ficou só com
+o I/O. Junto veio o padrão que erra para o lado seguro: **`--publico` nasce
+"cliente"**, ao contrário do resto do sistema. Este comando existe para produzir
+o anexo que sai da empresa, e um arquivo com nome de operadora já encaminhado não
+se desfaz.
+
+### O erro que manda a pessoa para o lugar certo
+
+A primeira execução fora do escritório devolveu isto:
+
+```
+{ "ok": false, "erro": "Connection terminated due to connection timeout" }
+```
+
+Verdadeiro e inútil. Quem lê não sabe se está fora da rede, se digitou a senha
+errada ou se derrubou o banco — e o agente repete essa frase ao usuário.
+
+`explicarErro` separa **uma** coisa: deu para chegar no servidor, ou não? Rede
+(`ECONNREFUSED`, `EHOSTUNREACH`, `ENOTFOUND`, timeout do pool) sai como "o
+Siscobra (192.168.0.253:5432) não respondeu — rode no escritório ou pela VPN".
+Credencial recusada (`28P01`) sai dizendo **"isto NÃO é problema de rede"**, e é o
+ponto: mandar para a VPN quem já chegou no servidor é mandar passar meia hora no
+lugar errado. Banco inexistente (`3D000`) e consulta cancelada pelo próprio
+Postgres (`57014`) têm frases próprias. **O que não se reconhece sai como veio** —
+diagnóstico inventado manda procurar defeito onde não há.
+
+### O agente, e o passo 0 que ele ganhou
+
+`.claude/agents/relatorio-diario-drogal.md`: rodar, conferir `ok`, anexar em
+base64, criar **rascunho** (nunca envio — quem decide mandar ao cliente é o
+usuário) e relatar.
+
+O passo que faltava é o **primeiro**: conferir se `create_draft` existe antes de
+rodar qualquer coisa. O conector do Gmail não estava autorizado, e não fosse essa
+conferência o agente gastaria as nove consultas no CRM para descobrir, no fim,
+que não tinha onde entregar o resultado. Pelo mesmo motivo, rascunho que falha
+**não** manda rodar de novo: a planilha já está no disco, e o que falhou foi o
+e-mail, não o relatório.
+
+### O que fica pendente, dito em voz alta
+
+- **O conector do Gmail não está autorizado** nesta máquina. Até que esteja, o
+  agente para no passo 0.
+- **O caminho feliz nunca rodou.** O Siscobra só atende na LAN da Cobratec e esta
+  máquina está fora dela; o que foi exercitado de ponta a ponta é o caminho do
+  erro — `ok: false` com JSON limpo no stdout, tanto para argumento inválido
+  (antes de tocar a rede) quanto para CRM inalcançável. A primeira execução
+  dentro do escritório é que confere os números.
+- A pendência da decisão 41 continua de pé: **abrir a planilha uma vez no Excel
+  de verdade**.
+
+Testes: 909 → **932** (`lib/relatorio-diario.test.ts` 23).
