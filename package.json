@@ -17,6 +17,7 @@
     "db:admin": "node prisma/seed-admin.cjs",
     "db:wal": "prisma db execute --schema prisma/schema.prisma --file prisma/sqlite-wal.sql",
     "db:backup": "sh scripts/backup-db.sh",
+    "relatorio:diario": "tsx --env-file=.env scripts/relatorio-diario.ts",
     "db:validar-parcelas": "tsx --env-file=.env scripts/validar-parcelas.ts",
     "db:validar-comissao": "tsx --env-file=.env scripts/validar-comissao.ts",
     "db:investigar-baixa": "tsx --env-file=.env scripts/investigar-baixa.ts",
