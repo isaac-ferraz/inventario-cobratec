@@ -46,6 +46,7 @@ import {
   quebrasDe,
 } from "@/lib/relatorios-carteira";
 import { comissaoDe, comissaoDisponivel } from "@/lib/relatorios-comissao";
+import { baseDaCarteira } from "@/lib/relatorios-base";
 import {
   ABAS,
   abaDe,
@@ -257,6 +258,15 @@ export async function GET(req: Request) {
         fonte: "comissao",
         rodar: async () => {
           dados.comissao = await comissaoDe(filtro, TIMEOUT_MS);
+        },
+      },
+      {
+        fonte: "base",
+        rodar: async () => {
+          // Só a carteira: a base é do CONTRATO, e contrato não tem operadora
+          // nem equipe. Passar o recorte inteiro sugeriria um filtro que a
+          // consulta não aplica — e a aba Parâmetros o anunciaria mentindo.
+          dados.base = await baseDaCarteira(soRecorte.carteiras, TIMEOUT_MS);
         },
       },
       {

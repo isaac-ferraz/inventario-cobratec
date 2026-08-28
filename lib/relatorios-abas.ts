@@ -30,11 +30,13 @@ export type Fonte =
   | "quebras"
   | "primeira"
   | "comissao"
-  | "parcelas";
+  | "parcelas"
+  | "base";
 
 export type AbaChave =
   | "parametros"
   | "resumo"
+  | "carteira-base"
   | "acordos-operadora"
   | "acordos-carteira"
   | "acordos-matriz"
@@ -44,6 +46,7 @@ export type AbaChave =
   | "acionamentos-operadora"
   | "acionamentos-situacao"
   | "comissao"
+  | "comissao-resumo"
   | "comissao-matriz"
   | "carteira-a-vencer"
   | "carteira-atraso"
@@ -62,6 +65,16 @@ export type DefinicaoAba = {
   fontes: Fonte[];
   /** Marcada por padrão no diálogo. */
   padrao: boolean;
+  /**
+   * A aba escreve NOME DE GENTE — operadora da casa ou devedor.
+   *
+   * O campo existe para a planilha que sai da empresa (modo cliente, em
+   * `lib/excel-relatorios.ts`): ali o gerador recusa qualquer aba marcada aqui.
+   * É a mesma ideia do `papeis` logo acima — a regra mora no catálogo, que é o
+   * lugar que os três lados leem, em vez de virar uma lista paralela no gerador
+   * que diverge na primeira aba nova (o defeito da decisão 25.1).
+   */
+  nominal: boolean;
 };
 
 const TODOS_DO_RELATORIO: Papel[] = ["ADMIN", "SUPERVISOR"];
@@ -76,6 +89,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: COM_A_COBRANCA,
     fontes: [],
     padrao: true,
+    nominal: false,
   },
   {
     chave: "resumo",
@@ -84,6 +98,23 @@ export const ABAS: DefinicaoAba[] = [
     papeis: COM_A_COBRANCA,
     fontes: [],
     padrao: true,
+    // Não é nominal, mas é a aba que mais chega perto: ela desenha sozinha o
+    // bloco das 12 maiores operadoras a partir dos dados de acordos, mesmo sem a
+    // aba "Acordos · operadora" marcada. Quem cala esse bloco é o modo cliente
+    // dentro de `abaResumo` — marcar a aba inteira como nominal tiraria da
+    // planilha do cliente também os cartões e os gráficos que ela pode ver.
+    nominal: false,
+  },
+  {
+    chave: "carteira-base",
+    nome: "Carteira · base",
+    descricao:
+      "Fichas, contratos e saldo a cobrar na carteira — a regra do RELATÓRIO " +
+      "ANALÍTICO DA CARTEIRA do Siscobra, conferida em 142 de 143 carteiras.",
+    papeis: COM_A_COBRANCA,
+    fontes: ["base"],
+    padrao: false,
+    nominal: false,
   },
   {
     chave: "acordos-operadora",
@@ -92,6 +123,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acordos"],
     padrao: true,
+    nominal: true,
   },
   {
     chave: "acordos-carteira",
@@ -100,6 +132,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acordos"],
     padrao: true,
+    nominal: false,
   },
   {
     chave: "acordos-matriz",
@@ -108,6 +141,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acordos"],
     padrao: true,
+    nominal: true,
   },
   {
     chave: "painel-interativo",
@@ -122,6 +156,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acordos"],
     padrao: false,
+    nominal: true,
   },
   {
     chave: "acordos-mes",
@@ -130,6 +165,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acordos"],
     padrao: false,
+    nominal: false,
   },
   {
     chave: "acordos-hora",
@@ -138,6 +174,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acordos"],
     padrao: false,
+    nominal: false,
   },
   {
     chave: "acionamentos-operadora",
@@ -146,6 +183,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acionamentos"],
     padrao: true,
+    nominal: true,
   },
   {
     chave: "acionamentos-situacao",
@@ -154,6 +192,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["acionamentos"],
     padrao: false,
+    nominal: false,
   },
   {
     chave: "comissao",
@@ -163,6 +202,19 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["comissao"],
     padrao: false,
+    nominal: true,
+  },
+  {
+    chave: "comissao-resumo",
+    nome: "Honorários",
+    descricao:
+      "A comissão apurada SEM nome de operadora: total, recebido e a série por " +
+      "mês. É a aba de honorários que pode sair da empresa. Não conferida " +
+      "contra o Siscobra — ver a aba Parâmetros.",
+    papeis: COM_A_COBRANCA,
+    fontes: ["comissao"],
+    padrao: false,
+    nominal: false,
   },
   {
     chave: "comissao-matriz",
@@ -171,6 +223,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["comissao"],
     padrao: false,
+    nominal: true,
   },
   {
     chave: "carteira-a-vencer",
@@ -179,6 +232,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: COM_A_COBRANCA,
     fontes: ["aVencer"],
     padrao: false,
+    nominal: false,
   },
   {
     chave: "carteira-atraso",
@@ -187,6 +241,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: COM_A_COBRANCA,
     fontes: ["atraso"],
     padrao: false,
+    nominal: false,
   },
   {
     chave: "carteira-quebras",
@@ -195,6 +250,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: COM_A_COBRANCA,
     fontes: ["quebras"],
     padrao: false,
+    nominal: false,
   },
   {
     chave: "carteira-primeira",
@@ -203,6 +259,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: COM_A_COBRANCA,
     fontes: ["primeira"],
     padrao: false,
+    nominal: false,
   },
   {
     chave: "carteira-operadora",
@@ -211,6 +268,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: TODOS_DO_RELATORIO,
     fontes: ["aVencer", "atraso", "quebras"],
     padrao: false,
+    nominal: true,
   },
   {
     chave: "parcelas",
@@ -220,6 +278,7 @@ export const ABAS: DefinicaoAba[] = [
     papeis: SO_NOMINAL,
     fontes: ["parcelas"],
     padrao: false,
+    nominal: true,
   },
 ];
 
@@ -239,4 +298,15 @@ export function fontesDe(chaves: AbaChave[]): Fonte[] {
   const s = new Set<Fonte>();
   for (const c of chaves) for (const f of abaDe(c)?.fontes ?? []) s.add(f);
   return [...s];
+}
+
+/**
+ * Quais das abas pedidas escrevem nome de gente.
+ *
+ * Devolve os NOMES, e não `true`/`false`, pelo mesmo motivo que a rota nomeia a
+ * aba ao negar por papel: quem recebe "planilha de cliente não leva aba
+ * nominal" ainda precisa saber qual das onze desmarcar.
+ */
+export function nominaisEntre(chaves: AbaChave[]): string[] {
+  return chaves.filter((c) => abaDe(c)?.nominal).map((c) => abaDe(c)?.nome ?? c);
 }

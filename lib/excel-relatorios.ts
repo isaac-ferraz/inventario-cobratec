@@ -52,7 +52,8 @@ import type {
   Quebras,
 } from "@/lib/relatorios-carteira";
 import type { Comissao } from "@/lib/relatorios-comissao";
-import { abaDe, type AbaChave } from "@/lib/relatorios-abas";
+import type { BaseCarteira } from "@/lib/relatorios-base";
+import { abaDe, nominaisEntre, type AbaChave } from "@/lib/relatorios-abas";
 
 export * from "@/lib/relatorios-abas";
 
@@ -66,9 +67,21 @@ export type DadosDaPlanilha = {
   quebras?: Quebras;
   primeira?: PrimeiraParcela;
   comissao?: Comissao;
+  base?: BaseCarteira;
   parcelas?: ParcelaNominal[];
   parcelasTruncadas?: boolean;
 };
+
+/**
+ * Para quem esta planilha foi feita.
+ *
+ * `"interno"` é o de sempre: a exportação da tela, para quem trabalha aqui.
+ * `"cliente"` é a planilha que SAI DA EMPRESA — encaminhada ao dono da carteira.
+ * A diferença não é de gosto: produção de funcionário (quem fechou quanto) é
+ * dado da Cobratec, não do cliente, e é a mesma linha que as decisões 27, 35 e
+ * 36 já traçam entre os papéis.
+ */
+export type Publico = "interno" | "cliente";
 
 export type Contexto = {
   /** Janela para trás — acordos, acionamentos, comissão. */
@@ -82,6 +95,8 @@ export type Contexto = {
   exportadoPor: string;
   exportadoEm: Date;
   abas: AbaChave[];
+  /** Padrão `"interno"` — a exportação da tela não muda em nada. */
+  publico?: Publico;
 };
 
 // ────────────────────────────── as abas em si ──────────────────────────────
@@ -153,7 +168,12 @@ function abaFatias(
  * quem exportou, quando, e as ressalvas de método que a tela mostra no rodapé.
  */
 function abaParametros(wb: ExcelJS.Workbook, ctx: Contexto, dados: DadosDaPlanilha) {
-  const ws = wb.addWorksheet("Parâmetros");
+  // Paisagem pelo mesmo motivo do Resumo e da matriz (decisão 40): as duas
+  // colunas somam quase 100 caracteres, e em retrato a capa sai fatiada — a
+  // metade que se perde é justamente a das ressalvas de método.
+  const ws = wb.addWorksheet("Parâmetros", {
+    pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
   ws.getColumn(1).width = 30;
   ws.getColumn(2).width = 68;
 
@@ -170,6 +190,17 @@ function abaParametros(wb: ExcelJS.Workbook, ctx: Contexto, dados: DadosDaPlanil
   const linhas: [string, string][] = [
     ["Exportado por", ctx.exportadoPor],
     ["Exportado em", ctx.exportadoEm.toLocaleString("pt-BR")],
+    // Escrito na capa, e não só sabido por quem gerou: é esta linha que diz a
+    // quem recebeu o arquivo por que não há nome de operadora nele — sem ela, a
+    // ausência se lê como dado faltando.
+    ...(ctx.publico === "cliente"
+      ? ([
+          [
+            "Versão",
+            "Cliente — agregados da carteira, sem nome de operadora e sem dado de devedor",
+          ],
+        ] as [string, string][])
+      : []),
     ["", ""],
     ["Período (olha para trás)", `${isoParaBR(ctx.periodo.inicio)} a ${isoParaBR(ctx.periodo.fim)}`],
     ["  vale para", "acordos, acionamentos e comissão"],
@@ -233,6 +264,15 @@ function abaParametros(wb: ExcelJS.Workbook, ctx: Contexto, dados: DadosDaPlanil
       "“Em atraso” significa: a parcela venceu e NÃO encontramos a baixa correspondente. " +
         "Não é o mesmo que “o devedor não pagou” — não existe coluna de pagamento na parcela, " +
         "e a baixa é procurada por cruzamento. Confira a cobertura com `npm run db:validar-parcelas`.",
+    );
+  }
+  if (dados.base) {
+    notas.push(
+      "A BASE da carteira conta contrato com saldo em aberto, em carteira ativa, pelo saldo do " +
+        "contrato — e “ficha” é devedor distinto, não contrato. É a regra do “Relatório Analítico " +
+        "da Carteira” do próprio Siscobra, reproduzida e conferida em 142 das 143 carteiras. " +
+        "“Devedores cadastrados” é outro número: conta todo mundo que entrou na carga, com ou sem " +
+        "saldo — numa carteira recém-carregada os dois são bem diferentes.",
     );
   }
   if (dados.comissao) {
@@ -306,6 +346,11 @@ function abaResumo(
     `Janela de vencimento: ${ctx.janela.rotulo}`,
   );
 
+  // A planilha que sai da empresa não leva nome de operadora. A trava não pode
+  // ser só a escolha de abas: os blocos por operadora abaixo são desenhados AQUI,
+  // a partir de `d.acordos`/`d.comissao`, mesmo sem a aba nominal marcada.
+  const semNomes = ctx.publico === "cliente";
+
   // ─── cartões ───
   const cartoes: [string, number, string, string?][] = [];
   if (d.acordos) {
@@ -322,6 +367,13 @@ function abaResumo(
   }
   if (d.acionamentos) {
     cartoes.push(["Acionamentos", d.acionamentos.qtd, COR_BARRA.violeta]);
+  }
+  // A base vem logo depois da produção e antes da agenda: num relatório diário,
+  // "quanto existe para cobrar" é o denominador de tudo o que vem embaixo — e é
+  // o único número que uma carteira recém-carregada tem para mostrar.
+  if (d.base) {
+    cartoes.push(["Fichas na carteira", d.base.fichas, COR_BARRA.violeta]);
+    cartoes.push(["Saldo a cobrar", d.base.saldo, COR_BARRA.violeta, FMT_MOEDA]);
   }
   if (d.aVencer) {
     cartoes.push(["A vencer (valor)", d.aVencer.valor, COR_BARRA.verde, FMT_MOEDA]);
@@ -344,7 +396,12 @@ function abaResumo(
   if (d.comissao) {
     cartoes.push(["Comissão apurada", d.comissao.valor, COR_BARRA.verde, FMT_MOEDA]);
   }
-  cartoes.slice(0, 8).forEach(([rotulo, valor, cor, fmt], i) => {
+  // Doze e não oito desde que a base entrou: com acordos, acionamentos, base,
+  // agenda, atraso, quebras, 1ª parcela e comissão juntos, o corte em oito
+  // derrubava justamente "em atraso" — que num relatório de cliente é o número
+  // que ele procura primeiro.
+  const mostrados = cartoes.slice(0, 12);
+  mostrados.forEach(([rotulo, valor, cor, fmt], i) => {
     const linha = 3 + Math.floor(i / 4) * 4;
     const col = 4 + (i % 4) * 4;
     cartaoKpi(ws, linha, col, rotulo, valor, { cor, numFmt: fmt, largura: 4 });
@@ -374,6 +431,19 @@ function abaResumo(
       ...p,
     });
   };
+
+  if (d.base) {
+    bloco(
+      "Base da carteira (contratos em aberto)",
+      [
+        ["Fichas (devedores com saldo)", d.base.fichas, FMT_INTEIRO],
+        ["Contratos em aberto", d.base.contratos, FMT_INTEIRO],
+        ["Saldo a cobrar", d.base.saldo, FMT_MOEDA],
+        ["Devedores cadastrados", d.base.cadastrados, FMT_INTEIRO],
+      ],
+      COR_BARRA.violeta,
+    );
+  }
 
   // O terceiro elemento é o formato DAQUELA linha: o bloco mistura contagem e
   // dinheiro, e um formato único para o quadro faria o valor sair cru.
@@ -432,7 +502,11 @@ function abaResumo(
   // A hora do dia é a pergunta que a decisão 35 nomeou ("quantos acordos hoje,
   // hora a hora") e é a que menos se lê numa lista: 24 linhas de número contra
   // uma curva com um pico visível.
-  let linhaGrafico = 12;
+  // O primeiro gráfico começa abaixo da última fileira de cartões — cada fileira
+  // ocupa 4 linhas (o cartão tem 3 e uma fica de respiro). O `max(12, …)` mantém
+  // exatamente a posição de antes enquanto couberem duas fileiras: nenhuma
+  // planilha que já é gerada hoje muda de forma por causa da fileira nova.
+  let linhaGrafico = Math.max(12, 3 + Math.ceil(mostrados.length / 4) * 4 + 1);
   const proximaAncora = () => {
     const pos = linhaGrafico;
     linhaGrafico += 17;
@@ -450,36 +524,51 @@ function abaResumo(
       rotulos: true,
     });
   }
-  if (d.acordos?.porOperadora.length) {
-    const b = bloco(
-      "Valor acordado — 12 maiores operadoras",
-      topN(d.acordos.porOperadora, 12),
-      COR_BARRA.azul,
-      FMT_MOEDA,
-    );
+  // Os dois gráficos dividem a mesma fileira. A carteira NÃO fica pendurada no
+  // `if` da operadora: no modo cliente a operadora some e a carteira precisa
+  // continuar — e, sem dono próprio, ela sumiria junto e ninguém veria.
+  const querOperadora = !semNomes && !!d.acordos?.porOperadora.length;
+  const querCarteira = !!d.acordos?.porCarteira.length;
+  if (d.acordos && (querOperadora || querCarteira)) {
     const pos = proximaAncora();
-    pedir(b, {
-      tipo: "barra",
-      titulo: "Valor acordado por operadora (top 12)",
-      series: [{ nome: "Valor", col: 2, cor: "0EA5E9" }],
-      ancora: { col: 4, linha: pos, largura: 8, altura: 16 },
-      legenda: "none",
-      formato: "R$ #,##0",
-    });
-    if (d.acordos.porCarteira.length) {
+    let coluna = 4;
+    if (querOperadora) {
+      const b = bloco(
+        "Valor acordado — 12 maiores operadoras",
+        topN(d.acordos.porOperadora, 12),
+        COR_BARRA.azul,
+        FMT_MOEDA,
+      );
+      pedir(b, {
+        tipo: "barra",
+        titulo: "Valor acordado por operadora (top 12)",
+        series: [{ nome: "Valor", col: 2, cor: "0EA5E9" }],
+        ancora: { col: coluna, linha: pos, largura: 8, altura: 16 },
+        legenda: "none",
+        formato: "R$ #,##0",
+      });
+      coluna = 12;
+    }
+    if (querCarteira) {
       const bc = bloco(
         "Valor acordado — 10 maiores carteiras",
         topN(d.acordos.porCarteira, 10),
         COR_BARRA.violeta,
         FMT_MOEDA,
       );
-      pedir(bc, {
-        tipo: "rosca",
-        titulo: "Participação por carteira (top 10)",
-        series: [{ nome: "Valor", col: 2 }],
-        ancora: { col: 12, linha: pos, largura: 8, altura: 16 },
-        legenda: "r",
-      });
+      // A rosca só faz sentido com mais de uma fatia. Filtrado numa carteira só
+      // — que é o caso do relatório diário de um cliente — ela vira um anel
+      // inteiro dizendo "100%", ocupando um quarto do painel para não informar
+      // nada. O bloco de números fica; o desenho é que sai.
+      if (d.acordos.porCarteira.length > 1) {
+        pedir(bc, {
+          tipo: "rosca",
+          titulo: "Participação por carteira (top 10)",
+          series: [{ nome: "Valor", col: 2 }],
+          ancora: { col: coluna, linha: pos, largura: 8, altura: 16 },
+          legenda: "r",
+        });
+      }
     }
   }
   if (d.atraso?.porFaixa.length) {
@@ -514,7 +603,7 @@ function abaResumo(
       formato: "R$ #,##0",
     });
   }
-  if (d.comissao?.porOperadora.length) {
+  if (!semNomes && d.comissao?.porOperadora.length) {
     const b = bloco(
       "Comissão — 12 maiores operadoras",
       topN(d.comissao.porOperadora, 12),
@@ -525,6 +614,25 @@ function abaResumo(
       tipo: "barra",
       titulo: "Comissão por operadora (top 12) — não conferida",
       series: [{ nome: "Comissão", col: 2, cor: "10B981" }],
+      ancora: { col: 4, linha: proximaAncora(), largura: 8, altura: 16 },
+      legenda: "none",
+      formato: "R$ #,##0",
+    });
+  }
+  // Sem os nomes, o honorário ainda tem uma pergunta legítima: como ele anda ao
+  // longo do tempo. Só com dois meses ou mais — um mês só é uma barra sozinha,
+  // que não é gráfico.
+  if (semNomes && (d.comissao?.porMes.length ?? 0) > 1) {
+    const b = bloco(
+      "Honorários por mês",
+      d.comissao!.porMes.map((f) => [f.rotulo, f.valor] as [string, number]),
+      COR_BARRA.verde,
+      FMT_MOEDA,
+    );
+    pedir(b, {
+      tipo: "coluna",
+      titulo: "Honorários apurados por mês (não conferido)",
+      series: [{ nome: "Honorários", col: 2, cor: "10B981" }],
       ancora: { col: 4, linha: proximaAncora(), largura: 8, altura: 16 },
       legenda: "none",
       formato: "R$ #,##0",
@@ -795,6 +903,23 @@ export async function gerarWorkbookRelatorios(
   ctx: Contexto,
   d: DadosDaPlanilha,
 ): Promise<Buffer> {
+  // ─── a trava do modo cliente ───
+  //
+  // Recusa, e não aba vazia. É o mesmo princípio do corte por papel na rota
+  // (`app/api/relatorios/exportar/route.ts`): entregar a planilha sem a aba,
+  // calada, produziria um arquivo que parece completo e não é — e aqui o erro
+  // teria o outro lado, o de mandar nome de funcionário para fora da empresa
+  // porque alguém marcou uma caixinha a mais. As duas metades falham para o
+  // lado seguro só se isto for um erro.
+  if (ctx.publico === "cliente") {
+    const proibidas = nominaisEntre(ctx.abas);
+    if (proibidas.length) {
+      throw new Error(
+        `Planilha de cliente não leva aba com nome de gente: ${proibidas.join(", ")}.`,
+      );
+    }
+  }
+
   const wb = new ExcelJS.Workbook();
   wb.creator = "Cobratec — Relatórios de cobrança";
   wb.created = ctx.exportadoEm;
@@ -805,6 +930,53 @@ export async function gerarWorkbookRelatorios(
   // Parâmetros primeiro: é a capa, e é a aba que abre quando o arquivo abre.
   abaParametros(wb, ctx, d);
   const graficos = quer("resumo") ? abaResumo(wb, ctx, d) : [];
+
+  if (quer("carteira-base") && d.base) {
+    const ws = abaTabela(
+      wb,
+      "Carteira · base",
+      [
+        { header: "Carteira", key: "carteira", width: 34 },
+        { header: "Fichas", key: "fichas", width: 14 },
+        { header: "Saldo a cobrar (R$)", key: "saldo", width: 20 },
+      ],
+      [
+        ...d.base.porCarteira.map((f) => ({
+          carteira: f.rotulo,
+          fichas: f.qtd,
+          saldo: f.valor,
+        })),
+      ],
+      { fichas: FMT_INTEIRO, saldo: FMT_MOEDA },
+    );
+    // O total vai numa linha própria e em negrito porque a aba é somável: com
+    // uma carteira só ele repete a linha de cima, com trinta ele é a resposta.
+    // "Contratos" e "cadastrados" ficam aqui embaixo e não como coluna — são
+    // números do conjunto, e repeti-los por carteira convidaria a somá-los.
+    const vazio = d.base.porCarteira.length === 0;
+    const total = ws.addRow({
+      carteira: "TOTAL",
+      fichas: d.base.fichas,
+      saldo: d.base.saldo,
+    });
+    total.font = { bold: true };
+    total.getCell("fichas").numFmt = FMT_INTEIRO;
+    total.getCell("saldo").numFmt = FMT_MOEDA;
+    for (const [rotulo, valor] of [
+      ["Contratos em aberto", d.base.contratos],
+      ["Devedores cadastrados na carteira (com ou sem saldo)", d.base.cadastrados],
+    ] as [string, number][]) {
+      const l = ws.addRow({ carteira: rotulo, fichas: valor });
+      l.getCell("fichas").numFmt = FMT_INTEIRO;
+      l.font = { italic: true, color: { argb: "FF6B7280" } };
+    }
+    if (vazio) {
+      const l = ws.addRow({
+        carteira: "Nenhum contrato em aberto no recorte — a carteira pode ser nova, já liquidada ou inativa.",
+      });
+      l.font = { italic: true, color: { argb: "FF6B7280" } };
+    }
+  }
 
   if (quer("acordos-operadora") && d.acordos) {
     abaFatias(wb, "Acordos · operadora", "Operadora", d.acordos.porOperadora, dinheiro);
@@ -843,6 +1015,37 @@ export async function gerarWorkbookRelatorios(
       header: "Comissão (R$)",
       fmt: FMT_MOEDA,
     });
+  }
+  if (quer("comissao-resumo") && d.comissao) {
+    const ws = abaTabela(
+      wb,
+      "Honorários",
+      [
+        { header: "Mês", key: "mes", width: 16 },
+        { header: "Itens", key: "qtd", width: 12 },
+        { header: "Honorários (R$)", key: "valor", width: 20 },
+      ],
+      d.comissao.porMes.map((f) => ({ mes: f.rotulo, qtd: f.qtd, valor: f.valor })),
+      { qtd: FMT_INTEIRO, valor: FMT_MOEDA },
+    );
+    const total = ws.addRow({
+      mes: "TOTAL",
+      qtd: d.comissao.qtd,
+      valor: d.comissao.valor,
+    });
+    total.font = { bold: true };
+    total.getCell("qtd").numFmt = FMT_INTEIRO;
+    total.getCell("valor").numFmt = FMT_MOEDA;
+    const rec = ws.addRow({
+      mes: "Recebido nas parcelas correspondentes",
+      valor: d.comissao.recebido,
+    });
+    rec.getCell("valor").numFmt = FMT_MOEDA;
+    rec.font = { italic: true, color: { argb: "FF6B7280" } };
+    // A ressalva vai na própria aba, e não só em "Parâmetros": esta é a aba que
+    // alguém recorta e cola num e-mail, e o selo tem de ir junto com o número.
+    const nota = ws.addRow({ mes: `⚠ ${d.comissao.ressalva}` });
+    nota.font = { italic: true, color: { argb: COR_BARRA.ambar } };
   }
   if (quer("comissao-matriz") && d.comissao) {
     abaMatriz(wb, "Comissão · oper x carteira", d.comissao.matriz, "Comissão (R$)");
