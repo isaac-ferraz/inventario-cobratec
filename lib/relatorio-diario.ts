@@ -27,7 +27,19 @@ export type ArgumentosDiario = {
   janelaDias: number;
   saida: string;
   publico: Publico;
+  /** Gerar a planilha e NÃO mandar e-mail (`--sem-email`). */
+  semEmail: boolean;
 };
+
+/**
+ * Flags que não levam valor.
+ *
+ * Existe porque o laço abaixo consome o próximo argv como valor da chave. Sem
+ * esta lista, `--sem-email --carteira 77` guardaria `sem-email = "--carteira"`
+ * e **pularia a carteira**, gerando em silêncio o relatório da 1163 quando
+ * alguém pediu a 77.
+ */
+const SEM_VALOR = new Set(["sem-email"]);
 
 /**
  * Lê `--chave valor` e `--chave=valor` de um argv já sem o `node script`.
@@ -42,6 +54,10 @@ export function lerArgumentos(argv: string[], hoje: string): ArgumentosDiario {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
     const [chave, colado] = a.slice(2).split("=");
+    if (SEM_VALOR.has(chave) && colado === undefined) {
+      mapa.set(chave, "1");
+      continue;
+    }
     mapa.set(chave, colado ?? argv[++i] ?? "");
   }
 
@@ -95,6 +111,10 @@ export function lerArgumentos(argv: string[], hoje: string): ArgumentosDiario {
     janelaDias,
     saida: mapa.get("saida") ?? "data/relatorios",
     publico,
+    // O padrão é MANDAR. `--sem-email` é para regerar um arquivo sem encher a
+    // caixa de entrada de novo — o inverso (ter de lembrar de pedir o envio
+    // todo dia) derrotaria o comando inteiro.
+    semEmail: mapa.has("sem-email"),
   };
 }
 

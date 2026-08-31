@@ -10,13 +10,22 @@
 // disso: sempre a mesma carteira, sempre o dia anterior, sem ninguém escolhendo
 // nada — e quem o dispara é um agente, não uma pessoa com um navegador aberto.
 //
+// ───────────────── o comando também ENTREGA (decisão 43) ─────────────────
+//
+// Apurar, montar a planilha, escrever o e-mail e MANDAR — tudo aqui. O agente
+// não toca no anexo. Antes ele lia o .xlsx do disco, convertia para base64 e
+// redigitava 30 mil caracteres dentro da ferramenta do Gmail, o que contradizia
+// a decisão 42: nenhum número que o cliente lê passa por um modelo, mas o
+// arquivo inteiro passava. Agora o anexo é o mesmo buffer que virou arquivo, e
+// entre a planilha e a caixa de entrada não existe transcrição.
+//
 // ─────────────── a saída é JSON, e é isso que faz o agente honesto ───────────────
 //
 // O comando imprime UM objeto JSON no stdout com os números que ele acabou de
-// gerar. Sem isso, o agente teria de reabrir o .xlsx para descobrir o que
-// escrever no e-mail — ou, o que é pior, escrever de memória. Os números do
-// texto e os números do anexo saem da mesma leitura do banco, e é essa a razão
-// de o JSON existir.
+// gerar, mais o `entrega` dizendo se o e-mail saiu e para onde. Sem isso o
+// agente teria de reabrir o .xlsx para descobrir o que dizer — ou, o que é
+// pior, dizer de memória. Os números do texto e os números do anexo saem da
+// mesma leitura do banco, e é essa a razão de o JSON existir.
 //
 // Todo o resto (progresso, aviso, erro) vai para o **stderr**: o stdout tem de
 // ser um JSON e nada mais, senão o `JSON.parse` do outro lado quebra na primeira
@@ -29,7 +38,7 @@
 // quebrado se o programa apenas imprimir zeros. Por isso o JSON carrega `vazio`,
 // e o agente é obrigado a dizer isso em português no corpo do e-mail.
 import { writeFileSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { configSiscobra } from "@/lib/siscobra";
 import { hojeNoBrasil, formatarDiaBr, rotuloPeriodo, somarDias } from "@/lib/relatorios";
 // As regras da linha de comando e a tradução do erro moram em `lib/` porque o
@@ -51,6 +60,12 @@ import {
 import { comissaoDe, comissaoDisponivel } from "@/lib/relatorios-comissao";
 import { baseDaCarteira, carteirasPorCodigo } from "@/lib/relatorios-base";
 import { montarEmail, type ResumoDiario } from "@/lib/relatorio-email";
+import {
+  configEmail,
+  enviarRelatorio,
+  explicarErroEmail,
+  ondeFicaOSmtp,
+} from "@/lib/relatorio-envio";
 import {
   gerarWorkbookRelatorios,
   type AbaChave,
@@ -136,6 +151,22 @@ async function principal(): Promise<void> {
     throw new Error(
       "Siscobra não configurado (DB_HOST/DB_USER/DB_NAME no .env). " +
         "Rode dentro da rede da Cobratec.",
+    );
+  }
+
+  // ─── passo zero: existe para onde entregar? ───
+  //
+  // Herdado do agente da decisão 42, e agora dentro do programa. Cada rodada são
+  // nove consultas num CRM de PRODUÇÃO onde tem gente trabalhando; gastá-las
+  // para no fim descobrir que o e-mail não estava configurado é o desperdício
+  // que esta conferência evita. `configEmail` também estoura aqui quando a
+  // config está pela metade — antes de tocar a rede.
+  const cfgEmail = args.semEmail ? null : configEmail();
+  if (!args.semEmail && !cfgEmail) {
+    throw new Error(
+      "E-mail não configurado: preencha API_KEY_RESEND no .env " +
+        "(a chave começa em “re_” e sai de resend.com/api-keys). " +
+        "Para gerar só a planilha, sem enviar, rode com --sem-email.",
     );
   }
 
@@ -335,6 +366,61 @@ async function principal(): Promise<void> {
   // ela compra é que nenhum número do e-mail passou por um modelo.
   const email = montarEmail(resumo);
 
+  // ─── a entrega ───
+  //
+  // O e-mail sai DAQUI, e não do agente (decisão 43). O anexo é o mesmo `buffer`
+  // que acabou de virar arquivo — não é relido do disco nem convertido para
+  // texto, então não existe caminho por onde ele se corrompa entre a planilha e
+  // a caixa de entrada.
+  //
+  // Falha de entrega NÃO derruba a rodada: a planilha já está gravada, e trocar
+  // um relatório perdido por um e-mail perdido seria o negócio errado. O que a
+  // falha faz é aparecer em `entrega.erro`, para o agente repetir a frase.
+  //
+  // `de` sai no JSON junto com `para` porque no Resend ele SURPREENDE: sem
+  // domínio verificado quem assina é `onboarding@resend.dev`, e não a Cobratec
+  // (decisão 44). Quem receber o relatório precisa saber disso pelo relato do
+  // agente, e não descobrir olhando o cabeçalho do e-mail.
+  const entrega: {
+    enviado: boolean;
+    provedor: string | null;
+    de: string | null;
+    para: string[];
+    messageId: string | null;
+    erro: string | null;
+  } = {
+    enviado: false,
+    provedor: cfgEmail?.provedor ?? null,
+    de: cfgEmail?.de ?? null,
+    para: [],
+    messageId: null,
+    erro: null,
+  };
+
+  if (cfgEmail) {
+    try {
+      const r = await enviarRelatorio(cfgEmail, {
+        assunto: email.assunto,
+        texto: email.texto,
+        html: email.html,
+        anexo: { nome: basename(caminho), conteudo: buffer },
+      });
+      entrega.enviado = true;
+      entrega.para = r.para;
+      entrega.messageId = r.messageId;
+      // Dizer PARA ONDE foi, sempre: endereço trocado no .env é o erro que
+      // ninguém percebe lendo "enviado com sucesso".
+      console.error(
+        `[relatorio-diario] e-mail enviado de ${cfgEmail.de} ` +
+          `para ${r.para.join(", ")} via ${cfgEmail.provedor}`,
+      );
+    } catch (e: unknown) {
+      entrega.para = cfgEmail.para;
+      entrega.erro = explicarErroEmail(e, ondeFicaOSmtp(cfgEmail), cfgEmail.provedor);
+      console.error(`[relatorio-diario] ERRO no e-mail: ${entrega.erro}`);
+    }
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -344,6 +430,7 @@ async function principal(): Promise<void> {
         publico: args.publico,
         arquivo: caminho,
         bytes: buffer.length,
+        entrega,
         email,
       },
       null,

@@ -40,6 +40,22 @@ describe("linha de comando do relatório diário", () => {
     ]);
   });
 
+  it("o padrão é MANDAR o e-mail", () => {
+    // O inverso — ter de lembrar de pedir o envio todo dia — derrotaria o
+    // comando inteiro.
+    expect(lerArgumentos([], HOJE).semEmail).toBe(false);
+    expect(lerArgumentos(["--sem-email"], HOJE).semEmail).toBe(true);
+  });
+
+  it("--sem-email NÃO engole o argumento seguinte", () => {
+    // A armadilha do laço que lê `--chave valor`: sem a lista de flags sem
+    // valor, isto guardaria `sem-email = "--carteira"` e PULARIA a carteira,
+    // gerando em silêncio o relatório da 1163 quando alguém pediu a 77.
+    const a = lerArgumentos(["--sem-email", "--carteira", "77"], HOJE);
+    expect(a.semEmail).toBe(true);
+    expect(a.carteiras).toEqual([77]);
+  });
+
   it("recusa código meio lido em vez de aceitar o pedaço", () => {
     // `parseInt("12abc")` devolveria 12 e o relatório sairia perfeito, da
     // carteira errada. É o erro que não deixa rastro.
