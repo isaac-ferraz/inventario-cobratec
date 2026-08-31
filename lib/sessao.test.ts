@@ -28,7 +28,14 @@ describe("sessão assinada", () => {
     expect(await lerSessao(`${forjado}.${assinatura}`)).toBeNull();
 
     // Assinatura mexida também não passa.
-    const outra = assinatura.slice(0, -2) + (assinatura.endsWith("A") ? "BB" : "AA");
+    //
+    // A mudança tem que ser no PRIMEIRO caractere, e não no último. A assinatura
+    // tem 32 bytes, que em base64url dão 43 caracteres — e o último carrega 2
+    // bits que não significam nada. "…V9BA" e "…V9BB" decodificam para os mesmos
+    // 32 bytes, e o verificador compara BYTES: mexer no fim às vezes não mexia em
+    // nada, e o teste falhava sozinho 1 vez em ~1.100 execuções. Medido.
+    const outra = (assinatura[0] === "A" ? "B" : "A") + assinatura.slice(1);
+    expect(outra).not.toBe(assinatura);
     expect(await lerSessao(`${payload}.${outra}`)).toBeNull();
   });
 

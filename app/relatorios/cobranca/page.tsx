@@ -39,7 +39,7 @@ export default async function RelatorioCobrancaPage() {
       </div>
 
       {configSiscobra() ? (
-        <PainelCobranca />
+        <PainelCobranca papel={usuario.papel} />
       ) : (
         <div className="rounded-md border tom-alerta p-4 text-sm">
           <p className="font-medium">Conexão com o Siscobra não configurada.</p>

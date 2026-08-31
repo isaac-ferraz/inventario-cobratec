@@ -6,7 +6,7 @@
 import { prisma } from "@/lib/prisma";
 import { configSiscobra } from "@/lib/siscobra";
 import { formatarDiaBr, hojeNoBrasil, somarDias } from "@/lib/relatorios";
-import { acionamentosDe, acordosDo } from "@/lib/relatorios-cobranca";
+import { SEM_RECORTE, acionamentosDe, acordosDo } from "@/lib/relatorios-cobranca";
 import { aVencerEm, emAtrasoAte, quebrasDe } from "@/lib/relatorios-carteira";
 import { registrarAviso } from "@/lib/avisos";
 import { configRetencao, resumoPurga, nadaAPurgar, type ContagemPurga } from "@/lib/retencao";
@@ -26,7 +26,7 @@ const moeda = (n: number) =>
 const num = (n: number) => n.toLocaleString("pt-BR");
 
 /** Recorte sem filtro: o digest é da casa inteira. */
-const TODAS = { carteira: null, equipe: null };
+const TODAS = { ...SEM_RECORTE };
 
 // ──────────────────────────── o pulso da operação ────────────────────────────
 

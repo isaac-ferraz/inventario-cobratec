@@ -12,7 +12,9 @@ export async function GET(req: Request): Promise<NextResponse> {
   try {
     const buffer = await gerarWorkbook();
     const dataStr = new Date().toISOString().slice(0, 10);
-    return new NextResponse(buffer, {
+    // `Buffer` do Node não é um `BodyInit` válido para a tipagem do fetch; a
+    // view sobre os mesmos bytes é, e não copia nada.
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type":

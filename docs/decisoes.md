@@ -2559,3 +2559,877 @@ acrescentar telefone "para facilitar".
 Testes: 685 → **767** (`lib/relatorios-carteira.test.ts` 10, `lib/agendador.test.ts`
 10, `lib/retencao.test.ts` 11, `tests/api/relatorios-carteira.test.ts` 22,
 `tests/api/agendador.test.ts` 17, mais 12 de janela em `lib/relatorios.test.ts`).
+
+---
+
+## 39. O filtro aceita mais de um, e a planilha sai do recorte
+
+Os relatórios de cobrança (35) e carteira (36) nasceram com dois filtros, e os
+dois de escolha única: **uma** carteira ou todas, **uma** equipe ou todas. Na
+operação isso não fecha — quem cuida das três carteiras do mesmo cedente somava
+três telas na mão. E o número que a gestão persegue o mês inteiro, o que cada
+operadora rendeu **carteira por carteira**, não tinha tela nenhuma: os
+`GROUPING SETS` davam operadora *ou* carteira, nunca o cruzamento.
+
+O segundo pedido é a saída: um **Excel que obedeça ao filtro montado na tela**,
+com abas escolhidas na hora. A decisão 35 registrou a exportação como "cabe, e
+não foi feita agora". É agora.
+
+### O SQL era a parte barata
+
+`($3::int IS NULL OR a.carcod = $3::int)` vira
+`($3::int[] IS NULL OR a.carcod = ANY($3::int[]))`, e o `pg` serializa um array
+JS direto. Oito consultas, uma troca mecânica. `null` continua significando
+"todas" — e é o que faz a cláusula **sumir** em vez de virar um `IN` com as 191
+carteiras dentro.
+
+O que custou foi a UI, e por um motivo que não estava no plano: o projeto **não
+tem Popover, Checkbox nem Command** em `components/ui/`, e o `Select` do Radix
+não faz multi-seleção. O caminho canônico entraria com duas dependências para
+desenhar uma caixa com checkbox. O padrão já existia pronto em
+**`components/salas/trazer-dialog.tsx`** — diálogo com busca, checkbox e ação em
+lote —, que é exatamente esta interação e é também o certo pelo tamanho da
+lista: 191 carteiras e 353 operadoras não cabem num menu suspenso.
+
+**Zero dependência nova.** `components/relatorios/seletor-multiplo.tsx` serve os
+três lugares: relatórios, listas do inventário e Dashboard.
+
+### O tri-estado, e o plural que força a visita
+
+`lib/relatorios-filtros.ts` mata a `codigo()` que estava **copiada byte a byte em
+três rotas** — duas cópias da mesma regra já divergiram uma vez neste projeto
+(a lista de papéis, 25.1), e o preço foi um papel inalcançável na prática.
+
+Três valores, três significados: `null` = todas · `number[]` = o recorte ·
+`undefined` = entrada torta, que vira **400**. Filtro que falha para o lado
+permissivo mostra mais do que a pessoa pediu, e ela não tem como perceber.
+
+**Teto de 50 códigos.** Escolher as 191 carteiras já tem nome, e é `null`. O teto
+existe para o outro caso: a query string é a superfície pública do relatório, e
+sem limite ela é um jeito de mandar um `IN` de dez mil itens contra um banco de
+produção a partir da barra de endereços.
+
+Renomear `carteira` → `carteiras` foi de propósito: o compilador apontou os dez
+pontos de uso, inclusive os do relógio da decisão 37, em vez de deixar um
+sobrevivente comparando número com array.
+
+### Duas armadilhas anotadas onde mordem
+
+**`NULL = ANY(...)` devolve NULL, não `false`.** `d.usucod` pode ser nulo — é o
+acordo cujo operador sumiu do cadastro, que os `LEFT JOIN` preservam de propósito
+para o TOTAL não encolher em silêncio. Ao filtrar por operadora, esse acordo
+**sai**. É o comportamento certo (quem pede "os acordos da Ana" não quer o
+órfão), e a consequência está escrita em `FILTRO_PESSOA`: com filtro de operadora
+ligado, a soma das partes pode não fechar com o total. A diferença são os órfãos.
+
+**A ordem dos ramos do `CASE` não é decorativa.** O conjunto `(usucod, carcod)`
+— a matriz — tem `grouping` zero nas duas colunas. Se o ramo dele não vier
+primeiro, ele cai no ramo de `'operadora'` e a matriz inteira é lida como um
+ranking com os valores repartidos por carteira: os números somam certo e **o
+rótulo mente**.
+
+### O buraco que o pedido não previa
+
+O filtro de operadora é, ele mesmo, um recorte nominal. A decisão 36 nega à
+operadora de `COBRANCA` o ranking por operadora — deixar que ela **filtre** por
+operadora devolveria o mesmo dado pela porta dos fundos, um pedido por vez, e
+ela reconstruiria o ranking inteiro.
+
+O portão é no servidor (403), e não em esconder o seletor: a query string é
+editável. A lista de operadoras também não é servida a quem não pode filtrar por
+ela — mas isso é cortesia; o portão é o outro.
+
+### Honorário: o nome bonito e o número certo
+
+O pedido dizia "honorários por mês de cada operadora por carteira", e honorário
+**não existe como dado validado** em nenhum dos dois projetos:
+
+- `carteira_comissoes` — a tabela que guardaria o % por carteira, com
+  `compercomis`/`comperacor`/`comperacio` — está **VAZIA**. `carteira_repasse`
+  também. O percentual não é recalculável.
+- `usuario.usuperhon` existe e **nunca foi lido** por nada neste sistema.
+- `comissao` (133.264 linhas: `comopecod`, `comcarcod`, `comacocod`,
+  `comdatpag`, `comvalcom`) tem exatamente a granularidade pedida, e
+  `comissao_operadores` (399.792) reparte por tipo — a razão ≈ 3,0 sugere tipo
+  fixo. **Nenhum ADR do projeto irmão as tocou.**
+
+Acordos e acionamentos foram conferidos contra os PDFs que o Siscobra imprime
+(104/104, 100%). Comissão não foi, por ninguém. Então a medição veio antes:
+**`scripts/validar-comissao.ts`** (`npm run db:validar-comissao`), no molde do
+`validar-parcelas.ts`.
+
+### E ela derrubou a primeira versão da consulta
+
+Rodado contra o CRM em **18/08/2026**, o script achou o erro que ninguém teria
+achado lendo o código:
+
+> **`comissao.comopecod` não é o código da operadora.** São **139.842 valores
+> distintos em 139.842 linhas** (faixa 106–2.636.812) e **100% órfãos** em
+> `usuario`. É um id sequencial da própria tabela.
+
+`comusuinc` também não serve — 19 valores distintos, todos válidos: é o
+back-office que lançou o registro, não quem trabalhou o caso. A operadora está em
+**`comissao_operadores.usucod`**: 146 pessoas, nomes reais, 86% casando com o
+cadastro.
+
+É a **terceira vez** que este projeto tropeça na mesma armadilha — `acovalatu` e
+não `acoval`, `retusucod` e não `acousuinc`, e agora esta. No Siscobra, a coluna
+de nome óbvio é a errada, e isso já deixou de ser coincidência: é o padrão.
+
+Mais três medidas que mandaram no desenho:
+
+- **`comopeval` e `comopeper` estão TODOS zerados.** A repartição por
+  `comopetipo` que a tabela promete não existe neste banco. O único valor é
+  `comvalcom`, da comissão inteira — e é por isso que a aba se chama
+  **comissão**, não honorário.
+- **São exatamente 3 linhas por comissão** (419.526 / 139.842 = 3,00), e em
+  **96,2%** delas é a mesma pessoa (máximo observado: 2). Somar pelo join cru
+  triplicaria o dinheiro; daí o `DISTINCT ON (comcod)`. Nos 3,8% restantes o
+  valor inteiro é creditado a uma das duas, e isso está na ressalva.
+- **14% das comissões** têm `usucod` fora do cadastro e caem em
+  "(sem operadora)" — mais em janelas recentes (21,8% no último trimestre).
+
+Conferido depois da correção: `comissaoDe` devolve **8.810 itens e R$ 463.365,28**
+num trimestre, exatamente o que `SELECT count(*), sum(comvalcom) FROM comissao`
+diz sozinho. Nenhuma multiplicação.
+
+O que o script **não** faz, e continua faltando: comparar um mês com o relatório
+que o Siscobra imprime. Até lá, `CONFERIDA = false` em
+`lib/relatorios-comissao.ts` mantém a ressalva **colada ao número** — e ela
+carrega os números medidos, não uma precaução genérica: ressalva vaga é ruído e a
+pessoa aprende a pular.
+
+Colada ao número quer dizer, hoje, **na planilha**: a comissão saiu só como aba,
+sem painel próprio. Não é esquecimento — é o selo mandando. Um número que ainda
+não bate com o documento oficial não merece uma posição no alternador ao lado de
+acordos e carteira, que foram conferidos 104/104. A consulta e a `RESSALVA` já
+estão prontas para a tela no dia em que a conferência acontecer.
+
+Foi assim que "em atraso" nasceu na 36 — dizendo "venceu e não achamos a baixa",
+e não "não pagou". **Um número com o nome certo vale mais que um número com o
+nome bonito.**
+
+Portão: `exigirRelatorio` (admin e supervisor). Comissão é remuneração nominal de
+colega, com mais força ainda que o ranking da 35.
+
+### A planilha, e a aba que não é opcional
+
+`lib/excel-relatorios.ts`, 17 abas ligáveis. **"Parâmetros" entra sempre**, mesmo
+sem ser pedida: uma planilha de números sem o recorte que os produziu circula por
+e-mail e vira um número sem dono. Foi para não ter esse problema que a 23 pôs o
+filtro na URL; a planilha não pode desfazê-lo. Ela carrega o recorte **por nome**
+("FESTCARD", não "7"), quem exportou, quando, e as ressalvas de método — que são
+lidas longe da tela que as explica.
+
+**Duas janelas, e precisam ser duas.** Acordo e comissão olham para TRÁS ("o que
+fechou"); a carteira olha para FRENTE ("o que vence"). Uma janela só forçaria uma
+das metades a mentir. A capa diz qual vale para quê, e o painel da carteira
+remapeia `inicio`/`fim` para `janelaInicio`/`janelaFim` ao montar o link — mandar
+cru gravaria data de vencimento como se fosse data de fechamento: nenhum erro, e
+um número errado.
+
+**O recorte por papel recusa NOMEANDO a aba** (403: *"Seu perfil não alcança a
+aba 'Acordos · operadora'"*), em vez de entregá-la vazia. Vazio silencioso é a
+doença que a 30 pagou para aprender. A matriz da 36 sai intacta: supervisor nunca
+vê nome de devedor, cobrança nunca vê ranking de colega.
+
+**Fila de três, não `Promise.all`.** O pool do Siscobra é `max: 4`. Oito
+consultas em paralelo enfileiram no pool e as últimas estouram o
+`connectionTimeoutMillis` de 5s — o erro sairia como "não foi possível consultar
+o Siscobra", que manda o TI procurar defeito na rede. Três de cada vez deixa
+conexão livre para as **telas**, que continuam sendo usadas enquanto a planilha
+é gerada. E `timeout` de 60s, porque ninguém está olhando.
+
+**Uma exportação por usuário.** Duplo clique num botão que demora 40s é o
+comportamento normal de quem acha que não funcionou; sem trava, ele dobra a carga
+no CRM.
+
+### Dois defeitos antigos que saíram junto
+
+Extrair `lib/excel-estilo.ts` (compartilhado com a planilha do inventário)
+deixou dois à vista, e nenhum é opinião:
+
+1. **`lib/excel.ts` não tinha um único `numFmt`.** Valor saía cru ("3450.9") e
+   data saía como **texto** — a coluna não ordenava nem filtrava como data no
+   Excel (13/08 antes de 02/09, por ordem alfabética). Agora `Date` + `numFmt`,
+   mais `autoFilter` no cabeçalho.
+2. **`adicionarBlocoIndicador` não contava a linha do "(sem dados)".** A
+   aritmética `r += 1 + dados.length + 1` errava quando o bloco vinha vazio, e o
+   bloco seguinte escrevia por cima dele. Com o parque cheio isso nunca
+   apareceu; num banco recém-instalado, sim. O helper agora devolve a próxima
+   linha livre e a conta sumiu de quem chama.
+
+### O Dashboard ganhou filtro, e o escopo continua sendo teto
+
+O painel de Informática nunca teve filtro: os números eram do parque inteiro e o
+recorte acontecia depois, no link para a lista. Isso resolve "quais são os sete
+sem licença" e não resolve "como está a Sala 93".
+
+A regra que não pode escorregar: o supervisor (24) chega com um recorte imposto
+pelo servidor, e a escolha compõe com ele por **AND**, montando
+`{ AND: [escopo, escolha] }` — nunca mesclando as chaves num objeto só, porque
+`filtroComputador` devolve um `OR` de duas condições e espalhá-lo junto com outro
+`OR` faria uma sobrescrever a outra em silêncio. Com OR, o supervisor da Sala 1
+digitaria o id da Sala 9 na barra de endereços e o painel obedeceria. Pedir sala
+fora do escopo devolve **zero**, que é a resposta certa.
+
+E o filtro **viaja nos links**: `detalhe()` é o funil único dos catorze
+indicadores, então aplicar `comFiltro` nele bastou. Sem isso, "Sem licença
+Windows: 7" com uma sala filtrada abriria a lista com os sete da empresa — card e
+lista discordando, que é o defeito que a 23 resolveu.
+
+Detalhe pequeno com consequência: a lista de **cargos** do seletor sai de uma
+consulta própria, e não dos computadores já filtrados. Derivá-la do resultado
+faria o seletor encolher a cada escolha — marcado "Operadora", só "Operadora"
+sobraria, e não haveria como acrescentar "Gestor" sem limpar o filtro antes.
+
+### O que fica de fora, de propósito
+
+- **Janela maior que 92 dias**, inclusive na exportação. O CRM é produção.
+  Consequência aceita e dita na tela: "comissão mês a mês" rende até quatro
+  meses por arquivo.
+- **Gráficos nativos no Excel.** A decisão 6 continua valendo — `exceljs` não
+  escreve chart object.
+- **Recuperação e percentuais de conversão.** D-003 e D-005 do projeto irmão
+  seguem em pé.
+- **Agendar a exportação pelo relógio da 37.** Cabe, e é outra conversa.
+- **Tela de comissão** (quarta posição do alternador). Espera a conferência
+  contra o relatório impresso — ver acima. Enquanto `CONFERIDA` for `false`, o
+  número sai pela planilha, onde a ressalva viaja junto e é lida por quem pediu
+  o arquivo, não por quem passou pela tela.
+
+Testes: 807 → **866** (`lib/relatorios-filtros.test.ts` 20,
+`lib/filtros-multi.test.ts` 19, `lib/dashboard-filtros.test.ts` 16,
+`tests/api/relatorios-exportar.test.ts` 20, mais os de recorte em
+`lib/relatorios-carteira.test.ts` e nas duas rotas de relatório).
+
+---
+
+## 40. O relatório impresso conferiu a carteira — e o Excel ganhou gráfico de verdade
+
+Duas frentes no mesmo dia, e a primeira é a que a decisão 39 vinha pedindo: um
+relatório que o próprio Siscobra imprime, para conferir contra o banco.
+
+### O PDF que chegou
+
+`RELATÓRIO ANALÍTICO DA CARTEIRA`, 147 páginas, gerado pelo GeneXus em
+19/08/2026 às 14:46:08. Uma página por carteira, com a quebra por **situação da
+ficha** (código, nome, nº de fichas, nº de contratos, valor principal) e um
+rodapé de capital (implantado, liquidado, pagamento direto, devoluções, aberto).
+
+Antes de comparar, três coisas do próprio PDF tiveram que ser entendidas:
+
+- **Carteira transborda de página.** COOPEREMB ocupa 30 e 31: as linhas numa, o
+  "Totais" e o rodapé na outra. Tratar página como carteira criaria uma carteira
+  fantasma sem totais e outra sem linhas — e as duas entrariam na conferência
+  como divergência. São **147 páginas para 143 carteiras**.
+- **A soma das linhas bate com o "Totais" em 143/143.** O documento é
+  internamente consistente, o que autoriza usá-lo como referência.
+- **O `Capital aberto` do rodapé é o mesmo número do "Valor principal"** em
+  142/143 (a exceção erra 26 centavos). Os dois blocos falam do mesmo universo.
+
+### A regra, e a quarta armadilha do CRM
+
+A primeira tentativa mirou o óbvio: `devedor`, filtrado por `devsal > 0`, somando
+`devsal`. Deu quase certo — e "quase" é o resultado mais perigoso possível, porque
+o total da FESTCARD fechou com **7 centavos** de diferença. Fechava o dinheiro e
+não fechava a contagem: 22.131 fichas contra 22.137.
+
+O universo não é a ficha, é o **contrato**:
+
+```
+carteira.carati = 1  e  contrato.convalsal > 0
+   Nº contratos     = count(*)
+   Valor principal  = sum(convalsal)
+   Nº fichas        = count(DISTINCT devcod)
+   situação         = devedor.devsitcod
+```
+
+Com isso a FESTCARD bate **exata nas três colunas**: 22.137 fichas, 22.141
+contratos, R$ 16.978.222,03. `devsal` é o saldo em cache da ficha e diverge do
+somatório dos contratos dela por centavos — é a **quarta vez** que a coluna de
+nome óbvio é a errada neste banco, depois de `acovalatu`, `retusucod` e
+`comissao_operadores.usucod`. As seis fichas que faltavam eram as que têm
+contrato aberto e `devsal` zerado.
+
+O filtro de carteira ativa não foi adivinhado: as 19 carteiras que existem no
+banco e não saem no PDF têm **todas** `carati = 0`, e as 143 do PDF têm **todas**
+`carati = 1`. Separação de 100%, sem exceção para explicar.
+
+### O resultado
+
+Sobre as 143 carteiras, comparando os totais:
+
+| | PDF (14:46) | Banco (15:05) |
+|---|---|---|
+| carteiras | 143 | 143 |
+| fichas | 80.847 | 80.845 |
+| capital aberto | R$ 227.213.346,39 | R$ 227.133.968,00 |
+
+**142 de 143 carteiras batem exatamente**, nas fichas e no valor (99,3%). A
+única divergência é a COOPEREMB, e ela tem nome e hora: uma ficha alterada às
+**15:00:48**, depois de o relatório ter sido impresso.
+
+Que o resto é movimento ao vivo ficou provado por uma segunda leitura: entre
+15:05 e 15:08, a situação 5 da FESTCARD foi de 18.924 para 18.925 sozinha. Só na
+FESTCARD, **311 fichas** tinham ação registrada depois das 14:46. Some-se que as
+diferenças por situação, dentro de uma carteira, se cancelam — o total fecha
+porque uma ficha que anda de "RECADO" para "REAGENDADO" não muda o capital.
+
+Aprendido de passagem, e útil: **`devdatatu` não acompanha mudança de
+situação** (uma linha no dia inteiro); quem acompanha é `devretdataca`.
+
+### O relatório oficial rotula errado
+
+Este é o achado que sobrevive ao dia. As contagens do PDF batem, mas os **nomes
+das situações não**: ele imprime "LIGAÇÃO - DESEMPREGADO" para o código 3 da COOP
+SESC/SENAC, onde o cadastro dessa carteira diz "RECADO".
+
+`carteira_situacao` é **por carteira** — o mesmo código tem nome diferente em
+cada uma, e o código 25 tem **sete** nomes distintos entre 85 carteiras. O PDF
+usa um mapa único para as 143 páginas (zero inconsistências em 972 linhas), e
+esse mapa é o do **menor `carcod`** que define cada código: 17 de 17 conferidos.
+O relatório resolve o nome sem amarrar na carteira da linha.
+
+Consequência prática, anotada no SQL de `lib/relatorios-cobranca.ts`: o
+`cs.carcod = r.carcod` do join **não é redundante**, e ninguém deve removê-lo
+para "bater com o impresso". Quem comparar os rótulos vai achar diferença — e a
+diferença é a favor deste sistema.
+
+### O que este PDF NÃO confere
+
+Dito porque a tentação é dar o assunto por encerrado:
+
+- **Comissão continua não conferida.** Este relatório não tem uma linha sobre
+  ela. `CONFERIDA = false` fica de pé, e o que falta é o relatório de comissão
+  que o Siscobra imprime — outro documento.
+- **Acordos e acionamentos por operadora** também não estão aqui. Já haviam sido
+  conferidos contra os PDFs próprios (104/104 e 100%), na decisão 35.
+- O que este documento confere é uma dimensão que o sistema **ainda não usa**:
+  situação da ficha e capital por carteira. Fica medido e disponível; virar tela
+  é outra conversa.
+
+### Gráfico nativo no Excel, revendo a decisão 6
+
+A decisão 6 registrou que o `exceljs` não cria gráfico, e isso continua
+verdadeiro: não existe `addChart` em 4.4.0. O que ela não disse — porque na
+época não foi procurado — é que **a limitação é da API, não do formato**. Um
+.xlsx é um zip de XML; o `jszip` já vinha junto com o próprio exceljs; e um
+gráfico é um `xl/charts/chartN.xml` mais quatro costuras (o drawing, dois
+`.rels` e a declaração no `[Content_Types]`).
+
+`lib/excel-graficos.ts` deixa o exceljs escrever o arquivo inteiro e **acrescenta**
+os gráficos depois, sem reescrever nada do que já estava lá. Seis tipos: coluna,
+barra, pizza, rosca, linha e área.
+
+O preço, por inteiro:
+
+- **É OOXML na mão.** XML errado não faz o Excel ignorar o gráfico: faz ele abrir
+  a caixa "conteúdo ilegível, deseja recuperar?" — e aí a planilha inteira fica
+  sob suspeita por causa de um retângulo. Pior que não ter gráfico.
+- **`jszip` era dependência transitiva.** Usá-la sem declarar é apostar que o
+  exceljs nunca troque de zipper. Entrou no `package.json`.
+- **Os gráficos apontam para células por endereço.** Mexer nas linhas de um bloco
+  sem mexer no gráfico o faz apontar para o lugar errado, e gráfico errado tem a
+  mesma cara de gráfico certo. Por isso `adicionarBlocoIndicador` passou a
+  devolver **o intervalo que ocupou**, em vez de quem chama refazer a conta — é o
+  mesmo remédio que o `proxima` já tinha sido.
+
+Três detalhes que só apareceram olhando o arquivo renderizado, e nenhum deles
+daria erro:
+
+1. **A ordem dos elementos da aba.** O schema manda `<drawing>` **antes** de
+   `<tableParts>`. Enfiar sempre antes de `</worksheet>` funciona até a aba ganhar
+   uma tabela — e aí o arquivo abre pedindo reparo, sem nenhuma outra pista.
+2. **Linha não se pinta por dentro.** Barra e fatia usam `a:solidFill` com a borda
+   desligada; aplicar isso a um gráfico de linha deixa a linha **invisível**,
+   sobrando os marcadores soltos. A cor da linha é o traço (`a:ln`).
+3. **Barra horizontal desenha de baixo para cima**, então um ranking já ordenado
+   sai de cabeça para baixo, com o maior no rodapé. O eixo de categoria vai em
+   `maxMin`.
+
+### O painel
+
+Os dois dashboards (inventário e relatórios) viraram painel de verdade: faixa de
+título, **cartões de KPI** com filete colorido no topo — e não fundo colorido,
+que faz dez cartões brigarem entre si e o número sumir —, gráficos à direita e a
+coluna de números à esquerda, que **continua sendo a fonte**: é dela que se copia
+o valor exato para um e-mail, e é para as células dela que os gráficos apontam.
+O mesmo dado, desenhado duas vezes, sem chance de discordarem.
+
+Na matriz operadora × carteira entrou **escala de cor** no lugar da barra de
+dados: a barra compara dentro da coluna, e numa matriz o que se procura é onde
+está o quente em relação ao quadro inteiro, com até 5.000 células.
+
+Junto saiu um defeito antigo: o bloco de indicador tinha **um formato para o
+quadro todo**, e um quadro de KPI mistura naturezas — "Acordos fechados 486" e
+"Valor acordado R$ 1.284.300,55". O formato passou a ser por linha; antes o
+dinheiro saía cru ("1284300,55") ao lado do cartão que o mostrava certo.
+
+E os painéis ganharam `pageSetup` paisagem com ajuste à largura: painel largo
+impresso em retrato sai fatiado ao meio, e o pedaço da segunda folha são
+justamente os gráficos.
+
+Testes: 866 → **875** (`lib/excel-graficos.test.ts`).
+
+---
+
+## 41. O painel que filtra sozinho, e o teste que falhava 1 vez em mil
+
+A decisão 40 deu gráfico à planilha. Ela continuava sendo uma fotografia: o
+recorte era decidido na tela e o arquivo registrava o resultado. "E se eu
+quisesse ver só a FESTCARD?" só tinha uma resposta — voltar ao site e exportar de
+novo. A aba **"Painel interativo"** (opcional, desmarcada por padrão) move o
+recorte para dentro do arquivo.
+
+### O slicer não é o que faz os números andarem
+
+Vale dizer primeiro, porque é o contrário do que parece. O slicer só **esconde
+linhas** da tabela. Quem reage a linha escondida é a fórmula:
+
+- **`SUBTOTAL(109; …)`** soma pulando o que o filtro escondeu — é o que faz os
+  cartões de KPI se moverem sozinhos. (`109` = "soma, ignorando oculto".)
+- O resumo por operadora precisa de mais: somar **por critério** *e* respeitar o
+  filtro. `SOMASE` ignora o filtro; `SUBTOTAL` não aceita critério. A combinação
+  que resolve é o `SUBTOTAL` aplicado linha a linha via `OFFSET`, multiplicado
+  pelo critério dentro de um `SUMPRODUCT`. É feio, e é o idioma padrão da
+  planilha para este problema exato.
+
+Os dois resumos são **cruzados** com os slicers de propósito: o filtro de
+CARTEIRA reordena o resumo por OPERADORA, e vice-versa. Slicer e resumo no mesmo
+eixo deixariam uma barra só na tela — que não é informação nenhuma.
+
+### O preço, e ele é maior que o do gráfico
+
+Slicer não é do formato base do `.xlsx`: é extensão da Microsoft (`x14`/`x15`),
+declarada em `extLst`. São cinco partes amarradas — cache, slicer, `extLst` da
+aba, `extLst` do workbook e a âncora no desenho — e o cache aponta para a tabela
+**por id e por número de coluna**, não por nome: apontar para a coluna errada dá
+um slicer que filtra outra coisa, sem erro nenhum.
+
+E o pior: **não dá para conferir nesta máquina.** O LibreOffice não implementa
+slicer. Ele abre o arquivo e ignora os botões — o que é ótima prova de que o
+arquivo não está corrompido, e prova nenhuma de que o slicer funciona. Quem
+valida isso é o Excel. **Fica registrado como pendência: abrir uma vez no Excel
+de verdade.**
+
+Duas decisões saem desse limite, e as duas são sobre não apostar:
+
+1. **`mc:AlternateContent` em volta da âncora.** É o que diz "se você não entende
+   slicer, pule este bloco". Sem ele, o LibreOffice não degradaria — acusaria
+   arquivo corrompido, e a planilha inteira cairia junto com o enfeite.
+2. **A tabela mantém o autofiltro** (`filterButton: true`). Não é decoração: sem
+   isso o exceljs escreve `hiddenButton="1"` em toda coluna e some com os menus
+   de filtro. Perdendo os botões bonitos, ainda se filtra pelo cabeçalho, e os
+   cartões e gráficos continuam respondendo. Uma interatividade que dependesse
+   inteiramente da parte não verificável seria aposta, não entrega.
+
+Conferido no que dá para conferir: o arquivo abre no LibreOffice sem reparo, e as
+fórmulas **calculam** — 708 acordos e R$ 2.018.520,00 num conjunto sintético,
+exatamente a soma esperada dos 120 cruzamentos.
+
+O portão da aba é o mesmo da matriz (`ADMIN` e `SUPERVISOR`): ela mostra nome de
+operadora, e a decisão 36 nega esse ranking à cobrança. Aba nova com papel mais
+frouxo que o dado que ela carrega seria a porta dos fundos da decisão 39.
+
+### O teste que falhava sozinho
+
+No meio disso, um teste que ninguém tinha tocado quebrou:
+`lib/sessao.test.ts > recusa token adulterado`. Passava 5 de 5 isolado. Era
+intermitente de verdade, e a causa é bonita:
+
+A assinatura HMAC tem 32 bytes, que em base64url dão **43 caracteres** — e o
+último carrega **2 bits que não significam nada**. O teste "mexia" na assinatura
+trocando os dois últimos caracteres por `AA`/`BB`, e o verificador compara
+**bytes**, não texto. Quando a assinatura terminava em `…BA`, a mutação virava
+`…BB` — e as duas decodificam para os **mesmos 32 bytes**. A assinatura "mexida"
+era a mesma assinatura, o token passava, e o teste falhava.
+
+Medido antes de mexer: **179 colisões em 200.000** assinaturas, 1 em ~1.117.
+Exemplo: `…V9BA` → `…V9BB`.
+
+O defeito é do teste — `lerSessao` está correto, e é justamente por comparar
+bytes em vez de texto que ele está correto. A mutação passou para o **primeiro**
+caractere, que é inteiramente significativo: 0 colisões em 200.000.
+
+Um teste que falha 1 vez em mil é pior que um teste que falha sempre. Ele ensina
+a rodar de novo.
+
+Testes: 875 → **890** (`lib/excel-slicers.test.ts` 9,
+`lib/excel-relatorios.test.ts` 6).
+
+---
+
+## 42. O relatório que sai da empresa, e o agente que não escreve o e-mail
+
+Até aqui todo relatório era puxado por alguém: monta o recorte na tela, clica em
+exportar, baixa. A Rede Drogal (carteira **1163**, entrada em 21/08/2026) pede o
+contrário — todo dia, a mesma carteira, o dia anterior, um e-mail para o cliente.
+Ninguém escolhe nada, e quem dispara não é uma pessoa com um navegador aberto: é
+um **agente**.
+
+Isso quebra duas coisas que a decisão 39 tinha resolvido, e cada uma pede uma
+resposta própria.
+
+### Um comando, e não a rota HTTP
+
+`npm run relatorio:diario -- --carteira 1163` (`scripts/relatorio-diario.ts`). A
+rota `/api/relatorios/exportar` continua sendo a da tela; ela precisa de sessão,
+de cookie e de um recorte montado por gente. O comando não tem nada disso para
+oferecer e não deveria fingir que tem.
+
+O que ele repete da rota, de propósito: **fila de 3** consultas (o pool do
+Siscobra é `max: 4`; um `Promise.all` das nove estouraria o
+`connectionTimeoutMillis` e deixaria as telas sem conexão) e o timeout de 60s.
+
+### A saída é JSON, e é isso que faz o agente honesto
+
+O comando imprime **um** objeto JSON no stdout, com os números que ele acabou de
+gerar; progresso, aviso e erro vão para o **stderr**. Sem isso o agente teria de
+reabrir o `.xlsx` para descobrir o que escrever — ou, pior, escrever de memória.
+
+Os números do texto e os números do anexo saem da **mesma leitura do banco**. É a
+razão inteira de o JSON existir.
+
+### O agente entrega o envelope; ele não escreve a carta
+
+Assunto, texto e HTML saem prontos de `lib/relatorio-email.ts`. O agente copia os
+campos e cria o rascunho — não redige, não resume, não recalcula.
+
+É a **decisão 32 outra vez**, aplicada ao outro lado da casa: lá, o modelo
+classifica e o código responde, e nenhum número que chega ao devedor passou pelo
+modelo. Aqui o destinatário é um cliente, e um número datilografado a partir de
+um JSON lido três passos atrás é um número que pode sair diferente do anexo — o
+e-mail dizendo uma coisa e a planilha, outra.
+
+E as três ressalvas de método vão **no corpo**, não só na aba "Parâmetros": quem
+recebe um e-mail muitas vezes não abre o anexo, e é aí que o número perde o nome
+certo. "Em atraso" não é "não pagou" (decisão 36); honorário ainda não confere
+com o relatório oficial; acionamento conta só ação manual.
+
+### Zero é uma resposta, e o programa é obrigado a dizê-la por extenso
+
+A 1163 é nova: em 27/08/2026 tinha **103 devedores cadastrados**, **5 fichas** com
+saldo (R$ 3.461,46), nenhum acordo ativo e um quebrado. Um dia sem movimento é
+legítimo — e **indistinguível de um cano quebrado** se o programa apenas imprimir
+zeros.
+
+Daí o campo `vazio` no JSON e a frase no e-mail: "não houve movimento registrado
+nesta carteira… os números abaixo estão zerados por isso, e não por falha na
+apuração". O que a frase **não** faz é explicar o motivo ("a carteira é nova",
+"foi feriado") — isso o programa não sabe, e motivo inventado é pior que nenhum.
+
+### A planilha que sai da empresa
+
+`publico: "cliente"` em `lib/excel-relatorios.ts`. A diferença não é de gosto:
+produção de funcionário — quem fechou quanto — é dado da Cobratec, e é a mesma
+linha que as decisões 27, 35 e 36 já traçam entre os papéis. Onze abas; ficam de
+fora as por operadora, a matriz e "Parcelas (nominal)".
+
+Três detalhes que custaram mais do que parecem:
+
+1. **A regra mora no catálogo.** `DefinicaoAba.nominal`, em
+   `lib/relatorios-abas.ts`, ao lado do `papeis`. Uma lista paralela no gerador
+   divergiria na primeira aba nova — foi exatamente o defeito da decisão 25.1.
+2. **Recusa nomeando a aba**, em vez de entregá-la vazia. Planilha sem a aba,
+   calada, parece completa e não é; e aqui o erro tem o outro lado, o de mandar
+   nome de funcionário para fora da empresa porque alguém marcou uma caixinha a
+   mais. Nomear a aba é o que evita a pessoa adivinhar qual das onze desmarcar.
+3. **Escolher as abas certas não bastava.** O Resumo desenhava sozinho o bloco
+   das 12 maiores operadoras, a partir de `d.acordos.porOperadora`, mesmo sem a
+   aba nominal marcada. O teste que prova isso procura o nome no **zip inteiro**,
+   e não na aba: o Excel guarda texto repetido em `sharedStrings.xml`, e um nome
+   que "não está" na aba pode estar ali. E o par de casos usa os **mesmos dados**
+   trocando só o público — ausência só vale como prova quando o mesmo teste sabe
+   detectar a presença.
+
+A rosca "participação por carteira" também sai quando há uma carteira só: um anel
+inteiro dizendo "100%" ocupa um quarto do painel para não informar nada.
+
+### A base da carteira virou código (decisão 40, enfim)
+
+`lib/relatorios-base.ts`. A conferência contra o `RELATÓRIO ANALÍTICO DA
+CARTEIRA` ficou registrada na decisão 40 e nunca tinha virado consulta aqui;
+numa carteira nova ela é **o único número que existe**.
+
+A regra é a de lá: universo `contrato.convalsal > 0` em carteira `carati = 1`,
+valor `sum(convalsal)`, ficha `count(DISTINCT devcod)`. Medido em 27/08/2026 para
+escrever isto: `conati` é **redundante** neste universo (0 de 55.720 linhas em dez
+carteiras) e por isso não entra — filtro que não filtra é só uma coisa a mais
+para alguém manter errado depois; e `devcod` **não se repete entre carteiras**, o
+que torna a contagem distinta correta também na linha de total.
+
+"Fichas" e "devedores cadastrados" são **dois números** e viajam separados: 5 e
+103. Um número só faria a carga parecer maior ou menor do que é.
+
+### As regras moram em `lib/`, porque o vitest não enxerga `scripts/`
+
+`vitest.config.ts` varre `lib/**` e `tests/api/**`. Uma regra escrita dentro de
+`scripts/` é, por construção, uma regra sem teste — e as deste comando não são
+formalidades: o padrão do `--dia` é **ontem** (ninguém confere isso à mão de
+manhã) e `parseInt("1163abc")` devolveria **1163**, gerando uma planilha
+impecável da carteira errada, sem deixar rastro.
+
+Por isso `lib/relatorio-diario.ts` tem a linha de comando e o script ficou só com
+o I/O. Junto veio o padrão que erra para o lado seguro: **`--publico` nasce
+"cliente"**, ao contrário do resto do sistema. Este comando existe para produzir
+o anexo que sai da empresa, e um arquivo com nome de operadora já encaminhado não
+se desfaz.
+
+### O erro que manda a pessoa para o lugar certo
+
+A primeira execução fora do escritório devolveu isto:
+
+```
+{ "ok": false, "erro": "Connection terminated due to connection timeout" }
+```
+
+Verdadeiro e inútil. Quem lê não sabe se está fora da rede, se digitou a senha
+errada ou se derrubou o banco — e o agente repete essa frase ao usuário.
+
+`explicarErro` separa **uma** coisa: deu para chegar no servidor, ou não? Rede
+(`ECONNREFUSED`, `EHOSTUNREACH`, `ENOTFOUND`, timeout do pool) sai como "o
+Siscobra (192.168.0.253:5432) não respondeu — rode no escritório ou pela VPN".
+Credencial recusada (`28P01`) sai dizendo **"isto NÃO é problema de rede"**, e é o
+ponto: mandar para a VPN quem já chegou no servidor é mandar passar meia hora no
+lugar errado. Banco inexistente (`3D000`) e consulta cancelada pelo próprio
+Postgres (`57014`) têm frases próprias. **O que não se reconhece sai como veio** —
+diagnóstico inventado manda procurar defeito onde não há.
+
+### O agente, e o passo 0 que ele ganhou
+
+`.claude/agents/relatorio-diario-drogal.md`: rodar, conferir `ok`, anexar em
+base64, criar **rascunho** (nunca envio — quem decide mandar ao cliente é o
+usuário) e relatar.
+
+O passo que faltava é o **primeiro**: conferir se `create_draft` existe antes de
+rodar qualquer coisa. O conector do Gmail não estava autorizado, e não fosse essa
+conferência o agente gastaria as nove consultas no CRM para descobrir, no fim,
+que não tinha onde entregar o resultado. Pelo mesmo motivo, rascunho que falha
+**não** manda rodar de novo: a planilha já está no disco, e o que falhou foi o
+e-mail, não o relatório.
+
+### O que fica pendente, dito em voz alta
+
+- **O conector do Gmail não está autorizado** nesta máquina. Até que esteja, o
+  agente para no passo 0.
+- **O caminho feliz nunca rodou.** O Siscobra só atende na LAN da Cobratec e esta
+  máquina está fora dela; o que foi exercitado de ponta a ponta é o caminho do
+  erro — `ok: false` com JSON limpo no stdout, tanto para argumento inválido
+  (antes de tocar a rede) quanto para CRM inalcançável. A primeira execução
+  dentro do escritório é que confere os números.
+- A pendência da decisão 41 continua de pé: **abrir a planilha uma vez no Excel
+  de verdade**.
+
+Testes: 909 → **932** (`lib/relatorio-diario.test.ts` 23).
+
+## 43. O e-mail saiu do agente e entrou no programa
+
+A decisão 42 terminou com duas pendências que o escritório resolveu no mesmo
+dia: o conector do Gmail foi autorizado e a máquina voltou para dentro da LAN.
+Com isso o caminho feliz rodou pela primeira vez, em 28/08/2026 — **nove
+consultas em 323ms**, planilha de 22.217 bytes, `ok: true`. O que ele mostrou
+não foi um defeito nos números. Foi um defeito no desenho.
+
+### O anexo passava pelo modelo, e isso contradizia a 42
+
+A decisão 42 se orgulha, com razão, de que nenhum número que o cliente lê passa
+por um modelo: o texto vem de `lib/relatorio-email.ts`, e o agente copia. Mas o
+passo seguinte pedia ao agente que lesse o `.xlsx` do disco, convertesse para
+base64 e **redigitasse 29.624 caracteres** dentro da ferramenta do Gmail.
+
+O arquivo inteiro atravessava o modelo, caractere a caractere. Um só trocado no
+meio do zip é uma planilha que não abre — e diferente de um número errado, esse
+erro não tem como ser conferido por quem o cometeu.
+
+Havia mais três problemas no mesmo passo, e qualquer um sozinho já bastaria:
+
+- **dependia de sessão.** Conector autorizado, permissão liberada, chat aberto:
+  três coisas que não sobrevivem de um dia para o outro, e o relatório é
+  **diário**. Na primeira tentativa real foi exatamente aí que parou — a
+  permissão negou o `create_draft`, e a caixa de entrada ficou vazia;
+- **custava caro toda manhã**: 30 KB pelo modelo para um trabalho que o
+  `nodemailer` faz em 200ms;
+- **falhava sem rastro no programa.** Quem olhasse o log do script veria
+  "planilha gerada" e concluiria que deu certo.
+
+### O conserto: quem apura, entrega
+
+`lib/relatorio-envio.ts`. O script manda o e-mail, com o **mesmo buffer** que
+acabou de virar arquivo — não relê o disco, não converte para texto. Entre a
+planilha e a caixa de entrada não existe transcrição, então não existe por onde
+corromper.
+
+O agente encolheu para o que ele deveria ter sido desde o começo: roda um
+comando, lê o JSON, conta o que aconteceu. Perdeu a ferramenta do Gmail, perdeu
+o `base64`, perdeu o passo 0 — e ganhou uma segunda conferência, porque agora
+há **duas** perguntas e elas são diferentes: `ok` é "o relatório saiu?" e
+`entrega.enviado` é "ele chegou?".
+
+### Enviar não afrouxou a garantia do rascunho
+
+A 42 escolheu rascunho para que nada chegasse ao cliente sem uma pessoa decidir.
+Enviar por SMTP mantém isso, porque **o destino é o próprio usuário**: o padrão
+de `RELATORIO_EMAIL_PARA` é a conta que autentica no SMTP, e o encaminhamento ao
+cliente continua sendo um ato humano, feito no cliente de e-mail. Para mandar
+para outro lugar é preciso escrever o endereço no `.env`, com a mão, de
+propósito. O script imprime **para onde mandou**, sempre — endereço trocado no
+`.env` é o erro que ninguém percebe lendo "enviado com sucesso".
+
+IMAP com `APPEND` na pasta de rascunhos foi considerado e descartado: manteria o
+desenho da 42 ao preço de depender do nome da pasta em português, que varia. A
+API do Gmail com OAuth faria rascunho de verdade, mas custa um projeto no Google
+Cloud e um refresh token para uma garantia que o destino próprio já dá.
+
+### Meia configuração é erro, não escolha
+
+`configEmail` devolve `null` quando **nada** está configurado — máquina de teste
+ainda serve para gerar a planilha. Mas `SMTP_USER` sem `SMTP_PASSWORD` **estoura**.
+Tratar meia config como "e-mail desligado" reproduziria justamente o modo de
+falhar que esta decisão veio consertar: planilha no disco todo dia, calada, com
+a caixa de entrada vazia.
+
+Pela mesma razão a conferência acontece **antes** das consultas — é o passo 0 do
+agente da 42, agora dentro do programa. Nove consultas num CRM de produção para
+descobrir no fim que não havia para onde entregar é desperdício evitável.
+
+E a falha de entrega **não** derruba a rodada: a planilha já está gravada, e
+trocar um relatório perdido por um e-mail perdido seria o negócio errado. Ela
+aparece em `entrega.erro`, com a frase traduzida.
+
+### O erro que manda a pessoa para o lugar certo, de novo
+
+`explicarErroEmail`, na mesma régua do `explicarErro` do Siscobra. A distinção
+que importa é entre credencial recusada e servidor inalcançável — mas há um
+terceiro caso que é o **mais provável de todos na primeira vez**, e por isso tem
+frase própria: com verificação em duas etapas ligada, o Gmail exige uma **senha
+de app** de 16 letras. A senha normal da conta é sempre recusada, e o que volta
+é `Invalid login` — que não diz isso. Sem a frase, a pessoa passa a tarde
+redigitando a senha certa da conta errada.
+
+### Um defeito achado de brinde: a flag que engolia a seguinte
+
+`--sem-email` não leva valor, e o laço de `lerArgumentos` consome o próximo
+argv como valor da chave. `--sem-email --carteira 77` guardaria
+`sem-email = "--carteira"` e **pularia a carteira**, gerando em silêncio o
+relatório da 1163 quando alguém pediu a 77 — a mesma família do
+`parseInt("1163abc")` que a 42 já tinha barrado. Daí a lista `SEM_VALOR`, e o
+teste que a afirma.
+
+### O que a primeira execução real também mostrou
+
+- **A base da 1163 pulou três ordens de grandeza.** A 42 registrou 5 fichas /
+  R$ 3.461,46 / 103 cadastrados, medidos em 27/08. Em 28/08 o comando devolveu
+  **3.336 fichas / R$ 1.349.592,79 / 3.434 cadastrados**. Conferido por fora,
+  com SELECT direto: a 1163 sozinha dá esses números, e o total de todas as
+  carteiras ativas é 83.904 fichas / R$ 227,8 mi — ou seja, o filtro está certo
+  e a Drogal recebeu a carga de verdade. O texto da 42 descreve uma carteira que
+  já não existe.
+- **A ressalva de comissão vaza detalhe interno para o cliente.** A `RESSALVA` de
+  `lib/relatorios-comissao.ts` entra crua na aba `Parâmetros` (linha 23) e em
+  `Honorários` A5, com nome de tabela (`carteira_comissoes`), de coluna
+  (`comissao_operadores.usucod`), estatística de qualidade de dado ("14% das
+  comissões têm usucod fora do cadastro") e um comando npm. O corpo do e-mail
+  acerta a mesma ressalva em uma frase; quem não filtrou foi a planilha. **Fica
+  em aberto** — o cliente leva a ressalva, não a perícia.
+
+Testes: 932 → **950** (`lib/relatorio-envio.test.ts` 16, `relatorio-diario` +2).
+
+## 44. O Gmail pedia uma senha de app; o Resend pede um domínio
+
+A decisão 43 tirou o e-mail do agente e o pôs no programa, mas deixou o
+`nodemailer` apontado para o Gmail. O Gmail cobrou o preço que ele sempre cobra:
+verificação em duas etapas ligada, uma senha de app de 16 letras gerada à mão, e
+uma **conta pessoal** assinando um relatório de empresa. No meio do caminho o
+Brevo foi tentado e ficou pela metade no `.env` — `smtp-relay.brevo.com` com
+usuário e senha vazios, que é exatamente a "meia configuração" que a 43 aprendeu
+a barrar.
+
+O Resend resolve as três coisas com **uma chave só**, que serve para o SMTP e
+para a API. E por ser SMTP, entra por baixo do `nodemailer` sem trocar uma linha
+de `enviarRelatorio`: só a leitura do `.env` mudou.
+
+### O que realmente muda é o remetente
+
+O Gmail deixa assinar com a própria conta. O Resend **só** assina de um domínio
+verificado por ele — e a conta da Cobratec tem `cobratecsp.com.br` cadastrado
+com status `failed`, DNS não fechado, desde 05/08/2026.
+
+Isso não é um detalhe de configuração; é o que estava impedindo o envio. O
+`.env` trazia `RELATORIO_EMAIL_DE="…@gmail.com"`, e o Resend devolve:
+
+```
+550 The gmail.com domain is not verified.
+Please, add and verify your domain on https://resend.com/domains
+```
+
+Ou seja: a decisão 43 estava inteira, testada e correta, e mesmo assim o
+relatório nunca teria saído. O padrão passou a ser `onboarding@resend.dev`, o
+remetente de cortesia, que funciona sem domínio nenhum. Não é bonito — o cliente
+recebe um e-mail assinado por `resend.dev` — mas é o único que sai hoje, e o
+agente foi instruído a **dizer isso** ao relatar, porque um remetente
+desconhecido é o que manda a mensagem para o spam.
+
+Herdar o padrão do SMTP não era opção: lá o remetente vazio vira o `usuario`, e
+no Resend o usuário é a palavra `resend`, que nem endereço é. Pelo mesmo motivo
+`RELATORIO_EMAIL_PARA` deixou de ter padrão e passou a ser **obrigatório** neste
+caminho — sem isso o relatório sairia para um destinatário inexistente.
+
+### A precedência, e por que ela é explícita
+
+`API_KEY_RESEND` ganha do bloco `SMTP_*`. O `.env` guarda os dois, e vai
+continuar guardando: o SMTP genérico segue testado e serve para qualquer
+provedor. Deixar a escolha implícita ("o que estiver preenchido") faria o
+relatório sair calado pelo Brevo abandonado no dia em que alguém preenchesse
+aquelas linhas por engano.
+
+### O erro tinha de aprender o provedor
+
+`explicarErroEmail` ganhou um terceiro argumento porque o conselho **inverteu de
+sentido**. Um `EAUTH` no Gmail quer dizer "gere uma senha de app"; no Resend
+quer dizer "confira a chave `re_…`". Dar o conselho do Gmail a quem está no
+Resend é pior do que não dar conselho nenhum — manda a pessoa mexer numa conta
+que não tem nada a ver com o envio.
+
+E o erro de domínio chega **disfarçado**: vem como `EENVELOPE`, o mesmo código
+de "destinatário recusado". O ramo antigo mandaria conferir
+`RELATORIO_EMAIL_PARA` quando o problema está em `RELATORIO_EMAIL_DE` — um erro
+que ninguém acha, porque o programa aponta com confiança para o lugar errado.
+Por isso a checagem de domínio vem **antes** de tudo, e o teste afirma que a
+frase fala em REMETENTE e **não** cita `RELATORIO_EMAIL_PARA`.
+
+### Conferido de ponta a ponta
+
+O canal foi provado primeiro **sozinho**, sem gastar as nove consultas do CRM de
+produção: `configEmail` + `enviarRelatorio` + `nodemailer` + anexo binário de
+verdade, aceito por `smtp.resend.com:465`. Depois o caminho da **falha** foi
+provado do mesmo jeito, forçando o remetente de Gmail — e ele voltou como
+previsto, `EENVELOPE` com `550 … domain is not verified`, traduzido para a frase
+que fala em REMETENTE.
+
+Só então o comando inteiro rodou, em 28/08/2026, e é a **primeira vez que o
+caminho feliz fecha de ponta a ponta** — a pendência que a 42 deixou em aberto e
+que a 43 não chegou a encerrar:
+
+```
+"entrega": { "enviado": true, "provedor": "resend",
+             "de": "onboarding@resend.dev", "para": ["isaac.ferraz1311@gmail.com"],
+             "messageId": "<5528103f-…@resend.dev>", "erro": null }
+```
+
+Planilha de 22.227 bytes, dia 27/08 zerado (`vazio: true`, e o corpo do e-mail
+diz isso por extenso), base de 3.336 fichas / R$ 1.349.592,79. O que está provado
+é que o Resend **aceitou** a mensagem com o anexo; a chegada à caixa de entrada é
+o que só o olho confirma — e vale olhar o spam, porque quem assina é `resend.dev`
+e não a Cobratec.
+
+Uma observação de método, para não se perder de novo: o `messageId` que o SMTP
+devolve **não** é o id da API do Resend, e `GET /emails/:id` responde 404 com
+ele. Entrega se confere no painel.
+
+Fica em aberto o que resolve isto de vez: **fechar o DNS de
+`cobratecsp.com.br`** em resend.com/domains. No dia em que fechar, o conserto é
+uma linha no `.env` — `RELATORIO_EMAIL_DE="relatorios@cobratecsp.com.br"` — e
+nenhuma linha de código.
+
+Testes: 950 → **960** (`lib/relatorio-envio.test.ts` 16 → 26).

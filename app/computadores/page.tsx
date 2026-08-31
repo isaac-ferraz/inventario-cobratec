@@ -3,7 +3,17 @@
 import * as React from "react";
 import { Loader2, Plus } from "lucide-react";
 import { apiGet, apiSend, mensagem } from "@/lib/fetcher";
-import { useFiltroUrl, useLimparFiltros } from "@/hooks/use-filtro-url";
+import {
+  useFiltroLista,
+  useFiltroUrl,
+  useLimparFiltros,
+} from "@/hooks/use-filtro-url";
+import {
+  combina,
+  combinaAlgum,
+  combinaValor,
+  lerSelecao,
+} from "@/lib/filtros-multi";
 import { acharPendencia } from "@/lib/pendencias";
 import { estadoGarantia } from "@/lib/ativos";
 import { Button } from "@/components/ui/button";
@@ -51,13 +61,16 @@ export default function ComputadoresPage() {
   // Filtros na URL (e não em useState): é o que permite o Dashboard mandar a
   // pessoa para esta tela já filtrada. Ver hooks/use-filtro-url.ts.
   const [busca, setBusca] = useFiltroUrl("busca", "");
-  const [filtroFunc, setFiltroFunc] = useFiltroUrl("funcionario", "todos");
-  const [filtroCargo, setFiltroCargo] = useFiltroUrl("cargo", "todos");
-  const [filtroSala, setFiltroSala] = useFiltroUrl("sala", "todos");
-  const [filtroSituacao, setFiltroSituacao] = useFiltroUrl("situacao", "todas");
-  const [filtroPendencia, setFiltroPendencia] = useFiltroUrl("pendencia", "todas");
-  const [filtroTipo, setFiltroTipo] = useFiltroUrl("tipo", "todos");
-  const [filtroGarantia, setFiltroGarantia] = useFiltroUrl("garantia", "todas");
+  // Listas desde a decisão 39. Os links que o Dashboard já espalhou pelo app
+  // (`?funcionario=sem`, `?cargo=Operadora`) continuam valendo: um valor só é
+  // uma lista de um.
+  const [filtroFunc, setFiltroFunc] = useFiltroLista("funcionario");
+  const [filtroCargo, setFiltroCargo] = useFiltroLista("cargo");
+  const [filtroSala, setFiltroSala] = useFiltroLista("sala");
+  const [filtroSituacao, setFiltroSituacao] = useFiltroLista("situacao");
+  const [filtroPendencia, setFiltroPendencia] = useFiltroLista("pendencia");
+  const [filtroTipo, setFiltroTipo] = useFiltroLista("tipo");
+  const [filtroGarantia, setFiltroGarantia] = useFiltroLista("garantia");
   const limparFiltros = useLimparFiltros(CHAVES_FILTRO);
 
   // diálogos (a tela só guarda "o que está aberto e com qual registro";
@@ -103,29 +116,34 @@ export default function ComputadoresPage() {
   );
 
   const termo = busca.trim().toLowerCase();
-  const pendencia = acharPendencia(filtroPendencia);
+
+  // Cada chave vira uma seleção uma vez, fora do laço: `lerSelecao` monta um
+  // Set, e refazê-lo por computador seria O(n) alocações para nada.
+  const selFunc = lerSelecao(filtroFunc, "todos");
+  const selCargo = lerSelecao(filtroCargo, "todos");
+  const selSala = lerSelecao(filtroSala, "todos");
+  const selSituacao = lerSelecao(filtroSituacao, "todas");
+  const selGarantia = lerSelecao(filtroGarantia, "todas");
+  const selTipo = lerSelecao(filtroTipo, "todos");
+
+  // A pendência é a exceção: ela não é um valor do computador, é um TESTE sobre
+  // ele (`falta(c)`). Com várias marcadas, entra quem tem qualquer uma — que é
+  // como se lê "mostre o que está faltando arrumar".
+  const pendencias = filtroPendencia
+    .map((p) => acharPendencia(p))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+
   const filtrados = computadores.filter((c) => {
     // "com" = qualquer dono (é o "Computadores em uso" do Dashboard).
-    if (filtroFunc === "sem" && c.funcionarioId) return false;
-    if (filtroFunc === "com" && !c.funcionarioId) return false;
-    if (filtroFunc !== "todos" && filtroFunc !== "sem" && filtroFunc !== "com") {
-      if (c.funcionarioId !== filtroFunc) return false;
+    if (!combina(selFunc, c.funcionarioId)) return false;
+    if (!combinaValor(selCargo, c.funcionario?.cargo)) return false;
+    if (!combinaValor(selSituacao, c.situacao)) return false;
+    if (!combina(selSala, c.salaId)) return false;
+    if (pendencias.length > 0 && !pendencias.some((p) => p.falta(c))) return false;
+    if (!combinaAlgum(selTipo, c.componentes.map((comp) => comp.tipo.id))) {
+      return false;
     }
-    if (filtroCargo !== "todos") {
-      if (c.funcionario?.cargo !== filtroCargo) return false;
-    }
-    if (filtroSituacao !== "todas" && c.situacao !== filtroSituacao) return false;
-    if (filtroSala === "sem" && c.salaId) return false;
-    if (filtroSala !== "todos" && filtroSala !== "sem") {
-      if (c.salaId !== filtroSala) return false;
-    }
-    if (pendencia && !pendencia.falta(c)) return false;
-    if (filtroTipo !== "todos") {
-      if (!c.componentes.some((comp) => comp.tipo.id === filtroTipo)) return false;
-    }
-    if (filtroGarantia !== "todas") {
-      if (estadoGarantia(c.garantiaAte) !== filtroGarantia) return false;
-    }
+    if (!combinaValor(selGarantia, estadoGarantia(c.garantiaAte))) return false;
     if (termo) {
       const alvo = [
         c.identificador,

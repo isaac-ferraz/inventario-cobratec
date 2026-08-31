@@ -5,19 +5,13 @@
 // manda para o supervisor — o mesmo princípio da decisão 23.
 import { NextResponse } from "next/server";
 import { erro } from "@/lib/api";
+import { MAX_CODIGOS, recorteDaUrl } from "@/lib/relatorios-filtros";
 import { exigirRelatorio } from "@/lib/autorizacao";
 import { configSiscobra } from "@/lib/siscobra";
 import { hojeNoBrasil, resolverPeriodo, rotuloPeriodo } from "@/lib/relatorios";
 import { acionamentosDe, acordosDo } from "@/lib/relatorios-cobranca";
 
 export const dynamic = "force-dynamic";
-
-/** Número inteiro positivo ou nulo — "todas" chega como ausente ou "todas". */
-function codigo(v: string | null): number | null | undefined {
-  if (!v || v === "todas" || v === "todos") return null;
-  if (!/^\d{1,9}$/.test(v)) return undefined; // marca entrada inválida
-  return Number(v);
-}
 
 export async function GET(req: Request) {
   const auth = await exigirRelatorio(req);
@@ -44,13 +38,16 @@ export async function GET(req: Request) {
   );
   if (!periodo.ok) return erro(periodo.erro);
 
-  const carteira = codigo(url.searchParams.get("carteira"));
-  const equipe = codigo(url.searchParams.get("equipe"));
-  if (carteira === undefined || equipe === undefined) {
-    return erro("Filtro de carteira ou equipe inválido.");
+  // Um parser só para os três filtros (decisão 39). Recorte torto é 400: tratar
+  // como "todas" mostraria mais do que a pessoa pediu, e calado.
+  const recorte = recorteDaUrl(url.searchParams);
+  if (!recorte) {
+    return erro(
+      `Filtro de carteira, equipe ou operadora inválido (no máximo ${MAX_CODIGOS} códigos, separados por vírgula).`,
+    );
   }
 
-  const filtro = { inicio: periodo.inicio, fim: periodo.fim, carteira, equipe };
+  const filtro = { inicio: periodo.inicio, fim: periodo.fim, ...recorte };
 
   try {
     // Em paralelo: são duas varreduras independentes, e a de acionamentos (55M

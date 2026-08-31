@@ -9,7 +9,8 @@
 // é de lá que a tela oferece o "falar no WhatsApp".
 import { NextResponse } from "next/server";
 import { erro } from "@/lib/api";
-import { exigirCarteiraNominal } from "@/lib/autorizacao";
+import { MAX_CODIGOS, recorteDaUrl } from "@/lib/relatorios-filtros";
+import { exigirCarteiraNominal, podeVerOperadoras } from "@/lib/autorizacao";
 import { prisma } from "@/lib/prisma";
 import { configSiscobra } from "@/lib/siscobra";
 import { hojeNoBrasil, resolverJanela } from "@/lib/relatorios";
@@ -19,12 +20,6 @@ export const dynamic = "force-dynamic";
 
 /** Teto de linhas. Ver `listarParcelas`: lista que ninguém lê é só exposição. */
 const LIMITE = 300;
-
-function codigo(v: string | null): number | null | undefined {
-  if (!v || v === "todas" || v === "todos") return null;
-  if (!/^\d{1,9}$/.test(v)) return undefined;
-  return Number(v);
-}
 
 export async function GET(req: Request) {
   const auth = await exigirCarteiraNominal(req);
@@ -46,15 +41,28 @@ export async function GET(req: Request) {
   );
   if (!janela.ok) return erro(janela.erro);
 
-  const carteira = codigo(url.searchParams.get("carteira"));
-  const equipe = codigo(url.searchParams.get("equipe"));
-  if (carteira === undefined || equipe === undefined) {
-    return erro("Filtro de carteira ou equipe inválido.");
+  // Um parser só para os três filtros (decisão 39). Recorte torto é 400: tratar
+  // como "todas" mostraria mais do que a pessoa pediu, e calado.
+  const recorte = recorteDaUrl(url.searchParams);
+  if (!recorte) {
+    return erro(
+      `Filtro de carteira, equipe ou operadora inválido (no máximo ${MAX_CODIGOS} códigos, separados por vírgula).`,
+    );
   }
 
+
+  // ─── o filtro de operadora é, ele mesmo, um recorte nominal ───
+  //
+  // A decisão 36 nega à operadora de COBRANCA o ranking por operadora. Deixar
+  // que ela FILTRE por operadora devolveria o mesmo dado pela porta dos fundos:
+  // um pedido por vez, e ela reconstrói o ranking inteiro. O portão é aqui, no
+  // servidor, e não em esconder o seletor — a query string é editável.
+  if (recorte.operadoras && !podeVerOperadoras(auth.usuario.papel)) {
+    return erro("Seu perfil não recorta a carteira por operadora.", 403);
+  }
   try {
     const parcelas = await listarParcelas(
-      { inicio: janela.inicio, fim: janela.fim, carteira, equipe },
+      { inicio: janela.inicio, fim: janela.fim, ...recorte },
       hoje,
       LIMITE,
     );

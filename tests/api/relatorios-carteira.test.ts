@@ -25,6 +25,7 @@ vi.mock("@/lib/relatorios-carteira", () => ({
 vi.mock("@/lib/relatorios-cobranca", () => ({
   equipes: vi.fn(),
   carteiras: vi.fn(),
+  operadoras: vi.fn(),
 }));
 
 import { configSiscobra } from "@/lib/siscobra";
@@ -215,22 +216,56 @@ describe("a janela pedida", () => {
     await pedir("/api/relatorios/carteira", "ADMIN");
     const f = vi.mocked(aVencerEm).mock.calls[0][0];
     expect(f.fim > f.inicio).toBe(true);
-    expect(f.carteira).toBeNull();
-    expect(f.equipe).toBeNull();
+    expect(f.carteiras).toBeNull();
+    expect(f.equipes).toBeNull();
+    expect(f.operadoras).toBeNull();
   });
 
-  it("carteira e equipe viram número", async () => {
+  it("carteira e equipe viram lista", async () => {
     await pedir("/api/relatorios/carteira?carteira=7&equipe=30", "ADMIN");
     const f = vi.mocked(aVencerEm).mock.calls[0][0];
-    expect(f.carteira).toBe(7);
-    expect(f.equipe).toBe(30);
+    expect(f.carteiras).toEqual([7]);
+    expect(f.equipes).toEqual([30]);
+  });
+
+  it("a lista por vírgula chega inteira nas quatro consultas", async () => {
+    // As quatro precisam receber o MESMO recorte: divergir daria um painel com
+    // dois filtros diferentes lado a lado, sem dizer.
+    await pedir("/api/relatorios/carteira?carteira=7,12", "ADMIN");
+    for (const fn of [aVencerEm, emAtrasoAte, quebrasDe, primeiraParcelaDe]) {
+      expect(vi.mocked(fn).mock.calls[0][0].carteiras).toEqual([7, 12]);
+    }
   });
 
   it("“todas” é o mesmo que não filtrar", async () => {
     await pedir("/api/relatorios/carteira?carteira=todas&equipe=todas", "ADMIN");
     const f = vi.mocked(aVencerEm).mock.calls[0][0];
-    expect(f.carteira).toBeNull();
-    expect(f.equipe).toBeNull();
+    expect(f.carteiras).toBeNull();
+    expect(f.equipes).toBeNull();
+  });
+
+  it("a cobrança não pode FILTRAR por operadora", async () => {
+    // Sem esta trava ela reconstrói o ranking nominal que a decisão 36 lhe
+    // nega — um pedido por operadora de cada vez. Esconder o seletor não basta:
+    // a query string é editável.
+    const { status } = await pedir(
+      "/api/relatorios/carteira?operadora=260",
+      "COBRANCA",
+    );
+    expect(status).toBe(403);
+    expect(aVencerEm).not.toHaveBeenCalled();
+  });
+
+  it("admin e supervisor podem filtrar por operadora", async () => {
+    for (const papel of ["ADMIN", "SUPERVISOR"] as const) {
+      vi.clearAllMocks();
+      const { status } = await pedir(
+        "/api/relatorios/carteira?operadora=260",
+        papel,
+      );
+      expect(status, papel).toBe(200);
+      expect(vi.mocked(aVencerEm).mock.calls[0][0].operadoras, papel).toEqual([260]);
+    }
   });
 
   it("recusa filtro que não é número", async () => {

@@ -268,6 +268,132 @@ export function Numero({
   );
 }
 
+export type Celula = {
+  operadora: number | null;
+  operadoraNome: string;
+  carteira: number | null;
+  carteiraNome: string;
+  qtd: number;
+  valor: number;
+};
+
+/**
+ * O cruzamento operadora × carteira (decisão 39).
+ *
+ * ─────────────────── por que lista, e não matriz de verdade ───────────────────
+ *
+ * A forma óbvia seria uma grade com operadoras nas linhas e carteiras nas
+ * colunas. Ela não cabe: são até 353 × 191, e a grade seria quase toda vazia —
+ * cada operadora trabalha um punhado de carteiras. Uma lista de pares
+ * preenchidos diz a mesma coisa, cabe na tela e é o que vira linha de planilha
+ * sem tradução.
+ *
+ * O agrupamento é por OPERADORA porque a pergunta que originou o painel é
+ * "quanto a Ana fez, e onde" — não "quem trabalhou a carteira X", que os
+ * rankings por carteira já respondem.
+ */
+export function TabelaMatriz({
+  celulas,
+  truncada,
+  formato,
+  segunda,
+}: {
+  celulas: Celula[];
+  truncada: boolean;
+  formato: Formato;
+  segunda: string;
+}) {
+  const porOperadora = React.useMemo(() => {
+    const mapa = new Map<string, { nome: string; itens: Celula[]; total: number }>();
+    for (const c of celulas) {
+      const chave = String(c.operadora ?? "sem");
+      const grupo = mapa.get(chave) ?? {
+        nome: c.operadoraNome,
+        itens: [],
+        total: 0,
+      };
+      grupo.itens.push(c);
+      grupo.total += c.valor;
+      mapa.set(chave, grupo);
+    }
+    return [...mapa.values()].sort((a, b) => b.total - a.total);
+  }, [celulas]);
+
+  if (celulas.length === 0) {
+    return <p className="py-4 text-sm text-muted-foreground">Sem dados no período.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {truncada && (
+        // Truncar é aceitável; truncar calado não é. Uma tabela cortada em
+        // silêncio se lê como "é tudo isso" — o mesmo aviso que a lista nominal
+        // da carteira dá quando bate no teto de 300 linhas.
+        <p className="tom-alerta rounded-md px-3 py-2 text-xs">
+          O cruzamento passou do teto e foi cortado nas maiores. Filtre por
+          equipe ou carteira para ver o conjunto inteiro.
+        </p>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left">
+              <th className="py-1.5 pr-3 font-medium text-muted-foreground">
+                Operadora / carteira
+              </th>
+              <th className="py-1.5 pr-3 text-right font-medium text-muted-foreground">
+                Qtd.
+              </th>
+              <th className="py-1.5 text-right font-medium text-muted-foreground">
+                {segunda}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {porOperadora.map((g) => (
+              <React.Fragment key={g.nome}>
+                <tr className="border-b bg-muted/40">
+                  <td className="py-1.5 pr-3 font-medium">{g.nome}</td>
+                  <td className="py-1.5 pr-3 text-right font-mono tabular-nums">
+                    {g.itens.reduce((s, c) => s + c.qtd, 0)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono tabular-nums font-medium">
+                    {formato({ chave: null, rotulo: g.nome, qtd: 0, valor: g.total })}
+                  </td>
+                </tr>
+                {g.itens
+                  .slice()
+                  .sort((a, b) => b.valor - a.valor)
+                  .map((c) => (
+                    <tr
+                      key={`${c.operadora ?? "s"}-${c.carteira ?? "s"}`}
+                      className="border-b last:border-0"
+                    >
+                      <td className="py-1.5 pr-3 pl-6 text-muted-foreground">
+                        {c.carteiraNome}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right font-mono tabular-nums">
+                        {c.qtd}
+                      </td>
+                      <td className="py-1.5 text-right font-mono tabular-nums">
+                        {formato({
+                          chave: c.carteira,
+                          rotulo: c.carteiraNome,
+                          qtd: c.qtd,
+                          valor: c.valor,
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /** O gêmeo em tabela de qualquer um dos gráficos acima. */
 export function TabelaFatias({
   dados,

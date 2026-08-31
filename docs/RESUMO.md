@@ -157,7 +157,8 @@ docker compose up -d --build
 # acesso: http://localhost:3000  (ou http://<IP-da-máquina>:3000 na LAN)
 ```
 Scripts úteis: `db:migrate`, `db:studio`, `db:seed`, `db:catalogo`, `db:salas`,
-`db:admin`.
+`db:admin`, `db:backup`. Medidores do CRM (só leitura, antes de o número virar
+tela): `db:validar-parcelas` e `db:validar-comissao`.
 
 ## Decisões técnicas
 Registradas em [`docs/decisoes.md`](./decisoes.md): SQLite como fonte de verdade;
@@ -338,6 +339,72 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
     é chamado pelos dois caminhos — a que roda de madrugada, sem ninguém olhando,
     é a que ficaria para trás. Testes: 568 → **780**.
 
+32. **Filtro múltiplo e Excel sob medida** (decisão 39): todo filtro de recorte
+    passa a aceitar **mais de um valor** (`?carteira=12,45,88` — os links que o
+    Dashboard já espalhou continuam valendo, porque um código só é uma lista de
+    um), e entrou o filtro que faltava, **operadora**. O parse vive em
+    `lib/relatorios-filtros.ts`, com teto de 50 códigos e entrada torta virando
+    **400** — filtro que falha para o lado permissivo mostra mais do que a pessoa
+    pediu, e ela não percebe. A UI é um diálogo com busca e checkbox
+    (`seletor-multiplo.tsx`), **sem dependência nova**, no padrão que
+    `salas/trazer-dialog.tsx` já tinha. Os `GROUPING SETS` ganharam a matriz
+    **operadora × carteira** e o eixo **mês** na mesma varredura. `COBRANCA`
+    recebe **403** ao filtrar por operadora: sem isso ela reconstruiria, um
+    pedido por vez, o ranking de colegas que a decisão 36 lhe nega.
+
+    Junto vieram a **exportação Excel dos relatórios** — 17 abas ligáveis, com
+    "Parâmetros" **obrigatória**, porque planilha de número sem o recorte que o
+    produziu vira número sem dono ao ser encaminhada; consultas em **fila de 3**
+    (o pool do Siscobra é `max: 4`) e uma exportação por usuário — e a
+    **comissão** (`lib/relatorios-comissao.ts`), que veio depois do medidor:
+    `scripts/validar-comissao.ts` derrubou a primeira versão da consulta ao
+    mostrar que `comissao.comopecod` **não é a operadora** (100% órfã em
+    `usuario`; ela está em `comissao_operadores.usucod`). Terceira vez que a
+    coluna de nome óbvio é a errada neste CRM. Como falta comparar um mês com o
+    relatório impresso, `CONFERIDA = false` e a comissão sai **só como aba da
+    planilha**, sem posição no alternador. O **Dashboard de Informática** ganhou
+    filtro próprio, composto com o escopo do supervisor por **AND** (com OR,
+    `?sala=` na barra de endereços seria escalada de privilégio). Testes:
+    780 → **866**.
+
+33. **A carteira conferida, e gráfico de verdade no Excel** (decisão 40): o
+    `RELATÓRIO ANALÍTICO DA CARTEIRA` que o Siscobra imprime (147 páginas) foi
+    reproduzido no banco e bate em **142 de 143 carteiras**, nas fichas e no
+    valor — a única divergência é uma ficha alterada 14 minutos depois da
+    impressão. A regra não era a óbvia: o universo é `contrato.convalsal > 0`
+    em carteira com `carati = 1`, e não o `devsal` da ficha, que é cache e erra
+    por centavos. Quarta vez que a coluna de nome óbvio é a errada neste CRM.
+    Achado que fica: **o relatório oficial rotula a situação errado** (usa o nome
+    do menor `carcod`; o código 25 tem 7 nomes em 85 carteiras), então quem
+    comparar rótulos vai achar diferença — e ela é a favor daqui. O PDF **não**
+    confere comissão: `CONFERIDA` segue `false`.
+
+    Do outro lado, os dashboards do Excel ganharam **gráficos nativos** —
+    `lib/excel-graficos.ts` reabre o zip do .xlsx e acrescenta o XML do gráfico
+    depois que o `exceljs` termina, com `jszip`, que já vinha junto e passou a
+    ser declarado. A decisão 6 estava certa sobre a API e errada sobre o
+    formato. Coluna, barra, pizza, rosca, linha e área, mais cartões de KPI,
+    escala de cor na matriz e impressão em paisagem. Testes: 866 → **875**.
+
+34. **Painel interativo, e um teste que falhava 1 vez em mil** (decisão 41): aba
+    opcional da planilha em que o recorte é feito **dentro do arquivo** —
+    **slicers** de clique sobre uma tabela operadora × carteira. O que faz os
+    números andarem não é o slicer (ele só esconde linha): é `SUBTOTAL(109)` nos
+    cartões e `SUMPRODUCT + SUBTOTAL + OFFSET` nos resumos, porque `SOMASE`
+    ignora o filtro e `SUBTOTAL` não aceita critério. Slicer é extensão da
+    Microsoft e o LibreOffice não a implementa — **não dá para conferir sem
+    Excel**, e está anotado como pendência. Por isso a âncora vai em
+    `mc:AlternateContent` (quem não entende pula, em vez de acusar arquivo
+    corrompido) e a tabela mantém o autofiltro: perdendo os botões, ainda se
+    filtra pelo cabeçalho e tudo continua respondendo.
+
+    Junto caiu um defeito antigo: `lib/sessao.test.ts` falhava sozinho. A
+    assinatura HMAC dá 43 caracteres em base64url e o **último carrega 2 bits que
+    não significam nada** — o teste "adulterava" a assinatura trocando o fim, e
+    `…V9BA` e `…V9BB` decodificam para os mesmos 32 bytes. Medido: 179 colisões
+    em 200.000, 1 em ~1.117. O código estava certo; o teste, não. Testes:
+    875 → **890**.
+
 ### O que sobrou para depois
 
 > Fora do chatbot, o que segura o projeto hoje não é código — é **onde ele
@@ -352,6 +419,19 @@ Decisões 22 e 23 em [`decisoes.md`](./decisoes.md).
   todo aviso ser gravado e nenhum ser entregue; `PURGA_MODO` continua em `seco`
   (de propósito) esperando alguém conferir a primeira lista; e `OLLAMA_URL` ainda
   aponta para um túnel sorteado, não para o endereço fixo da emenda de 13/08.
+- **Abrir a aba "Painel interativo" no Excel, uma vez** (decisão 41). Slicer é
+  extensão da Microsoft e o LibreOffice a ignora — dá para provar que o arquivo
+  não está corrompido, não que os botões funcionam. Se falharem, a tabela mantém
+  o autofiltro e o painel continua respondendo; o que se perde é a aparência.
+- **Conferir a comissão contra o relatório impresso** (decisões 39 e 40). É a
+  única coisa que script nenhum faz: `db:validar-comissao` mediu a fonte e
+  corrigiu a atribuição por operadora, mas ninguém comparou um mês com o
+  documento que o Siscobra imprime — como foi feito com acordos e acionamentos
+  (104/104, 100%) e agora com a carteira (142/143). O relatório analítico da
+  carteira **não serve** para isso: não tem uma linha sobre comissão. Falta
+  puxar o **relatório de comissão** do Siscobra. Enquanto isso,
+  `CONFERIDA = false` e a comissão sai só na planilha, com a ressalva junto.
+  Feita a conferência, ela ganha a quarta posição do alternador.
 - **Confirmação visual em 390px**: a estrutura mobile foi auditada e não tem
   impedimento (layout empilha em `md:`, tabelas rolam no próprio container), mas
   falta olhar numa tela de celular de verdade — fonte, diálogos e alvo de toque

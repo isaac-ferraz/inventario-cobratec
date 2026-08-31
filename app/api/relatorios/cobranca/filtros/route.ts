@@ -1,4 +1,4 @@
-// GET /api/relatorios/cobranca/filtros — o que preenche os dois seletores.
+// GET /api/relatorios/cobranca/filtros — o que preenche os três seletores.
 //
 // Rota própria (e não um pedaço do relatório) porque a vida das duas coisas é
 // diferente: os números mudam a cada acordo fechado; a lista de equipes e
@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { erro } from "@/lib/api";
 import { exigirRelatorio } from "@/lib/autorizacao";
 import { configSiscobra } from "@/lib/siscobra";
-import { carteiras, equipes } from "@/lib/relatorios-cobranca";
+import { carteiras, equipes, operadoras } from "@/lib/relatorios-cobranca";
 
 export const dynamic = "force-dynamic";
 
@@ -24,13 +24,15 @@ export async function GET(req: Request) {
   }
 
   try {
-    const [listaEquipes, listaCarteiras] = await Promise.all([
+    const [listaEquipes, listaCarteiras, listaOperadoras] = await Promise.all([
       equipes(),
       carteiras(),
+      operadoras(),
     ]);
     return NextResponse.json({
       equipes: listaEquipes,
       carteiras: listaCarteiras,
+      operadoras: listaOperadoras,
     });
   } catch (e) {
     console.error("[relatorios] filtros:", (e as Error).message);

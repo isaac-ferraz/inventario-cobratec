@@ -43,6 +43,43 @@ export function useFiltroUrl(
   return [valor, definir];
 }
 
+/**
+ * O mesmo filtro, aceitando mais de um valor (decisão 39).
+ *
+ * A URL continua sendo `?carteira=12,45,88` — uma string, no singular. Nada aqui
+ * muda o `useFiltroUrl` acima: este hook é uma casca que traduz string ↔ lista,
+ * e é de propósito que a tradução seja a única coisa que ele faz.
+ *
+ * Duas consequências que valem por si:
+ *
+ *   • Lista vazia é "sem filtro", então o parâmetro some da URL pela mesma
+ *     regra do padrão — `?carteira=` nunca aparece.
+ *   • Um link antigo com um código só (`?carteira=7`, que o Dashboard espalhou
+ *     pelo app antes desta decisão) continua valendo: ele é uma lista de um.
+ *
+ * O valor é sempre `string[]`, e não `number[]`: quem faz o parse para número é
+ * o servidor, que precisa recusar entrada torta de qualquer jeito. Converter
+ * aqui também daria dois lugares para a mesma regra — foi como a lista de papéis
+ * divergiu na decisão 25.1.
+ */
+export function useFiltroLista(
+  chave: string,
+): [string[], (valores: string[]) => void] {
+  const [bruto, definirBruto] = useFiltroUrl(chave, "");
+
+  const valores = React.useMemo(
+    () => (bruto ? bruto.split(",").filter(Boolean) : []),
+    [bruto],
+  );
+
+  const definir = React.useCallback(
+    (novos: string[]) => definirBruto(novos.join(",")),
+    [definirBruto],
+  );
+
+  return [valores, definir];
+}
+
 /** Limpa vários filtros de uma vez, com uma única troca de URL. */
 export function useLimparFiltros(chaves: string[]): () => void {
   const router = useRouter();
