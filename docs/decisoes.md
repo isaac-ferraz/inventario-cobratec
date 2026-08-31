@@ -3222,3 +3222,214 @@ e-mail, não o relatório.
   de verdade**.
 
 Testes: 909 → **932** (`lib/relatorio-diario.test.ts` 23).
+
+## 43. O e-mail saiu do agente e entrou no programa
+
+A decisão 42 terminou com duas pendências que o escritório resolveu no mesmo
+dia: o conector do Gmail foi autorizado e a máquina voltou para dentro da LAN.
+Com isso o caminho feliz rodou pela primeira vez, em 28/08/2026 — **nove
+consultas em 323ms**, planilha de 22.217 bytes, `ok: true`. O que ele mostrou
+não foi um defeito nos números. Foi um defeito no desenho.
+
+### O anexo passava pelo modelo, e isso contradizia a 42
+
+A decisão 42 se orgulha, com razão, de que nenhum número que o cliente lê passa
+por um modelo: o texto vem de `lib/relatorio-email.ts`, e o agente copia. Mas o
+passo seguinte pedia ao agente que lesse o `.xlsx` do disco, convertesse para
+base64 e **redigitasse 29.624 caracteres** dentro da ferramenta do Gmail.
+
+O arquivo inteiro atravessava o modelo, caractere a caractere. Um só trocado no
+meio do zip é uma planilha que não abre — e diferente de um número errado, esse
+erro não tem como ser conferido por quem o cometeu.
+
+Havia mais três problemas no mesmo passo, e qualquer um sozinho já bastaria:
+
+- **dependia de sessão.** Conector autorizado, permissão liberada, chat aberto:
+  três coisas que não sobrevivem de um dia para o outro, e o relatório é
+  **diário**. Na primeira tentativa real foi exatamente aí que parou — a
+  permissão negou o `create_draft`, e a caixa de entrada ficou vazia;
+- **custava caro toda manhã**: 30 KB pelo modelo para um trabalho que o
+  `nodemailer` faz em 200ms;
+- **falhava sem rastro no programa.** Quem olhasse o log do script veria
+  "planilha gerada" e concluiria que deu certo.
+
+### O conserto: quem apura, entrega
+
+`lib/relatorio-envio.ts`. O script manda o e-mail, com o **mesmo buffer** que
+acabou de virar arquivo — não relê o disco, não converte para texto. Entre a
+planilha e a caixa de entrada não existe transcrição, então não existe por onde
+corromper.
+
+O agente encolheu para o que ele deveria ter sido desde o começo: roda um
+comando, lê o JSON, conta o que aconteceu. Perdeu a ferramenta do Gmail, perdeu
+o `base64`, perdeu o passo 0 — e ganhou uma segunda conferência, porque agora
+há **duas** perguntas e elas são diferentes: `ok` é "o relatório saiu?" e
+`entrega.enviado` é "ele chegou?".
+
+### Enviar não afrouxou a garantia do rascunho
+
+A 42 escolheu rascunho para que nada chegasse ao cliente sem uma pessoa decidir.
+Enviar por SMTP mantém isso, porque **o destino é o próprio usuário**: o padrão
+de `RELATORIO_EMAIL_PARA` é a conta que autentica no SMTP, e o encaminhamento ao
+cliente continua sendo um ato humano, feito no cliente de e-mail. Para mandar
+para outro lugar é preciso escrever o endereço no `.env`, com a mão, de
+propósito. O script imprime **para onde mandou**, sempre — endereço trocado no
+`.env` é o erro que ninguém percebe lendo "enviado com sucesso".
+
+IMAP com `APPEND` na pasta de rascunhos foi considerado e descartado: manteria o
+desenho da 42 ao preço de depender do nome da pasta em português, que varia. A
+API do Gmail com OAuth faria rascunho de verdade, mas custa um projeto no Google
+Cloud e um refresh token para uma garantia que o destino próprio já dá.
+
+### Meia configuração é erro, não escolha
+
+`configEmail` devolve `null` quando **nada** está configurado — máquina de teste
+ainda serve para gerar a planilha. Mas `SMTP_USER` sem `SMTP_PASSWORD` **estoura**.
+Tratar meia config como "e-mail desligado" reproduziria justamente o modo de
+falhar que esta decisão veio consertar: planilha no disco todo dia, calada, com
+a caixa de entrada vazia.
+
+Pela mesma razão a conferência acontece **antes** das consultas — é o passo 0 do
+agente da 42, agora dentro do programa. Nove consultas num CRM de produção para
+descobrir no fim que não havia para onde entregar é desperdício evitável.
+
+E a falha de entrega **não** derruba a rodada: a planilha já está gravada, e
+trocar um relatório perdido por um e-mail perdido seria o negócio errado. Ela
+aparece em `entrega.erro`, com a frase traduzida.
+
+### O erro que manda a pessoa para o lugar certo, de novo
+
+`explicarErroEmail`, na mesma régua do `explicarErro` do Siscobra. A distinção
+que importa é entre credencial recusada e servidor inalcançável — mas há um
+terceiro caso que é o **mais provável de todos na primeira vez**, e por isso tem
+frase própria: com verificação em duas etapas ligada, o Gmail exige uma **senha
+de app** de 16 letras. A senha normal da conta é sempre recusada, e o que volta
+é `Invalid login` — que não diz isso. Sem a frase, a pessoa passa a tarde
+redigitando a senha certa da conta errada.
+
+### Um defeito achado de brinde: a flag que engolia a seguinte
+
+`--sem-email` não leva valor, e o laço de `lerArgumentos` consome o próximo
+argv como valor da chave. `--sem-email --carteira 77` guardaria
+`sem-email = "--carteira"` e **pularia a carteira**, gerando em silêncio o
+relatório da 1163 quando alguém pediu a 77 — a mesma família do
+`parseInt("1163abc")` que a 42 já tinha barrado. Daí a lista `SEM_VALOR`, e o
+teste que a afirma.
+
+### O que a primeira execução real também mostrou
+
+- **A base da 1163 pulou três ordens de grandeza.** A 42 registrou 5 fichas /
+  R$ 3.461,46 / 103 cadastrados, medidos em 27/08. Em 28/08 o comando devolveu
+  **3.336 fichas / R$ 1.349.592,79 / 3.434 cadastrados**. Conferido por fora,
+  com SELECT direto: a 1163 sozinha dá esses números, e o total de todas as
+  carteiras ativas é 83.904 fichas / R$ 227,8 mi — ou seja, o filtro está certo
+  e a Drogal recebeu a carga de verdade. O texto da 42 descreve uma carteira que
+  já não existe.
+- **A ressalva de comissão vaza detalhe interno para o cliente.** A `RESSALVA` de
+  `lib/relatorios-comissao.ts` entra crua na aba `Parâmetros` (linha 23) e em
+  `Honorários` A5, com nome de tabela (`carteira_comissoes`), de coluna
+  (`comissao_operadores.usucod`), estatística de qualidade de dado ("14% das
+  comissões têm usucod fora do cadastro") e um comando npm. O corpo do e-mail
+  acerta a mesma ressalva em uma frase; quem não filtrou foi a planilha. **Fica
+  em aberto** — o cliente leva a ressalva, não a perícia.
+
+Testes: 932 → **950** (`lib/relatorio-envio.test.ts` 16, `relatorio-diario` +2).
+
+## 44. O Gmail pedia uma senha de app; o Resend pede um domínio
+
+A decisão 43 tirou o e-mail do agente e o pôs no programa, mas deixou o
+`nodemailer` apontado para o Gmail. O Gmail cobrou o preço que ele sempre cobra:
+verificação em duas etapas ligada, uma senha de app de 16 letras gerada à mão, e
+uma **conta pessoal** assinando um relatório de empresa. No meio do caminho o
+Brevo foi tentado e ficou pela metade no `.env` — `smtp-relay.brevo.com` com
+usuário e senha vazios, que é exatamente a "meia configuração" que a 43 aprendeu
+a barrar.
+
+O Resend resolve as três coisas com **uma chave só**, que serve para o SMTP e
+para a API. E por ser SMTP, entra por baixo do `nodemailer` sem trocar uma linha
+de `enviarRelatorio`: só a leitura do `.env` mudou.
+
+### O que realmente muda é o remetente
+
+O Gmail deixa assinar com a própria conta. O Resend **só** assina de um domínio
+verificado por ele — e a conta da Cobratec tem `cobratecsp.com.br` cadastrado
+com status `failed`, DNS não fechado, desde 05/08/2026.
+
+Isso não é um detalhe de configuração; é o que estava impedindo o envio. O
+`.env` trazia `RELATORIO_EMAIL_DE="…@gmail.com"`, e o Resend devolve:
+
+```
+550 The gmail.com domain is not verified.
+Please, add and verify your domain on https://resend.com/domains
+```
+
+Ou seja: a decisão 43 estava inteira, testada e correta, e mesmo assim o
+relatório nunca teria saído. O padrão passou a ser `onboarding@resend.dev`, o
+remetente de cortesia, que funciona sem domínio nenhum. Não é bonito — o cliente
+recebe um e-mail assinado por `resend.dev` — mas é o único que sai hoje, e o
+agente foi instruído a **dizer isso** ao relatar, porque um remetente
+desconhecido é o que manda a mensagem para o spam.
+
+Herdar o padrão do SMTP não era opção: lá o remetente vazio vira o `usuario`, e
+no Resend o usuário é a palavra `resend`, que nem endereço é. Pelo mesmo motivo
+`RELATORIO_EMAIL_PARA` deixou de ter padrão e passou a ser **obrigatório** neste
+caminho — sem isso o relatório sairia para um destinatário inexistente.
+
+### A precedência, e por que ela é explícita
+
+`API_KEY_RESEND` ganha do bloco `SMTP_*`. O `.env` guarda os dois, e vai
+continuar guardando: o SMTP genérico segue testado e serve para qualquer
+provedor. Deixar a escolha implícita ("o que estiver preenchido") faria o
+relatório sair calado pelo Brevo abandonado no dia em que alguém preenchesse
+aquelas linhas por engano.
+
+### O erro tinha de aprender o provedor
+
+`explicarErroEmail` ganhou um terceiro argumento porque o conselho **inverteu de
+sentido**. Um `EAUTH` no Gmail quer dizer "gere uma senha de app"; no Resend
+quer dizer "confira a chave `re_…`". Dar o conselho do Gmail a quem está no
+Resend é pior do que não dar conselho nenhum — manda a pessoa mexer numa conta
+que não tem nada a ver com o envio.
+
+E o erro de domínio chega **disfarçado**: vem como `EENVELOPE`, o mesmo código
+de "destinatário recusado". O ramo antigo mandaria conferir
+`RELATORIO_EMAIL_PARA` quando o problema está em `RELATORIO_EMAIL_DE` — um erro
+que ninguém acha, porque o programa aponta com confiança para o lugar errado.
+Por isso a checagem de domínio vem **antes** de tudo, e o teste afirma que a
+frase fala em REMETENTE e **não** cita `RELATORIO_EMAIL_PARA`.
+
+### Conferido de ponta a ponta
+
+O canal foi provado primeiro **sozinho**, sem gastar as nove consultas do CRM de
+produção: `configEmail` + `enviarRelatorio` + `nodemailer` + anexo binário de
+verdade, aceito por `smtp.resend.com:465`. Depois o caminho da **falha** foi
+provado do mesmo jeito, forçando o remetente de Gmail — e ele voltou como
+previsto, `EENVELOPE` com `550 … domain is not verified`, traduzido para a frase
+que fala em REMETENTE.
+
+Só então o comando inteiro rodou, em 28/08/2026, e é a **primeira vez que o
+caminho feliz fecha de ponta a ponta** — a pendência que a 42 deixou em aberto e
+que a 43 não chegou a encerrar:
+
+```
+"entrega": { "enviado": true, "provedor": "resend",
+             "de": "onboarding@resend.dev", "para": ["isaac.ferraz1311@gmail.com"],
+             "messageId": "<5528103f-…@resend.dev>", "erro": null }
+```
+
+Planilha de 22.227 bytes, dia 27/08 zerado (`vazio: true`, e o corpo do e-mail
+diz isso por extenso), base de 3.336 fichas / R$ 1.349.592,79. O que está provado
+é que o Resend **aceitou** a mensagem com o anexo; a chegada à caixa de entrada é
+o que só o olho confirma — e vale olhar o spam, porque quem assina é `resend.dev`
+e não a Cobratec.
+
+Uma observação de método, para não se perder de novo: o `messageId` que o SMTP
+devolve **não** é o id da API do Resend, e `GET /emails/:id` responde 404 com
+ele. Entrega se confere no painel.
+
+Fica em aberto o que resolve isto de vez: **fechar o DNS de
+`cobratecsp.com.br`** em resend.com/domains. No dia em que fechar, o conserto é
+uma linha no `.env` — `RELATORIO_EMAIL_DE="relatorios@cobratecsp.com.br"` — e
+nenhuma linha de código.
+
+Testes: 950 → **960** (`lib/relatorio-envio.test.ts` 16 → 26).

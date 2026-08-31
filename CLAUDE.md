@@ -677,9 +677,38 @@ daria 1163, uma planilha impecável da carteira errada. `--publico` nasce
 **"cliente"**, ao contrário do resto do sistema: anexo já encaminhado não se
 desfaz. `explicarErro` traduz o erro do `pg` separando **rede** de **credencial**
 — mandar para a VPN quem já chegou no servidor é mandar para o lugar errado — e o
-que não reconhece sai como veio. **Pendências:** o conector do Gmail não está
-autorizado (o agente para no passo 0), e o **caminho feliz nunca rodou** — o
-Siscobra só atende na LAN, e só o caminho do erro foi exercitado de ponta a ponta.
+que não reconhece sai como veio.
+
+**Quem entrega é o programa (decisões 43 e 44):** o e-mail saiu do agente e
+entrou no comando (`lib/relatorio-envio.ts`). Antes o agente lia o `.xlsx` do
+disco, convertia para base64 e **redigitava 29.624 caracteres** na ferramenta do
+Gmail — o que contradizia a própria 42, porque o anexo inteiro atravessava um
+modelo, e um caractere trocado no meio do zip é uma planilha que não abre. Hoje o
+anexo é o **mesmo buffer** que virou arquivo: entre a planilha e a caixa de
+entrada não existe transcrição. O agente encolheu para rodar um comando e ler o
+JSON, e passou a conferir **duas** coisas, que são perguntas diferentes: `ok` é
+"o relatório saiu?" e `entrega.enviado` é "ele chegou?". A garantia da 42 fica de
+pé porque **o destino é o próprio usuário** — encaminhar ao cliente segue sendo
+ato humano. Meia configuração **estoura** (usuário sem senha é dedo escorregando,
+e tratá-lo como "e-mail desligado" reproduz a falha silenciosa que a 43 veio
+consertar), e a conferência acontece **antes** das nove consultas ao CRM de
+produção.
+
+O provedor é o **Resend** (decisão 44): uma chave (`API_KEY_RESEND`) que vale
+para o SMTP e para a API, com precedência **explícita** sobre o bloco `SMTP_*`,
+que continua testado e serve para qualquer outro provedor. O que muda de verdade
+é o **remetente**: o Resend só assina de domínio **verificado**, e
+`cobratecsp.com.br` está `failed` (DNS não fechado). O `.env` assinava com um
+Gmail pessoal e voltava `550 … domain is not verified` — ou seja, a 43 estava
+inteira e correta, e mesmo assim o relatório nunca teria saído. O padrão passou a
+ser `onboarding@resend.dev`, e o agente **diz isso** ao relatar, porque remetente
+desconhecido é o que manda a mensagem para o spam. `explicarErroEmail` ganhou o
+provedor como argumento porque o conselho **inverte**: `EAUTH` no Gmail é "gere
+uma senha de app", no Resend é "confira a chave `re_…`" — e o erro de domínio
+chega disfarçado de `EENVELOPE`, que mandaria conferir o **destinatário** quando
+o defeito está no **remetente**. **Pendência:** fechar o DNS de
+`cobratecsp.com.br` em resend.com/domains; feito isso, o conserto é uma linha no
+`.env` e nenhuma linha de código.
 
 **Infra:**
 - **Excel:** o dashboard tem **gráficos nativos** (coluna, barra, pizza, rosca,
